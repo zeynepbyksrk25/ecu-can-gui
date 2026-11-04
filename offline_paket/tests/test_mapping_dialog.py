@@ -88,3 +88,19 @@ def test_flight_inputs_are_sent_over_can_from_the_panel(qapp, monkeypatch):
     panel.send_value("altitude", 8.2)
     assert got == [("AIRCRAFT", {"altitude": 8.2})]
     w.close()
+
+
+def test_alfa_beta_are_enabled_and_sent_over_can(qapp, monkeypatch):
+    from app.user_roles import Role
+    from app.ui.main_window import MainWindow
+    w = MainWindow()
+    panel = w.dashboard_tab.sim_inputs
+    panel.config.input_map.update({"alfa": "dbc:AIRCRAFT.altitude", "beta": "dbc:AIRCRAFT.mach"})
+    w.current_role = Role.ENGINEER
+    panel.set_allowed(True)
+    assert panel._ctrl["alfa"]["w"].isEnabled() and panel._ctrl["beta"]["w"].isEnabled()
+    panel.refresh_sources(w.transmit_tab.dbc)
+    w.transmit_tab.dbc.load(os.path.join(DATA, "sample.dbc"))
+    panel.refresh_sources(w.transmit_tab.dbc)
+    assert {"alfa", "beta"} <= set(panel.sendable_keys())
+    w.close()

@@ -174,7 +174,7 @@ class DashboardTab(QWidget):
         left.addWidget(self._build_actuators_card(), 1)
         left_w = QWidget()
         left_w.setLayout(left)
-        left_w.setFixedWidth(448)
+        left_w.setFixedWidth(512)
         left_w.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
 
         right = QVBoxLayout()

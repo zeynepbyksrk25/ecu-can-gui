@@ -72,6 +72,8 @@ class SimInputsPanel(QWidget):
         for keys in (FLIGHT_LEFT, FLIGHT_RIGHT):
             col = QVBoxLayout()
             col.setSpacing(0)
+            if keys is FLIGHT_RIGHT:
+                col.addStretch(1)      # 3 satır, soldaki 4 satıra göre dikey ortalanır
             for k in keys:
                 col.addLayout(self._flight_row(INPUT_BY_KEY[k]))
             col.addStretch(1)
@@ -142,7 +144,7 @@ class SimInputsPanel(QWidget):
         row.setContentsMargins(0, 0, 0, 0)
         spin = self._spin(d)
         spin.setObjectName("flightSpin")
-        spin.setFixedWidth(80)
+        spin.setFixedWidth(84)
         spin.editingFinished.connect(lambda k=d.key: self._emit_one(k))
         warn = QLabel("")
         warn.setObjectName("warnDot")
