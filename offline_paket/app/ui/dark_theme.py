@@ -109,6 +109,30 @@ DashboardTab QLabel#chipDim { background: #0a1828; border: 1px solid #1f3853; bo
     color: #8fa6bd; font-size: 11.5px; }
 DashboardTab QPushButton[tone="rec"] { border-color: #8c2b2b; color: #ff9a9a; background: #3a1313; }
 DashboardTab QPushButton[tone="rec"]:checked { background: #7a1f1f; color: #ffffff; }
+DashboardTab QDialog, DashboardTab QMessageBox { background: #0f2034; }
+DashboardTab QDialog QLabel, DashboardTab QMessageBox QLabel { color: #e8f0f8; background: transparent; }
+DashboardTab QMenu { background: #0f2034; color: #e8f0f8; border: 1px solid #2a4a6b; padding: 4px; }
+DashboardTab QMenu::item { padding: 5px 18px; border-radius: 4px; }
+DashboardTab QMenu::item:selected { background: #1d4f7f; color: #ffffff; }
+DashboardTab QMenu::separator { height: 1px; background: #1f3853; margin: 4px 6px; }
+DashboardTab QTreeView, DashboardTab QTreeWidget { background: #0b1a2b; alternate-background-color: #0e2034;
+    color: #e8f0f8; border: 1px solid #1b3550; border-radius: 8px; outline: none; }
+DashboardTab QTreeView::item { padding: 3px 2px; }
+DashboardTab QTreeView::item:hover { background: #12304d; }
+DashboardTab QTreeView::item:selected { background: #1d4f7f; color: #ffffff; }
+DashboardTab QTextEdit, DashboardTab QPlainTextEdit { background: #0a1828; color: #e8f0f8; border: 1px solid #2a4a6b;
+    border-radius: 6px; selection-background-color: #2f8cff; }
+DashboardTab QProgressBar { background: #0a1828; border: 1px solid #2a4a6b; border-radius: 6px; text-align: center;
+    color: #e8f0f8; min-height: 14px; }
+DashboardTab QProgressBar::chunk { background: #2f8cff; border-radius: 5px; }
+DashboardTab QRadioButton { color: #cfe0f1; spacing: 6px; }
+DashboardTab QRadioButton::indicator { width: 14px; height: 14px; border: 1px solid #2a4a6b; border-radius: 8px; background: #0a1828; }
+DashboardTab QRadioButton::indicator:checked { background: #2f8cff; border-color: #2f8cff; }
+DashboardTab QLabel#pageTitle { font-size: 15px; font-weight: 700; color: #ffffff; }
+DashboardTab QLabel#kvKey { color: #8fa6bd; font-size: 11.5px; font-weight: 600; }
+DashboardTab QLabel#kvVal { color: #e8f0f8; font-size: 13px; font-weight: 600; }
+DashboardTab QLabel#chipBlue { background: #0f2540; color: #8cc4ff; border: 1px solid #1f4a7a; border-radius: 10px;
+    padding: 2px 10px; font-size: 11.5px; font-weight: 600; }
 DashboardTab QGroupBox { background: transparent; border: 1px solid #1f3853; border-radius: 8px; margin-top: 10px;
     padding: 8px; color: #8fa6bd; font-weight: 700; }
 DashboardTab QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 6px; color: #cfe0f1; }
@@ -118,3 +142,28 @@ DashboardTab QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 
 def dark_qss(root_id: str = "dashBody") -> str:
     q = _BASE + _EXTRA
     return q.replace("DashboardTab {", f"QWidget#{root_id} {{").replace("DashboardTab ", f"QWidget#{root_id} ")
+
+
+def style_plot(plot_widget, bg: str = "#0b1a2b"):
+    """pyqtgraph grafiğini koyu temaya uydurur (zemin, eksen, ızgara, etiket renkleri)."""
+    import pyqtgraph as pg
+    plot_widget.setBackground(bg)
+    pi = plot_widget.getPlotItem()
+    for name in ("left", "bottom", "right", "top"):
+        ax = pi.getAxis(name)
+        ax.setTextPen(pg.mkPen("#8fa6bd"))
+        ax.setPen(pg.mkPen("#2a4a6b"))
+    pi.showGrid(x=True, y=True, alpha=0.18)
+
+
+def dark_scroll_page(page, root_id: str = "darkBody"):
+    """Sayfa widget'ını koyu gövdeye (kapsamlı QSS) koyar ve gövdeyi döndürür; ``body.inner`` = sayfa."""
+    from PySide6.QtWidgets import QVBoxLayout, QWidget
+    body = QWidget()
+    body.setObjectName(root_id)
+    body.setStyleSheet(dark_qss(root_id))
+    lay = QVBoxLayout(body)
+    lay.setContentsMargins(0, 0, 0, 0)
+    lay.addWidget(page)
+    body.inner = page
+    return body

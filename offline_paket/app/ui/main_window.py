@@ -153,6 +153,8 @@ class MainWindow(QMainWindow):
                                          self.workspace_tab)])
         self.stack = QStackedWidget()
         self._page_scrolls: dict[QWidget, QScrollArea] = {}
+        # Koyu temaya geçirilmiş sayfalar (koyu gövdeye sarılır); diğerleri henüz açık temada.
+        self._dark_pages = {self.a2l_tab}
         for _icon, _label, page in self._nav_pages:
             # Ana Sayfa kaydırılmaz: 16" ekrana tamamen sığar (bkz. DashboardTab)
             self.stack.addWidget(page if page is self.dashboard_tab else self._make_scrollable_page(page))
@@ -258,6 +260,16 @@ class MainWindow(QMainWindow):
     def _make_scrollable_page(self, page: QWidget) -> QScrollArea:
         scroll = QScrollArea()
         scroll.setObjectName("pageScroll")
+        if page in self._dark_pages:
+            from app.ui.dark_theme import dark_scroll_page
+            scroll.setStyleSheet("QScrollArea#pageScroll { background: #08121f; border: none; }")
+            scroll.setWidget(dark_scroll_page(page))
+            scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+            scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+            scroll.setWidgetResizable(True)
+            scroll.setFrameShape(QFrame.NoFrame)
+            self._page_scrolls[page] = scroll
+            return scroll
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
@@ -267,9 +279,10 @@ class MainWindow(QMainWindow):
         return scroll
 
     def current_page(self) -> QWidget | None:
-        """Şu an görünen sayfanın KENDİ widget'ı (QScrollArea sarmalayıcısı değil)."""
+        """Şu an görünen sayfanın KENDİ widget'ı (QScrollArea / koyu gövde sarmalayıcısı değil)."""
         scroll = self.stack.currentWidget()
-        return scroll.widget() if isinstance(scroll, QScrollArea) else scroll
+        inner = scroll.widget() if isinstance(scroll, QScrollArea) else scroll
+        return getattr(inner, "inner", inner)
 
     def _apply_initial_geometry(self):
         """İlk pencere boyutu EKRANA sığmalı: sabit 1600x950, 1366x768 gibi
@@ -1817,10 +1830,7 @@ class MainWindow(QMainWindow):
             except ValueError as exc:
                 QMessageBox.warning(self, "A2L yüklenemedi", str(exc))
                 return
-            self.a2l_tab.status_label.setText(
-                f"Yüklü: {profile.a2l_path.split('/')[-1]}  |  Proje: {summary.project_name}"
-            )
-            self.a2l_tab._populate_tree(summary)
+            self.a2l_tab.show_loaded(profile.a2l_path, summary)
             self.a2l_tab.a2l_loaded.emit()
 
     def _on_profile_delete(self, name: str):
