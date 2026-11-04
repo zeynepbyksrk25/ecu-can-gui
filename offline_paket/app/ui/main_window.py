@@ -845,6 +845,7 @@ class MainWindow(QMainWindow):
     def _apply_ccp_state(self, state: str, info: str):
         online = state == ONLINE
         self.ccp_tab.set_session_state(state, self.ccp_session.status_text())
+        self.watch_tab.set_live_state(state, self.ccp_session.status_text())
         self.watch_tab.set_connected(state in (ONLINE, LOST))
         self.map_editor_tab.set_online(online)
         self._panel_conn_state()
@@ -876,13 +877,14 @@ class MainWindow(QMainWindow):
             return
         try:
             size = ccp_codec.datatype_size(obj.datatype)
-            raw_bytes = self.ccp_client.read_memory(
+            raw_bytes = self.ccp_reader.read_memory(
                 address, size, getattr(obj, "address_extension", 0) or 0
             )
             raw_value = ccp_codec.decode_value(obj.datatype, raw_bytes, getattr(obj, "byte_order", None))
             phys_value = ccp_codec.raw_to_physical(getattr(obj, "compu_method", None), raw_value)
         except (ccp_protocol.CCPError, ccp_protocol.CCPTimeoutError,
                 ccp_codec.UnknownDatatypeError, ValueError) as exc:
+            self.ccp_tab.set_read_value("-")
             self.ccp_tab.set_write_result(False, f"Okuma hatası: {exc}")
             return
 
@@ -1137,10 +1139,15 @@ class MainWindow(QMainWindow):
             self.watch_tab.set_row_value(row, raw, phys)
 
     def _on_watch_write(self, rows: list):
+        """Parametre Listesi: Değer hücresine Enter ile onaylanan değerleri RAM'e yazar (anında).
+        Yazılamayanlarda bekleyen metin atılır (hücre canlı değere döner); yazılanlar ECU'dan geri
+        okunarak doğrulanır (bkz. WatchTab.commit_written / set_row_value)."""
         if self.ccp_client is None:
-            self.watch_tab.set_write_result(False, "CCP bağlantısı yok; önce CCP'ye bağlanın.")
+            self.watch_tab.discard_pending(rows)
+            self.watch_tab.set_write_result(False, "CCP bağlı değil; değer yazılamadı (bağlantı kurulunca tekrar deneyin).")
             return
         if not can_write_calibration(self.current_role):
+            self.watch_tab.discard_pending(rows)
             self.watch_tab.set_write_result(
                 False, "Yetki yok: kalibrasyon yazmak için Mühendis veya Yönetici rolü gerekir "
                        "(Kullanıcı / Profil sekmesinden rol seçin).")
@@ -1148,6 +1155,7 @@ class MainWindow(QMainWindow):
         entries = self.watch_tab.entries()
         done = 0
         problems: list[str] = []
+        failed_rows: list[int] = []
         for row in rows:
             if row < 0 or row >= len(entries):
                 continue
@@ -1159,19 +1167,22 @@ class MainWindow(QMainWindow):
                 phys = parse_value_text(text)
             except ValueError:
                 problems.append(f"{e.name}: geçersiz sayı ({text!r})")
+                failed_rows.append(row)
                 continue
             old_phys = self._read_phys_best_effort(e)
             try:
                 raw_value = ccp_codec.physical_to_raw(e.compu_method, phys)
                 raw_bytes = ccp_codec.encode_value(e.datatype, raw_value, e.byte_order)
                 self.ccp_client.write_memory(e.address, raw_bytes, e.address_extension or 0)
-            except ccp_protocol.CCPTimeoutError:
-                problems.append(f"{e.name}: ECU cevap vermedi")
+            except ccp_protocol.CCPTimeoutError as exc:
+                problems.append(f"{e.name}: {str(exc) or 'ECU cevap vermedi'}")
                 self._log_event("HATA", f"{e.name} RAM yazma: ECU cevap vermedi")
-                break  # ECU yoksa kalan satırlar için de beklemeyelim
+                failed_rows.append(row)
+                continue
             except (ccp_protocol.CCPError, ccp_codec.UnknownDatatypeError, ValueError) as exc:
                 problems.append(f"{e.name}: {exc}")
                 self._log_event("HATA", f"{e.name} RAM yazma hatası: {exc}")
+                failed_rows.append(row)
                 continue
             self.watch_tab.commit_written(row, phys)
             self._log_event("KALIBRASYON", f"{e.name} = {phys} {e.unit or ''} (RAM, Parametre Listesi) yazıldı")
@@ -1180,14 +1191,13 @@ class MainWindow(QMainWindow):
                 persistent=False,
             )
             done += 1
+        self.watch_tab.discard_pending(failed_rows)
         self.history_tab.refresh()
         if problems:
             self.watch_tab.set_write_result(
                 False, f"{done} parametre yazıldı; sorunlar: " + "; ".join(problems))
         elif done:
-            self.watch_tab.set_write_result(True, f"{done} parametre RAM'e yazıldı.")
-        else:
-            self.watch_tab.set_write_result(False, "Yazılacak (değeri değiştirilmiş) satır yok.")
+            self.watch_tab.set_write_result(True, f"{done} parametre RAM'e yazıldı; ECU'dan doğrulanıyor…")
 
     # ---- Grafik (canlı Measurement çizimi) ---------------------------------
     def _on_graph_tick(self, names: list):
