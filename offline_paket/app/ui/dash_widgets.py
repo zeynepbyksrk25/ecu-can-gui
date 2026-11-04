@@ -255,6 +255,9 @@ class GaugeWidget(QWidget):
 
     _DESIGN_W = 180.0
     _DESIGN_H = 180.0
+    # renkler (koyu varyant alt sınıfta değişir)
+    C_ARC, C_TICK, C_NEEDLE, C_SCALE, C_PILL, C_VALUE, C_UNIT, C_LABEL = (
+        "#D6DEE6", "#9AA8B5", "#121A22", INK_3, "#13324A", "#FFFFFF", INK_2, INK)
     ZONES = [(0.0, 0.70, "#1B8A4C"), (0.70, 0.90, "#B9790F"), (0.90, 1.0, "#C22A1D")]
 
     def paintEvent(self, event):  # noqa: N802
@@ -272,7 +275,7 @@ class GaugeWidget(QWidget):
         cx, cy, radius, pen_w = 90.0, 84.0, 74.0, 12.0
         rect = QRectF(cx - radius, cy - radius, 2 * radius, 2 * radius)
 
-        pen_bg = QPen(QColor("#D6DEE6"), pen_w)
+        pen_bg = QPen(QColor(self.C_ARC), pen_w)
         pen_bg.setCapStyle(Qt.FlatCap)
         painter.setPen(pen_bg)
         painter.drawArc(rect, 180 * 16, -180 * 16)
@@ -283,7 +286,7 @@ class GaugeWidget(QWidget):
             painter.setPen(pen)
             painter.drawArc(rect, 180 * 16 - int(z_start * 180 * 16), -int((z_end - z_start) * 180 * 16))
 
-        tick_pen = QPen(QColor("#9AA8B5"), 1.4)
+        tick_pen = QPen(QColor(self.C_TICK), 1.4)
         painter.setPen(tick_pen)
         r_out = radius - pen_w / 2 - 3
         for i in range(11):
@@ -295,11 +298,11 @@ class GaugeWidget(QWidget):
         angle_rad = math.radians(180 - 180 * self._fraction())
         needle_len = (radius - pen_w / 2) * 0.95
         tip = QPointF(cx + needle_len * math.cos(angle_rad), cy - needle_len * math.sin(angle_rad))
-        needle_pen = QPen(QColor("#121A22"), 3.2)
+        needle_pen = QPen(QColor(self.C_NEEDLE), 3.2)
         needle_pen.setCapStyle(Qt.RoundCap)
         painter.setPen(needle_pen)
         painter.drawLine(QPointF(cx, cy), tip)
-        painter.setBrush(QColor("#121A22"))
+        painter.setBrush(QColor(self.C_NEEDLE))
         painter.setPen(Qt.NoPen)
         painter.drawEllipse(QPointF(cx, cy), 5.0, 5.0)
 
@@ -312,7 +315,7 @@ class GaugeWidget(QWidget):
             return f
 
         painter.setFont(font(12, bold=True))
-        painter.setPen(QColor(INK_3))
+        painter.setPen(QColor(self.C_SCALE))
         painter.drawText(QRectF(cx - radius - pen_w / 2, cy + 5, 56, 15),
                          Qt.AlignLeft | Qt.AlignVCenter, _format_scale_number(self._minimum))
         painter.drawText(QRectF(cx + radius + pen_w / 2 - 56, cy + 5, 56, 15),
@@ -321,19 +324,19 @@ class GaugeWidget(QWidget):
         value_text = f"{self._value:.4g}" if isinstance(self._value, (int, float)) else "—"
         pill = QRectF((self._DESIGN_W - 84) / 2, cy + 22, 84, 30)
         painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor("#13324A"))
+        painter.setBrush(QColor(self.C_PILL))
         painter.drawRoundedRect(pill, 6, 6)
         painter.setFont(font(20, bold=True, mono=True))
-        painter.setPen(QColor("#FFFFFF"))
+        painter.setPen(QColor(self.C_VALUE))
         painter.drawText(pill, Qt.AlignHCenter | Qt.AlignVCenter, value_text)
 
         if self._unit:
             painter.setFont(font(12))
-            painter.setPen(QColor(INK_2))
+            painter.setPen(QColor(self.C_UNIT))
             painter.drawText(QRectF(0, cy + 54, self._DESIGN_W, 16), Qt.AlignHCenter | Qt.AlignVCenter, self._unit)
 
         painter.setFont(font(15, bold=True))
-        painter.setPen(QColor(INK))
+        painter.setPen(QColor(self.C_LABEL))
         painter.drawText(QRectF(0, cy + 70, self._DESIGN_W, 20), Qt.AlignHCenter | Qt.AlignVCenter, self._label)
 
 

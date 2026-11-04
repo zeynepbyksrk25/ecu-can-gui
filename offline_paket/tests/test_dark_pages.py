@@ -92,3 +92,12 @@ def test_kalibrasyon_dark_and_aliases():
     k = w.kalibrasyon_tab
     assert k.inner_tabs.count() == 4 and k.watch is not None and k.map_editor is not None
     w.close()
+
+
+def test_graph_performance_dark_no_captions():
+    from app.ui.main_window import MainWindow
+    w = MainWindow()
+    assert w.graph_tab in w._dark_pages and w.performance_tab in w._dark_pages
+    assert "geri okunuşu" not in "".join(b.toolTip() for b in w.performance_tab._flight_boxes.values())
+    assert w.graph_tab._tiles[0].crosshair_label.text() == ""
+    w.close()

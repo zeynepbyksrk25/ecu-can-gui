@@ -49,15 +49,18 @@ class Sparkline(QWidget):
 
 
 class ColorCard(QFrame):
-    """Pastel arka planlı, başlıklı kart (A–E)."""
+    """Koyu kart (A–E): rozet ve başlık, kartın vurgu rengini taşır."""
+
+    ACCENTS = {"A": "#5aa9ff", "B": "#4ade80", "C": "#f0c040", "D": "#ff9a52", "E": "#2dd4bf"}
 
     def __init__(self, card_id: str, parent=None):
         super().__init__(parent)
-        title, bg, border, ink = CARD_STYLES[card_id]
+        title = CARD_STYLES[card_id][0]
+        ink = self.ACCENTS.get(card_id, "#35c6f4")
         self.setObjectName("colorCard")
         self.setStyleSheet(
-            f"QFrame#colorCard {{ background:{bg}; border:1.5px solid {border}; border-radius:12px; }}"
-            f"QLabel#cardTitle {{ color:{ink}; font-size:15px; font-weight:800; background:transparent; }}")
+            "QFrame#colorCard { background:#0f2034; border:1px solid #1f3853; border-radius:12px; }"
+            f"QLabel#cardTitle {{ color:{ink}; font-size:14px; font-weight:800; background:transparent; }}")
         self.outer = QVBoxLayout(self)
         self.outer.setContentsMargins(14, 10, 14, 12)
         self.outer.setSpacing(8)
@@ -66,7 +69,7 @@ class ColorCard(QFrame):
         badge = QLabel(card_id)
         badge.setFixedSize(26, 26)
         badge.setAlignment(Qt.AlignCenter)
-        badge.setStyleSheet(f"background:{ink}; color:#FFFFFF; border-radius:13px; font-weight:800; font-size:13px;")
+        badge.setStyleSheet(f"background:{ink}; color:#08121f; border-radius:13px; font-weight:800; font-size:13px;")
         self.title_label = QLabel(title.split(". ", 1)[-1])
         self.title_label.setObjectName("cardTitle")
         head.addWidget(badge)
@@ -95,7 +98,7 @@ class DigitalBox(QFrame):
         self.setObjectName("digitalBox")
         self.setMinimumHeight(56)
         self.setMaximumHeight(72)
-        self.setStyleSheet("QFrame#digitalBox { background:#121A22; border-radius:8px; }"
+        self.setStyleSheet("QFrame#digitalBox { background:#0a1626; border:1px solid #1a3049; border-radius:8px; }"
                            "QLabel { background:transparent; }")
         lay = QVBoxLayout(self)
         lay.setContentsMargins(10, 5, 10, 5)
@@ -140,8 +143,8 @@ class DigitalBox(QFrame):
     def set_value(self, value, level: int = 0, trend: int = 0, stale: bool = False):
         if stale:
             level = 0
-        self.setStyleSheet(f"QFrame#digitalBox {{ background:#121A22; border-radius:8px; "
-                           f"border:{self.BORDERS.get(level, 'none')}; }} QLabel {{ background:transparent; }}")
+        self.setStyleSheet(f"QFrame#digitalBox {{ background:#0a1626; border-radius:8px; "
+                           f"border:{self.BORDERS.get(level, '1px solid #1a3049')}; }} QLabel {{ background:transparent; }}")
         base = self._label + (f"  ({self._hint})" if self._hint else "")
         self.name_label.setText(self.ICONS.get(level, "") + base)
         color = "#5F7283" if stale else self.COLORS.get(level, "#FFFFFF")

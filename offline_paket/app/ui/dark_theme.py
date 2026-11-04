@@ -126,6 +126,8 @@ DashboardTab QProgressBar { background: #0a1828; border: 1px solid #2a4a6b; bord
     color: #e8f0f8; min-height: 14px; }
 DashboardTab QProgressBar::chunk { background: #2f8cff; border-radius: 5px; }
 DashboardTab QRadioButton { color: #cfe0f1; spacing: 6px; }
+DashboardTab QListView::indicator, DashboardTab QTreeView::indicator { width: 14px; height: 14px; border: 1px solid #2a4a6b; border-radius: 3px; background: #0a1828; }
+DashboardTab QListView::indicator:checked, DashboardTab QTreeView::indicator:checked { background: #2f8cff; border-color: #2f8cff; }
 DashboardTab QRadioButton::indicator { width: 14px; height: 14px; border: 1px solid #2a4a6b; border-radius: 8px; background: #0a1828; }
 DashboardTab QRadioButton::indicator:checked { background: #2f8cff; border-color: #2f8cff; }
 DashboardTab QLabel#pageTitle { font-size: 15px; font-weight: 700; color: #ffffff; }
