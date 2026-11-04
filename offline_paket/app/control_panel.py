@@ -349,10 +349,12 @@ def parse_input_value(text, choices: dict | None = None) -> float | None:
 class TxScheduler(QObject):
     """DBC mesajlarını periyodik olarak gönderir. Bir mesajın TÜM sinyalleri
     son değerleriyle tek karede kodlanır (ECU yarım değişmiş mesaj görmez).
-    Gönderim hatası (adaptör yok) olursa o mesaj durdurulur ve `failed`
-    sinyali yayılır."""
+    Gönderim hatası (bus-off, TX kuyruğu dolu, hat toparlanıyor...) mesajı DURDURMAZ: zamanlayıcı
+    sürer, hata yalnızca bir kez (ardışık hata dizisinin başında) `failed` ile bildirilir ve hat
+    düzelince gönderim kendiliğinden devam eder."""
 
-    failed = Signal(str, str)        # mesaj, hata
+    failed = Signal(str, str)        # mesaj, hata (ardışık hata dizisinin başında bir kez)
+    recovered = Signal(str)          # hata dizisinden sonra gönderim yeniden başarılı
     state_changed = Signal()
 
     def __init__(self, dbc, send_fn, parent=None):
@@ -362,6 +364,8 @@ class TxScheduler(QObject):
         self._values: dict[str, dict] = {}   # mesaj -> {sinyal: değer}
         self._timers: dict[str, QTimer] = {}
         self.frames_sent = 0
+        self.errors = 0
+        self._failing: set = set()          # şu an hata dizisinde olan mesajlar
 
     # -- durum --
     def running_messages(self) -> set:
@@ -426,8 +430,14 @@ class TxScheduler(QObject):
         try:
             self._send_now(message)
         except Exception as exc:
-            self.stop_message(message)
-            self.failed.emit(message, str(exc))
+            self.errors += 1
+            if message not in self._failing:       # hata dizisinin başında bir kez bildir
+                self._failing.add(message)
+                self.failed.emit(message, str(exc))
+            return
+        if message in self._failing:
+            self._failing.discard(message)
+            self.recovered.emit(message)
 
     def stop_message(self, message: str):
         t = self._timers.get(message)

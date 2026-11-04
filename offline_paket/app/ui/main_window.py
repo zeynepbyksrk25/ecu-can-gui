@@ -50,6 +50,7 @@ HEALTH_CHECK_INTERVAL_MS = 500  # bağlantının GERÇEKTEN sağlıklı olup olm
 # koptu" denir (anlık/geçici hatalarda yanlış alarm vermemek için).
 CONNECTION_LOSS_CONFIRM_S = 3.0
 RECONNECT_INTERVAL_MS = 2000  # bağlantı koptuktan sonra otomatik yeniden bağlanma denemesi aralığı
+SILENT_NOTICE_S = 3.0  # bu kadar süre mesaj gelmezse bağlantı şeridinde "Hat sessiz" uyarısı
 CCP_AUTO_CONNECT_DELAY_MS = 300  # CAN bağlandıktan kaç ms sonra CCP otomatik bağlansın
 WATCH_FAIL_STREAK_LIMIT = 3  # Parametre Listesi'nde art arda bu kadar ECU-cevapsız turdan sonra sürekli okuma durur
 
@@ -228,6 +229,7 @@ class MainWindow(QMainWindow):
         self.reconnect_timer.timeout.connect(self._try_reconnect)
 
         QTimer.singleShot(800, self._startup_auto_connect)
+        self.connection.on_reopen.append(self._on_bus_reopened)
 
     def _make_scrollable_page(self, page: QWidget) -> QScrollArea:
         scroll = QScrollArea()
@@ -457,6 +459,7 @@ class MainWindow(QMainWindow):
         self.control_panel_tab.tx_toggle_requested.connect(self._on_panel_tx_toggle)
         self.control_panel_tab.reload_requested.connect(self._on_panel_reload)
         self.tx_scheduler.failed.connect(self._on_panel_tx_failed)
+        self.tx_scheduler.recovered.connect(self._on_panel_tx_recovered)
         self.tx_scheduler.state_changed.connect(self._panel_tx_state)
         self.control_panel_tab.set_allowed(can_override_actuator(self.current_role))
         self.watch_tab.read_requested.connect(self._on_watch_read)
@@ -504,7 +507,7 @@ class MainWindow(QMainWindow):
         self._last_health_state = "ok"
         self._conn_lost = False
         self._dismiss_loss_box()
-        self.periodic_manager = PeriodicManager(self.connection.bus)
+        self.periodic_manager = PeriodicManager(lambda: self.connection.bus)
         self.connection_tab.set_connected(True)
         self.monitor_tab.set_bitrate(bitrate if interface != "virtual" else None)
         self.rx_timer.start()
@@ -574,6 +577,10 @@ class MainWindow(QMainWindow):
         yalnızca uyarı olarak gösterilir."""
         if not self.connection.is_connected:
             return
+        # Bus-off/ağır hata + sessizlikte reset → gerekirse adaptörü yeniden aç (otomatik kurtarma);
+        # PCAN durum kodu geçişleri donanım testinde teşhis için günlüğe yazılır.
+        for event in self.connection.watchdog():
+            self._log_event("BAGLANTI", event)
         state, message = self.connection.link_state()
         now = time.monotonic()
 
@@ -597,6 +604,12 @@ class MainWindow(QMainWindow):
             self._unhealthy_since = None
 
         ok = state == "ok"
+        silent = self.connection.silent_for()
+        if state == "bus_warning" and self.connection.recovering:
+            message = f"Hat hatalı, kurtarılıyor: {message} (son mesaj {silent:.0f} sn önce)"
+        elif ok and silent > SILENT_NOTICE_S:
+            ok = False
+            message = f"Hat sessiz ({silent:.0f} sn): ECU kapalı olabilir; hat dönünce otomatik sürer"
         self.connection_tab.set_health(ok, message)
         self.errors_tab.set_health(ok, message)
         if not ok and getattr(self, "_last_health_state", "ok") == "ok":
@@ -655,6 +668,13 @@ class MainWindow(QMainWindow):
 
     def _cancel_reconnect(self):
         self.reconnect_timer.stop()
+
+    def _on_bus_reopened(self):
+        """Bekçi adaptörü yeniden açınca: CCP istemcisi ve periyodik görevler yeni bus'a geçer
+        (periyodik görevler bus'ı çağrılabilirle aldığı için kendiliğinden geçer)."""
+        if self.ccp_client is not None:
+            self.ccp_client.bus = self.connection.bus
+        self._log_event("BAGLANTI", "Adaptör yeniden açıldı; CCP ve periyodik gönderim yeni bus'a geçti")
 
     def _try_reconnect(self):
         if not self._conn_lost or self._last_connect_params is None:
@@ -1651,8 +1671,14 @@ class MainWindow(QMainWindow):
     _panel_paused = False
 
     def _on_panel_tx_failed(self, message: str, error: str):
-        self._log_event("HATA", f"Kontrol Paneli: {message} gönderimi durdu: {error}")
-        self.control_panel_tab._set_status(f"{message} gönderilemedi: {error}", False)
+        self._log_event("HATA", f"Kontrol Paneli: {message} gönderilemiyor ({error}); hat düzelince "
+                                "otomatik yeniden denenecek")
+        self.control_panel_tab._set_status(
+            f"{message} gönderilemiyor: {error} — hat düzelince otomatik sürecek", False)
+
+    def _on_panel_tx_recovered(self, message: str):
+        self._log_event("BAGLANTI", f"Kontrol Paneli: {message} gönderimi yeniden başladı")
+        self.control_panel_tab._set_status(f"{message} gönderimi yeniden başladı", True)
 
     def _on_panel_tx_toggle(self, stop: bool):
         if stop:
