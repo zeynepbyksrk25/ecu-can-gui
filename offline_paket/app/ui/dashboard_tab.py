@@ -29,6 +29,7 @@ from app.ui.dash_widgets import (  # noqa: F401  (GaugeWidget/ToggleSwitch: eski
     DK_CYAN, DK_MUT, DashGauge, GaugeCard, GaugeWidget, IconLabel, LockButton, ToggleSwitch,
     format_value,
 )
+from app.ui.dark_theme import dark_qss
 from app.ui.trend_panel import TrendPanel
 from app.user_roles import Role, can_override_actuator
 
@@ -61,61 +62,7 @@ ACTUATOR_SHORT = {
 ACTUATOR_ICON = {"pompa_start": "pump", "pompa_fuel": "pump", "valf": "valve",
                  "glow_plug": "glow", "starter": "starter"}
 
-DASH_QSS = """
-DashboardTab { background: #08121f; }
-DashboardTab QWidget { background: transparent; }
-DashboardTab QLabel { background: transparent; color: #e8f0f8; }
-DashboardTab QFrame#card, DashboardTab QFrame#trendCard {
-    background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #12263d, stop:1 #0f2034);
-    border: 1px solid #1f3853; border-radius: 10px; }
-DashboardTab QFrame#rowFrame { background: transparent; border: none; border-bottom: 1px solid #1a3149; }
-DashboardTab QFrame#vsep { background: #1f3853; border: none; }
-DashboardTab QLabel#cardTitle { color: #cfe0f1; font-size: 12px; font-weight: 700; letter-spacing: 1px; }
-DashboardTab QLabel#rowName { color: #e8f0f8; font-size: 12.5px; font-weight: 600; }
-DashboardTab QLabel#rowName:disabled { color: #5d7893; }
-DashboardTab QLabel#mutedSmall { color: #8fa6bd; font-size: 11px; }
-DashboardTab QLabel#okSmall { color: #6ee7a1; font-size: 11px; }
-DashboardTab QLabel#errSmall { color: #ff9a9a; font-size: 11px; }
-DashboardTab QLabel#warnSmall, DashboardTab QLabel#warnDot { color: #ffcb6b; font-size: 11px; font-weight: 700; }
-DashboardTab QLabel#colHead { color: #5d7893; font-size: 11px; font-weight: 700; letter-spacing: 1px; }
-DashboardTab QLabel#onoff { color: #8fa6bd; font-size: 11px; font-weight: 700; }
-DashboardTab QLabel#onoff[on="true"] { color: #6ee7a1; }
-DashboardTab QLabel#legendItem { color: #cfe0f1; font-size: 12px; }
-DashboardTab QLabel#chipGreen { background: #0e2a22; color: #6ee7a1; border: 1px solid #1b6b45;
-    border-radius: 10px; padding: 1px 9px; font-size: 11px; font-weight: 600; }
-DashboardTab QLabel#chipBad { background: #3a1416; color: #ff9a9a; border: 1px solid #7a2a2a;
-    border-radius: 10px; padding: 1px 9px; font-size: 11px; font-weight: 700; }
-DashboardTab QLabel#trendReadout { background: rgba(10,24,40,235); border: 1px solid #2a4a6b;
-    border-radius: 7px; padding: 5px 8px; font-size: 11px; }
-DashboardTab QDoubleSpinBox#valueSpin { background: #0a1828; border: 1px solid #2a4a6b; border-radius: 6px;
-    padding: 1px 16px 1px 8px; color: #ffffff; font-size: 13px; font-weight: 700; min-height: 20px; }
-DashboardTab QDoubleSpinBox#valueSpin:disabled { color: #9fb4c9; border-color: #1f3853; }
-DashboardTab QDoubleSpinBox#valueSpin:focus { border-color: #35c6f4; }
-DashboardTab QDoubleSpinBox#flightSpin { background: transparent; border: none; border-radius: 6px;
-    padding: 1px 12px 1px 2px; color: #ffffff; font-size: 13.5px; font-weight: 700; }
-DashboardTab QDoubleSpinBox#flightSpin::up-button, DashboardTab QDoubleSpinBox#flightSpin::down-button { width: 12px; }
-DashboardTab QDoubleSpinBox#flightSpin:disabled { color: #9fb4c9; }
-DashboardTab QDoubleSpinBox#flightSpin:focus { background: #0a1828; border: 1px solid #35c6f4; }
-DashboardTab QPushButton { background: #12263d; border: 1px solid #2a4a6b; border-radius: 8px; color: #e8f0f8;
-    padding: 6px 14px; font-weight: 600; }
-DashboardTab QPushButton:hover { border-color: #35c6f4; color: #ffffff; }
-DashboardTab QPushButton:disabled { color: #5d7893; border-color: #1f3853; }
-DashboardTab QPushButton[compact="true"] { padding: 3px 10px; min-height: 20px; border-radius: 7px; font-size: 12px; }
-DashboardTab QPushButton[tone="go"] { border-color: #1d7f4b; color: #8bf0b4; background: #0f2c20; }
-DashboardTab QPushButton[seg="true"] { border-radius: 0; padding: 3px 8px; min-height: 20px; font-size: 12px;
-    color: #8fa6bd; background: #0a1828; border-left: none; }
-DashboardTab QPushButton[seg="true"]:checked { background: #2f8cff; color: #ffffff; }
-DashboardTab QSlider::groove:horizontal { height: 4px; background: #25405d; border-radius: 2px; }
-DashboardTab QSlider::sub-page:horizontal { background: #2f8cff; border-radius: 2px; }
-DashboardTab QSlider::handle:horizontal { background: #ffffff; width: 14px; height: 14px; margin: -6px 0;
-    border-radius: 7px; }
-DashboardTab QFrame#gaugeCard { background: #0b1a2b; border: 1px solid #1b3550; border-radius: 9px; }
-DashboardTab QFrame#gaugeCard[state="manual"] { border-color: #8a6a1e; }
-DashboardTab QFrame#gaugeCard[state="fault"] { border: 1px solid #ef4444; background: #1a1018; }
-DashboardTab QLabel#gaugeTitle { font-weight: 700; font-size: 12.5px; color: #cfe0f1; }
-DashboardTab QLabel#gaugeStatus { color: #ffcb6b; font-size: 10.5px; }
-"""
-DASH_QSS = DASH_QSS.replace("DashboardTab {", "QWidget#dashBody {").replace("DashboardTab ", "QWidget#dashBody ")
+DASH_QSS = dark_qss("dashBody")
 
 
 class DashboardTab(QWidget):

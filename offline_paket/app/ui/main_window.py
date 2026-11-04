@@ -99,6 +99,8 @@ class MainWindow(QMainWindow):
         self.monitor_tab = self.can_monitor_tab.monitor
         self.transmit_tab = self.can_monitor_tab.transmit
         self.log_tab = self.can_monitor_tab.log
+        self.connection_tab.attach_settings(data_path("can_ayarlari.json"))
+        self.monitor_tab.frame_hook = self._on_monitor_frame
 
         self.a2l_tab = A2LTab()
         self.control_panel_tab = ControlPanelTab(cpanel.ControlPanelConfig(data_path("kontrol_paneli.json")))
@@ -224,6 +226,8 @@ class MainWindow(QMainWindow):
         self.reconnect_timer = QTimer(self)
         self.reconnect_timer.setInterval(RECONNECT_INTERVAL_MS)
         self.reconnect_timer.timeout.connect(self._try_reconnect)
+
+        QTimer.singleShot(800, self._startup_auto_connect)
 
     def _make_scrollable_page(self, page: QWidget) -> QScrollArea:
         scroll = QScrollArea()
@@ -681,11 +685,36 @@ class MainWindow(QMainWindow):
             self.performance_tab.on_can_frame(msg.arbitration_id, bytes(msg.data))
             self.workspace_tab.on_can_frame(msg.arbitration_id, bytes(msg.data))
             self._dash_on_can_frame(msg.arbitration_id, bytes(msg.data))
-            if self.can_logger.is_active:
-                self.can_logger.write(msg.timestamp, msg.arbitration_id, msg.dlc,
-                                       msg.data, msg.is_extended_id)
-                self._logged_count += 1
-                self.log_tab.set_count(self._logged_count)
+
+    def _on_monitor_frame(self, msg, direction: str):
+        """İzleme sekmesi her RX/TX mesajı için çağırır (duraklatılmış olsa da): kayıt açıksa
+        CSV'ye yön ve (DBC varsa) mesaj adıyla yazar."""
+        if not self.can_logger.is_active:
+            return
+        name = ""
+        dbc = self.transmit_tab.dbc
+        if dbc.is_loaded:
+            m = dbc.get_message_by_frame_id(msg.arbitration_id)
+            name = m.name if m is not None else ""
+        self.can_logger.write(msg.timestamp, msg.arbitration_id, msg.dlc, msg.data,
+                              msg.is_extended_id, direction=direction, name=name)
+        self._logged_count += 1
+        self.log_tab.set_count(self._logged_count)
+
+    def _startup_auto_connect(self):
+        """"Açılışta otomatik bağlan" seçiliyse sessizce bağlanır; hata iletişim kutusu açmaz."""
+        if self.connection.is_connected or not self.connection_tab.auto_connect_enabled():
+            return
+        interface = self.connection_tab.current_interface()
+        channel = self.connection_tab.current_channel()
+        bitrate = self.connection_tab.current_bitrate()
+        try:
+            self.connection.connect(interface, channel, bitrate)
+        except Exception as exc:
+            self.connection_tab.set_health(False, f"Otomatik bağlanma başarısız: {exc}")
+            self._log_event("HATA", f"Otomatik bağlanma başarısız: {exc}")
+            return
+        self._after_connected(interface, channel, bitrate)
 
     # ---- Gönderim -------------------------------------------------------
     def _on_manual_send(self, can_id: int, data: bytes, extended: bool):
@@ -1738,9 +1767,9 @@ class MainWindow(QMainWindow):
     def _on_profile_save(self, name: str):
         profile = ConfigProfile(
             name=name,
-            interface=self.connection_tab.interface_combo.currentText(),
-            channel=self.connection_tab.channel_edit.text().strip(),
-            bitrate=self.connection_tab.baudrate_combo.currentData(),
+            interface=self.connection_tab.current_interface(),
+            channel=self.connection_tab.current_channel(),
+            bitrate=self.connection_tab.current_bitrate(),
             cro_id=self.ccp_tab.cro_edit.text().strip(),
             dto_id=self.ccp_tab.dto_edit.text().strip(),
             station_address=self.ccp_tab.station_edit.text().strip(),

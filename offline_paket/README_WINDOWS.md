@@ -173,6 +173,18 @@ uygulamada donanımla doğrulanmamıştır**. Bu yüzden:
   `MOD_COMMON BYTE_ORDER` artık okunur (küçük-endian ECU'larda değerler eskiden bozuk çıkıyordu).
 - Testler: `python -m pytest tests` (Windows için `1_kurulum` sonrası venv içinde).
 
+### CAN Monitor (canlı kullanım)
+
+- Arayüz/backend ve kanal seçimi yoktur: bağlantı **PCAN-USB** (`PCAN_USBBUS1`) üzerinden kurulur;
+  birden fazla adaptör takılıysa yalnızca o zaman küçük bir adaptör seçici görünür. Baudrate ve
+  "açılışta otomatik bağlan" seçimi hatırlanır. Donanımsız geliştirme için ortam değişkeni:
+  `OPENECU_CAN_INTERFACE=virtual` (veya `udp_multicast`).
+- Sol **İzleme** kartı: her (yön, ID) için bir satır, ID başına ölçülen **periyot (ms)**, DBC mesaj adı ve
+  birimli sinyaller, canlı filtreler, hex/ondalık, değişen verinin vurgulanması, seçili mesajın sinyal/ham
+  değer paneli. Başlıkta **DBC Yükle** ve **Kayıt** (CSV: RX + TX, yön ve mesaj adıyla).
+- Sağ **Gönderim** kartı: *Manuel* ve *Periyodik* sekmeleri. DBC modunda girilmeyen sinyaller önceden
+  uyarı olarak gösterilir; çalışan periyodik satırın sinyal değerleri değişince gönderim güncellenir.
+
 ### PCAN-View ile birlikte test etme (donanımsız-adjacent)
 
 PEAK-System'in PCAN-View programı ve bu uygulama, aynı CAN kanalına
