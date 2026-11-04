@@ -444,6 +444,20 @@ QFrame#actionStatusRow QPushButton[danger="true"]:hover {{
     color: #FFFFFF;
 }}
 
+QLabel#ccpChip {{
+    background: #0A1828;
+    border: 1px solid #1F3853;
+    border-radius: 12px;
+    padding: 3px 12px;
+    color: #8FA6BD;
+    font-size: 12px;
+    font-weight: 600;
+}}
+
+QLabel#ccpChip[state="online"] {{ background: #0E2A22; border-color: #1B6B45; color: #6EE7A1; }}
+QLabel#ccpChip[state="connecting"] {{ background: #2A210C; border-color: #8A6A1E; color: #FFCB6B; }}
+QLabel#ccpChip[state="lost"] {{ background: #3A1416; border-color: #7A2A2A; color: #FF9A9A; }}
+
 QLabel#headerReadout {{
     color: #8FA6BD;
     font-size: 12px;

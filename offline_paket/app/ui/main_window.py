@@ -16,6 +16,7 @@ from app.ccp import codec as ccp_codec
 from app.ccp import mapio as ccp_mapio
 from app.ccp import protocol as ccp_protocol
 from app.ccp.client import CCPClient
+from app.ccp.worker import CONNECTING, IDLE, LOST, ONLINE, CcpSession
 from app import control_panel as cpanel
 from app.ui.control_panel_tab import ControlPanelTab
 from app.ui.performance_tab import PerformanceTab
@@ -65,7 +66,7 @@ class MainWindow(QMainWindow):
         self.periodic_manager: PeriodicManager | None = None
         self.can_logger = CanLogger()
         self._logged_count = 0
-        self.ccp_client: CCPClient | None = None
+        self.ccp_session = CcpSession(self.connection)
         self.event_log = EventLog(file_path=data_path("audit_log.txt"))
         # calibration_history diske de kalıcı yazılır: FLAŞ yazımlarının,
         # uygulama kapansa/yeniden başlasa bile eski değerine geri
@@ -229,7 +230,30 @@ class MainWindow(QMainWindow):
         self.reconnect_timer.timeout.connect(self._try_reconnect)
 
         QTimer.singleShot(800, self._startup_auto_connect)
+        self._ccp_timer = QTimer(self)
+        self._ccp_timer.setInterval(100)
+        self._ccp_timer.timeout.connect(self._on_ccp_events)
+        self._ccp_timer.start()
         self.connection.on_reopen.append(self._on_bus_reopened)
+
+    # ---- CCP oturumu (arka plan iş parçacığı; bkz. app/ccp/worker.py) ----------------------
+    @property
+    def ccp_client(self):
+        """Açık işlemler (yazma, harita, tanılama) için CCPClient benzeri; oturum yoksa None.
+        ECU 'yok' iken çağrılar bekletmeden hata verir."""
+        return self.ccp_session.client
+
+    @ccp_client.setter
+    def ccp_client(self, client):
+        if client is None:
+            self.ccp_session.stop(graceful=False)
+        else:
+            self.ccp_session.adopt(client)
+
+    @property
+    def ccp_reader(self):
+        """Periyodik okuma yapan arayüz zamanlayıcıları için: önbellekten okur, ASLA beklemez."""
+        return self.ccp_session.reader
 
     def _make_scrollable_page(self, page: QWidget) -> QScrollArea:
         scroll = QScrollArea()
@@ -363,6 +387,12 @@ class MainWindow(QMainWindow):
             layout.addWidget(btn)
 
         layout.addStretch()
+        self.ccp_chip = QLabel("CCP bağlı değil")
+        self.ccp_chip.setObjectName("ccpChip")
+        self.ccp_chip.setProperty("state", IDLE)
+        self.ccp_chip.setToolTip("CCP/ECU durumu: bağlı değil → bağlanıyor → çevrimiçi → ECU yok (otomatik yeniden bağlanır)")
+        layout.addWidget(self.ccp_chip)
+        layout.addSpacing(8)
         self.header_role_label = QLabel("")
         self.header_role_label.setObjectName("headerReadout")
         self.header_role_label.setTextFormat(Qt.RichText)
@@ -532,13 +562,13 @@ class MainWindow(QMainWindow):
         # CCP Bağlan / Kes düğmeleri ayrıca çalışmaya devam eder.
         if self.ccp_tab.auto_connect_enabled() or self._resume_ccp_after_reconnect:
             self._resume_ccp_after_reconnect = False
-            QTimer.singleShot(CCP_AUTO_CONNECT_DELAY_MS, self._auto_ccp_connect)
+            self._auto_ccp_connect()
 
     def _teardown_connection(self, graceful: bool = True):
         """CAN bağlantısına bağlı her şeyi kapatır. graceful=False: adaptör
         gitmiş olduğu için CCP DISCONNECT gibi bus'a yazan adımlar ATLANIR
         (aksi halde zaman aşımlarında arayüz bloklanırdı)."""
-        if self.ccp_client is not None:
+        if self.ccp_session.state != IDLE:
             if graceful:
                 self._on_ccp_disconnect()
             else:
@@ -620,7 +650,7 @@ class MainWindow(QMainWindow):
     def _handle_connection_lost(self, reason: str, elapsed: float):
         """Bağlantı KOPTU: her şeyi temizle, kullanıcıya açıkça bildir ve
         adaptör geri gelirse otomatik yeniden bağlanmak için denemeye başla."""
-        self._resume_ccp_after_reconnect = self.ccp_client is not None or self._resume_ccp_after_reconnect
+        self._resume_ccp_after_reconnect = self.ccp_session.state != IDLE or self._resume_ccp_after_reconnect
         self._conn_lost = True
         self._unhealthy_since = None
         self._teardown_connection(graceful=False)  # adaptör yok: bus'a yazan adımlar atlanır
@@ -672,8 +702,7 @@ class MainWindow(QMainWindow):
     def _on_bus_reopened(self):
         """Bekçi adaptörü yeniden açınca: CCP istemcisi ve periyodik görevler yeni bus'a geçer
         (periyodik görevler bus'ı çağrılabilirle aldığı için kendiliğinden geçer)."""
-        if self.ccp_client is not None:
-            self.ccp_client.bus = self.connection.bus
+        self.ccp_session.refresh_bus()
         self._log_event("BAGLANTI", "Adaptör yeniden açıldı; CCP ve periyodik gönderim yeni bus'a geçti")
 
     def _try_reconnect(self):
@@ -767,104 +796,70 @@ class MainWindow(QMainWindow):
 
     # ---- CCP (kalibrasyon) ------------------------------------------------
     def _on_ccp_connect(self, cro_id: int, dto_id: int, station_address: int):
-        """Manuel "CCP Bağlan" düğmesi (hata durumunda kullanıcıya diyalog gösterir)."""
-        self._do_ccp_connect(cro_id, dto_id, station_address, silent=False)
+        """Manuel "CCP Bağlan": arka planda (geri çekilmeli) bağlanmayı başlatır; arayüz beklemez,
+        durum CCP sekmesinde ve üst şeritteki çipte canlı görünür."""
+        if not self.connection.is_connected:
+            QMessageBox.warning(
+                self, "CAN bağlantısı yok",
+                "CCP bağlantısı kurmadan önce CAN Monitor sekmesinden CAN hattına bağlanın.")
+            return
+        self.ccp_session.start(cro_id, dto_id, station_address)
+        self._log_event("CCP", f"CCP bağlanıyor (CRO=0x{cro_id:X}, DTO=0x{dto_id:X}, istasyon=0x{station_address:X})")
 
     def _auto_ccp_connect(self):
-        """CAN bağlanınca otomatik CCP bağlantısı: başarısızlıkta diyalog
-        AÇMAZ (ECU kapalı/CCP desteklemeyen hat olabilir), sadece günlüğe ve
-        CCP durum etiketine yazar; kullanıcı elle tekrar deneyebilir."""
-        if not self.connection.is_connected or self.ccp_client is not None:
+        """CAN bağlanınca otomatik CCP: sabit gecikme + tek deneme yerine arka planda geri çekilmeli
+        sonsuz deneme (ECU henüz açılmamış/hazır değilse sürer; ECU gelince kendiliğinden bağlanır)."""
+        if not self.connection.is_connected or self.ccp_session.state != IDLE:
             return
         try:
             cro_id, dto_id, station = self.ccp_tab.parsed_connection_params()
         except ValueError as exc:
             self._log_event("HATA", f"Otomatik CCP bağlantısı atlandı: {exc}")
             return
-        self._do_ccp_connect(cro_id, dto_id, station, silent=True)
-
-    def _do_ccp_connect(self, cro_id: int, dto_id: int, station_address: int, silent: bool) -> bool:
-        if not self.connection.is_connected:
-            if not silent:
-                QMessageBox.warning(
-                    self, "CAN bağlantısı yok",
-                    "CCP bağlantısı kurmadan önce Bağlantı sekmesinden CAN hattına bağlanın."
-                )
-            return False
-        if self.ccp_client is not None:
-            if not silent:
-                QMessageBox.warning(self, "Zaten bağlı", "CCP bağlantısı zaten açık.")
-            return True
-
-        # Tek RX thread bu DTO ID'sine uyan mesajları ccp_queue'ya da
-        # yazsın diye önce filtreyi kuruyoruz (bkz. app/can_worker.py).
-        self.connection.ccp_dto_id = dto_id
-        client = CCPClient(
-            self.connection.bus, cro_id, dto_id, station_address=station_address,
-            timeout=0.5, retries=2, dto_queue=self.connection.ccp_queue,
-        )
-        try:
-            client.connect()
-            major, minor = client.get_ccp_version()
-        except (ccp_protocol.CCPError, ccp_protocol.CCPTimeoutError) as exc:
-            self.connection.ccp_dto_id = None
-            self._log_event("HATA", f"CCP {'otomatik ' if silent else ''}bağlantı hatası: {exc}")
-            if silent:
-                self.ccp_tab.set_auto_connect_failed(str(exc))
-            else:
-                QMessageBox.critical(self, "CCP bağlantı hatası", str(exc))
-            return False
-        except Exception as exc:  # bus yazma hatası (adaptör kopmuş olabilir)
-            self.connection.ccp_dto_id = None
-            self._log_event("HATA", f"CCP bağlantı hatası (bus): {exc}")
-            if silent:
-                self.ccp_tab.set_auto_connect_failed(str(exc))
-            else:
-                QMessageBox.critical(self, "CCP bağlantı hatası", str(exc))
-            return False
-
-        self.ccp_client = client
-        self._watch_fail_streak = 0
-        self.ccp_tab.set_connected(True, f"(CCP v{major}.{minor})")
-        self.watch_tab.set_connected(True)
-        self.map_editor_tab.set_online(True)
-        self._panel_conn_state()
-        self._log_event(
-            "CCP",
-            f"CCP {'otomatik ' if silent else ''}bağlandı (CRO=0x{cro_id:X}, DTO=0x{dto_id:X}, v{major}.{minor})"
-        )
-        return True
+        self.ccp_session.start(cro_id, dto_id, station)
 
     def _drop_ccp_client(self):
-        """CCP istemcisini bus'a HİÇ yazmadan bırakır (adaptör kopmuşken)."""
-        if self.ccp_client is not None:
-            try:
-                self.ccp_client.stop_listening()
-            except Exception:
-                pass
-            self.ccp_client = None
+        """CCP oturumunu bus'a HİÇ yazmadan bırakır (adaptör kopmuşken)."""
+        was_active = self.ccp_session.state != IDLE
+        self.ccp_session.stop(graceful=False)
+        if was_active:
             self._log_event("CCP", "CCP bağlantısı düştü (CAN bağlantısı koptu)")
-        self.connection.ccp_dto_id = None
-        self.ccp_tab.set_connected(False)
-        self.watch_tab.set_connected(False)
-        self.map_editor_tab.set_online(False)
-        self._panel_conn_state()
+        self._apply_ccp_state(IDLE, "")
 
     def _on_ccp_disconnect(self):
-        if self.ccp_client is not None:
-            try:
-                self.ccp_client.disconnect()
-            except (ccp_protocol.CCPError, ccp_protocol.CCPTimeoutError):
-                pass  # bağlantı zaten kopmuş olabilir, yine de temizle
-            except Exception:
-                pass  # bus yazma hatası vb.; yine de temizle
-            self.ccp_client = None
+        was_active = self.ccp_session.state != IDLE
+        self.ccp_session.stop(graceful=True)
+        if was_active:
             self._log_event("CCP", "CCP bağlantısı kesildi")
-        self.connection.ccp_dto_id = None
-        self.ccp_tab.set_connected(False)
-        self.watch_tab.set_connected(False)
-        self.map_editor_tab.set_online(False)
+        self._apply_ccp_state(IDLE, "")
+
+    def _on_ccp_events(self):
+        """Arka plan CCP iş parçacığından gelen durum/günlük olaylarını arayüze uygular (100 ms)."""
+        for ev in self.ccp_session.poll_events():
+            if ev[0] == "state":
+                self._apply_ccp_state(ev[1], ev[2])
+            elif ev[0] == "log":
+                self._log_event(ev[1], ev[2])
+        self._update_ccp_chip()
+
+    def _apply_ccp_state(self, state: str, info: str):
+        online = state == ONLINE
+        self.ccp_tab.set_session_state(state, self.ccp_session.status_text())
+        self.watch_tab.set_connected(state in (ONLINE, LOST))
+        self.map_editor_tab.set_online(online)
         self._panel_conn_state()
+        self._update_ccp_chip()
+
+    def _update_ccp_chip(self):
+        if not hasattr(self, "ccp_chip"):
+            return
+        st = self.ccp_session.state
+        text = self.ccp_session.status_text()
+        if self.ccp_chip.text() != text or self.ccp_chip.property("state") != st:
+            self.ccp_chip.setText(text)
+            self.ccp_chip.setProperty("state", st)
+            self.ccp_chip.style().unpolish(self.ccp_chip)
+            self.ccp_chip.style().polish(self.ccp_chip)
 
     def _on_ccp_read(self):
         if self.ccp_client is None:
@@ -1117,45 +1112,29 @@ class MainWindow(QMainWindow):
             return None
 
     def _on_watch_read(self):
+        """Parametre Listesi canlı okuma: değerler arka plan CCP iş parçacığının önbelleğinden
+        gelir (arayüz hiç beklemez); ECU yokken satırlar anında 'ECU cevap vermiyor' gösterir ve
+        ECU geri gelince değerler kendiliğinden akmaya başlar."""
         if self.ccp_client is None:
-            self.watch_tab.stop_polling()
             return
-        any_ok = False
-        timed_out = False
         for row, e in enumerate(self.watch_tab.entries()):
             if not getattr(e, "resolved", True) or not e.datatype:
                 continue
             try:
                 size = ccp_codec.datatype_size(e.datatype)
-                raw = self.ccp_client.read_memory(e.address, size, e.address_extension or 0)
+                raw = self.ccp_reader.read_memory(e.address, size, e.address_extension or 0)
                 phys = ccp_codec.raw_to_physical(
                     e.compu_method, ccp_codec.decode_value(e.datatype, raw, e.byte_order))
-            except ccp_protocol.CCPTimeoutError:
-                # ECU hiç cevap vermiyor: kalan satırlar için de (her biri ~1,5 sn)
-                # beklemeyip bu turu kes — aksi halde arayüz donar.
-                self.watch_tab.set_row_error(row, "ECU cevap vermedi")
-                timed_out = True
-                break
+            except ccp_protocol.CCPTimeoutError as exc:
+                self.watch_tab.set_row_error(row, str(exc) or "ECU cevap vermedi")
+                continue
             except (ccp_protocol.CCPError, ccp_codec.UnknownDatatypeError, ValueError) as exc:
                 self.watch_tab.set_row_error(row, str(exc))
                 continue
-            except Exception as exc:  # bus yazma hatası (adaptör kopmuş olabilir)
+            except Exception as exc:
                 self.watch_tab.set_row_error(row, f"Okuma hatası: {exc}")
-                timed_out = True
-                break
+                continue
             self.watch_tab.set_row_value(row, raw, phys)
-            any_ok = True
-        if any_ok:
-            self._watch_fail_streak = 0
-        elif timed_out:
-            self._watch_fail_streak += 1
-            if self._watch_fail_streak >= WATCH_FAIL_STREAK_LIMIT:
-                self.watch_tab.stop_polling()
-                self.watch_tab.set_write_result(
-                    False, "ECU art arda cevap vermedi — sürekli okuma durduruldu. "
-                           "CAN/CCP bağlantısını kontrol edip tekrar başlatın.")
-                self._log_event("HATA", "Parametre Listesi: ECU cevap vermedi, sürekli okuma durduruldu")
-                self._watch_fail_streak = 0
 
     def _on_watch_write(self, rows: list):
         if self.ccp_client is None:
@@ -1224,7 +1203,7 @@ class MainWindow(QMainWindow):
                 continue
             try:
                 size = ccp_codec.datatype_size(m.datatype)
-                raw_bytes = self.ccp_client.read_memory(m.address, size, m.address_extension or 0)
+                raw_bytes = self.ccp_reader.read_memory(m.address, size, m.address_extension or 0)
                 raw_value = ccp_codec.decode_value(m.datatype, raw_bytes, m.byte_order)
                 phys_value = ccp_codec.raw_to_physical(m.compu_method, raw_value)
             except (ccp_protocol.CCPError, ccp_protocol.CCPTimeoutError,
@@ -1486,7 +1465,7 @@ class MainWindow(QMainWindow):
                 continue
             try:
                 size = ccp_codec.datatype_size(m.datatype)
-                raw_bytes = self.ccp_client.read_memory(m.address, size, m.address_extension or 0)
+                raw_bytes = self.ccp_reader.read_memory(m.address, size, m.address_extension or 0)
                 raw_value = ccp_codec.decode_value(m.datatype, raw_bytes, m.byte_order)
                 phys_value = ccp_codec.raw_to_physical(m.compu_method, raw_value)
             except (ccp_protocol.CCPError, ccp_protocol.CCPTimeoutError,
@@ -1504,8 +1483,9 @@ class MainWindow(QMainWindow):
         cfg = dt.config
         a2l_gauges = cfg.gauge_a2l_map()                    # gösterge -> A2L adı
         if self.ccp_client is None:
+            reason = self.ccp_session.not_ready_reason()
             for key in a2l_gauges:
-                dt.set_gauge_error(key, "CCP bağlı değil")
+                dt.set_gauge_error(key, reason)
             return
         summary = self.a2l_tab.db.summary
         if summary is None:
@@ -1546,11 +1526,11 @@ class MainWindow(QMainWindow):
                 continue
             try:
                 size = ccp_codec.datatype_size(m.datatype)
-                raw_bytes = self.ccp_client.read_memory(m.address, size, m.address_extension or 0)
+                raw_bytes = self.ccp_reader.read_memory(m.address, size, m.address_extension or 0)
                 raw_value = ccp_codec.decode_value(m.datatype, raw_bytes, m.byte_order)
                 phys_value = ccp_codec.raw_to_physical(m.compu_method, raw_value)
-            except ccp_protocol.CCPTimeoutError:
-                fail("ECU cevap vermedi")
+            except ccp_protocol.CCPTimeoutError as exc:
+                fail(str(exc) or "ECU cevap vermedi")
                 continue
             except ccp_protocol.CCPError as exc:
                 fail(f"CCP hatası: {exc}")
@@ -1657,10 +1637,10 @@ class MainWindow(QMainWindow):
             return
         for key, info in pt.ccp_poll_targets():
             try:
-                pt.set_ccp_value(key, cpanel.ccp_read_value(self.ccp_client, info))
+                pt.set_ccp_value(key, cpanel.ccp_read_value(self.ccp_reader, info))
             except ccp_protocol.CCPTimeoutError:
                 pt.set_ccp_error(key, "ECU cevap vermedi")
-                break
+                continue
             except Exception as exc:
                 pt.set_ccp_error(key, str(exc))
 
@@ -1741,7 +1721,7 @@ class MainWindow(QMainWindow):
             return
         for key, kind, info in panel.ccp_poll_targets():
             try:
-                panel.set_ccp_value(key, kind, cpanel.ccp_read_value(self.ccp_client, info))
+                panel.set_ccp_value(key, kind, cpanel.ccp_read_value(self.ccp_reader, info))
             except ccp_protocol.CCPTimeoutError:
                 panel.set_ccp_error(key, "ECU cevap vermedi")
                 break

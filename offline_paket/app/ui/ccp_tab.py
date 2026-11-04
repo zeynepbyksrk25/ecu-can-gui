@@ -137,6 +137,20 @@ class CCPTab(QWidget):
             self.status_label.setStyleSheet("color: red; font-weight: bold;")
             self.poll_checkbox.setChecked(False)
 
+    def set_session_state(self, state: str, text: str):
+        """Arka plan CCP oturumunun durumu (idle/connecting/online/lost; bkz. app/ccp/worker.py):
+        düğmeler ve durum etiketi buna göre. Bağlanırken 'Bağlantıyı kes' aynı zamanda iptaldir."""
+        active = state != "idle"
+        self.connect_button.setEnabled(not active)
+        self.disconnect_button.setEnabled(active)
+        for w in (self.cro_edit, self.dto_edit, self.station_edit):
+            w.setEnabled(not active)
+        color = {"idle": "red", "connecting": "#b06a00", "online": "green", "lost": "#c00000"}[state]
+        self.status_label.setText(f"● {text}")
+        self.status_label.setStyleSheet(f"color: {color}; font-weight: bold;")
+        if not active:
+            self.poll_checkbox.setChecked(False)
+
     def set_auto_connect_failed(self, message: str):
         self.status_label.setText(f"● CCP otomatik bağlanamadı: {message}")
         self.status_label.setStyleSheet("color: #b06a00; font-weight: bold;")

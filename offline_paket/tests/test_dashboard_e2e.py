@@ -45,6 +45,17 @@ def ccp(win):
     b.shutdown()
 
 
+def _tick_until(win, names, cond, timeout=4.0):
+    """Arka plan CCP iş parçacığı değerleri önbelleğe alana kadar Ana Sayfa tikini tekrarla."""
+    end = time.time() + timeout
+    while time.time() < end:
+        win._on_dashboard_tick(names)
+        if cond():
+            return True
+        time.sleep(0.05)
+    return False
+
+
 def _addr(win, name):
     return next(m for m in win.a2l_tab.db.summary.measurements if m.name == name).address
 
@@ -63,8 +74,8 @@ def test_a2l_little_endian_values_show_real_numbers(win, ccp):
     ccp.write_memory_bytes(_addr(win, "N_RPM"), struct.pack("<H", 9040))          # 4520 rpm (x0.5)
     ccp.write_memory_bytes(_addr(win, "FP_bar"), struct.pack("<f", 6.8))
     _cfg(win, RPM=Binding(SOURCE_A2L, a2l_name="N_RPM"), FP=Binding(SOURCE_A2L, a2l_name="FP_bar"))
-    win._on_dashboard_tick(["N_RPM", "FP_bar"])
     dt = win.dashboard_tab
+    assert _tick_until(win, ["N_RPM", "FP_bar"], lambda: "RPM" in dt._values and "FP" in dt._values)
     assert dt._values["RPM"][0] == pytest.approx(4520.0)
     assert dt._values["FP"][0] == pytest.approx(6.8, rel=1e-5)
     assert dt._gauge_cards["RPM"].gauge.fraction() == pytest.approx(4520 / 6000)   # ibre hareket eder
@@ -88,10 +99,12 @@ def test_missing_a2l_name_and_missing_address_reasons(win, ccp):
 
 def test_ecu_timeout_reason(win, ccp):
     _cfg(win, RPM=Binding(SOURCE_A2L, a2l_name="N_RPM"))
-    win.ccp_client.timeout = 0.05
-    ccp.stop()
+    ccp.power_off()                                  # ECU sessiz
+    dt = win.dashboard_tab
+    from app.ccp.worker import LOST
+    assert _tick_until(win, ["N_RPM"], lambda: win.ccp_session.state == LOST, timeout=6.0)
     win._on_dashboard_tick(["N_RPM"])
-    assert win.dashboard_tab._reasons["RPM"] == "ECU cevap vermedi"
+    assert "cevap" in dt._reasons["RPM"]
 
 
 def test_can_sensor_values_and_fault_bit_from_dbc(win):
