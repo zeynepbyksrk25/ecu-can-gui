@@ -27,7 +27,8 @@ def datatype_size(datatype: str) -> int:
     code = _STRUCT_CODES.get((datatype or "").upper())
     if code is None:
         raise UnknownDatatypeError(f"Bilinmeyen A2L veri tipi: {datatype!r}")
-    return struct.calcsize(code)
+    # Standart boyut (önek ile): "L" öneksiz native 8 bayt olabilir (Linux/macOS), A2L ULONG her zaman 4 bayttır.
+    return struct.calcsize("<" + code)
 
 
 def _endian_char(byte_order: str | None) -> str:
@@ -53,7 +54,7 @@ def decode_value(datatype: str, data: bytes, byte_order: str | None = None):
     code = _STRUCT_CODES.get((datatype or "").upper())
     if code is None:
         raise UnknownDatatypeError(f"Bilinmeyen A2L veri tipi: {datatype!r}")
-    size = struct.calcsize(code)
+    size = struct.calcsize("<" + code)
     if len(data) < size:
         raise ValueError(f"{datatype} için {size} bayt gerekir, {len(data)} bayt geldi.")
     return struct.unpack(_endian_char(byte_order) + code, bytes(data[:size]))[0]

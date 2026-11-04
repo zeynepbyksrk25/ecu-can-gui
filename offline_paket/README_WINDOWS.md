@@ -185,6 +185,26 @@ uygulamada donanımla doğrulanmamıştır**. Bu yüzden:
 - Sağ **Gönderim** kartı: *Manuel* ve *Periyodik* sekmeleri. DBC modunda girilmeyen sinyaller önceden
   uyarı olarak gösterilir; çalışan periyodik satırın sinyal değerleri değişince gönderim güncellenir.
 
+### ECU gücü kesilip gelince (güvenilirlik)
+
+- **CAN:** PCAN bus'ı sürücü `auto_reset` ile açılır. Hat bus-off/ağır hatada ve sessizse bekçi `reset()`
+  dener, olmazsa adaptörü aynı ayarlarla yeniden açar; toparlanırken gönderim saniyede 1 kareye iner.
+  Bağlantı şeridinde "Hat sessiz / kurtarılıyor" yazar; PCAN durum kodu geçişleri olay günlüğüne
+  (BAGLANTI) zamanıyla yazılır — gerçek donanımda sorun olursa buradan teşhis edilir.
+- **Periyodik gönderimler** (Kontrol Paneli, uçuş/motor girişleri, Gönderim sekmesi) hata alınca durmaz;
+  hat/ECU dönünce kendiliğinden sürer.
+- **CCP:** tüm CCP okumaları arka plan iş parçacığında yapılır; arayüz hiçbir zaman beklemez. Durum:
+  bağlı değil → bağlanıyor → çevrimiçi → **ECU YOK** → (her saniye yeniden CONNECT) → çevrimiçi. ECU
+  güç döngüsünden sonra CCP oturumu otomatik yeniden kurulur. Otomatik bağlanma, ECU hazır olana kadar
+  geri çekilmeli olarak (0,5 → 5 sn) sürekli dener. Durum üst şeritteki çipte ve CCP/Kalibrasyon
+  sekmelerinde görünür.
+- **Kalibrasyon > Parametre Listesi:** değerler sürekli canlıdır; Değer hücresine yazıp **Enter** yazar
+  (Esc / başka yere tıklamak iptal), yazılan değer ECU'dan geri okunup doğrulanır.
+- **Ayarlanabilir parametreler (clbc_*)** grafik/trend/çalışma alanı/performans listelerinde
+  "Ayarlanabilir parametreler" grubunda görünür.
+- Doğrulanamayanlar: PCAN-USB'nin gerçek bus-off davranışı ve gerçek ECU açılış süresi yalnızca
+  yazılım simülasyonuyla test edildi; ilk gerçek testte olay günlüğünü kontrol edin.
+
 ### PCAN-View ile birlikte test etme (donanımsız-adjacent)
 
 PEAK-System'in PCAN-View programı ve bu uygulama, aynı CAN kanalına
