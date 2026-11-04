@@ -231,7 +231,7 @@ class GraphTab(QWidget):
     def refresh_objects(self):
         self._measurement_names = []
         if self.a2l_db is not None and self.a2l_db.summary is not None:
-            self._measurement_names = [m.name for m in self.a2l_db.summary.measurements]
+            self._measurement_names = [m.name for m in self.a2l_db.summary.readable()]
         for tile in self._tiles:
             tile.populate_measurements(self._measurement_names)
 

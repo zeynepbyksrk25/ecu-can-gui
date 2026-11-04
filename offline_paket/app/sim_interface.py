@@ -135,7 +135,8 @@ def list_sources(dbc, a2l_summary, dbc_only: bool = False) -> list[SourceSig]:
                 out.append(SourceSig(f"dbc:{m.name}.{s.name}", s.name, m.name, s.unit or "",
                                      s.minimum, s.maximum, init, m.frame_id))
     if a2l_summary is not None and not dbc_only:
-        for me in a2l_summary.measurements:
+        readable = a2l_summary.readable() if hasattr(a2l_summary, "readable") else a2l_summary.measurements
+        for me in readable:
             out.append(SourceSig(f"a2l:{me.name}", me.name, "A2L", getattr(me, "unit", "") or "",
                                  getattr(me, "minimum", None), getattr(me, "maximum", None), None, None, me))
     return out

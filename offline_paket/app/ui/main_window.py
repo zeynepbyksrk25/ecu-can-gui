@@ -1206,7 +1206,7 @@ class MainWindow(QMainWindow):
         summary = self.a2l_tab.db.summary
         if summary is None:
             return
-        by_name = {m.name: m for m in summary.measurements}
+        by_name = summary.readable_by_name()
         for name in names:
             m = by_name.get(name)
             if m is None or m.address is None:
@@ -1459,7 +1459,7 @@ class MainWindow(QMainWindow):
 
     def _sync_workspace_a2l(self):
         summary = self.a2l_tab.db.summary
-        self.workspace_tab.set_a2l_measurements(summary.measurements if summary is not None else [])
+        self.workspace_tab.set_a2l_measurements(summary.readable() if summary is not None else [])
 
     def _on_workspace_tick(self, names: list):
         """Çalışma Alanı'nda seçili A2L ölçümlerini CCP ile okuyup hub'a yazar."""
@@ -1468,7 +1468,7 @@ class MainWindow(QMainWindow):
         summary = self.a2l_tab.db.summary
         if summary is None:
             return
-        by_name = {m.name: m for m in summary.measurements}
+        by_name = summary.readable_by_name()
         for name in names:
             m = by_name.get(name)
             if m is None or m.address is None:
@@ -1485,7 +1485,7 @@ class MainWindow(QMainWindow):
 
     def _sync_dashboard_measurements(self):
         summary = self.a2l_tab.db.summary
-        self.dashboard_tab.set_measurements(summary.measurements if summary is not None else [])
+        self.dashboard_tab.set_measurements(summary.readable() if summary is not None else [])
 
     # ---- Ana Sayfa: A2L'den (CCP) okuma --------------------------------------
     def _on_dashboard_tick(self, names: list):
@@ -1503,7 +1503,7 @@ class MainWindow(QMainWindow):
                 dt.set_gauge_error(key, "A2L yüklü değil")
             return
 
-        by_name = {m.name: m for m in summary.measurements}
+        by_name = summary.readable_by_name()
         roles: dict[str, list] = {}                          # A2L adı -> [(rol, gösterge)]
         for key, name in a2l_gauges.items():
             roles.setdefault(name, []).append(("value", key))

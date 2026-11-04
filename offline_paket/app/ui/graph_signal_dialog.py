@@ -22,7 +22,7 @@ def signal_label(sig_id: str) -> str:
 
 
 class GraphSignalDialog(QDialog):
-    def __init__(self, gauge_keys, measurement_names, selected, parent=None):
+    def __init__(self, gauge_keys, measurement_names, selected, parent=None, tunable_names=()):
         super().__init__(parent)
         self.setWindowTitle("Canlı Grafik — sinyalleri seç")
         self.resize(460, 560)
@@ -39,7 +39,8 @@ class GraphSignalDialog(QDialog):
 
         self._gauge_root = QTreeWidgetItem(["Göstergeler"])
         self._meas_root = QTreeWidgetItem(["A2L ölçümleri"])
-        for root in (self._gauge_root, self._meas_root):
+        self._tun_root = QTreeWidgetItem(["Ayarlanabilir parametreler (kalibrasyon, clbc_…)"])
+        for root in (self._gauge_root, self._meas_root, self._tun_root):
             root.setFlags(root.flags() & ~Qt.ItemIsUserCheckable)
             self.tree.addTopLevelItem(root)
 
@@ -48,6 +49,10 @@ class GraphSignalDialog(QDialog):
             self._add_leaf(self._gauge_root, key, f"g:{key}", chosen)
         for name in measurement_names:
             self._add_leaf(self._meas_root, name, f"m:{name}", chosen)
+        for name in tunable_names:
+            self._add_leaf(self._tun_root, name, f"m:{name}", chosen)
+        if not tunable_names:
+            self._tun_root.setHidden(True)
         if not measurement_names:
             hint = QTreeWidgetItem(["(A2L yüklenince ölçümler burada listelenir)"])
             hint.setFlags(Qt.NoItemFlags)
@@ -57,7 +62,8 @@ class GraphSignalDialog(QDialog):
 
         # A2L'de olmayan ama daha önce seçilmiş (kayıtlı) ölçümler de görünsün
         # ki kullanıcı onları kaldırabilsin.
-        known = {f"m:{n}" for n in measurement_names} | {f"g:{k}" for k in gauge_keys}
+        known = ({f"m:{n}" for n in measurement_names} | {f"m:{n}" for n in tunable_names}
+                 | {f"g:{k}" for k in gauge_keys})
         for sid in selected:
             if sid not in known and sid.startswith("m:"):
                 self._add_leaf(self._meas_root, signal_label(sid) + "  (A2L'de yok)", sid, chosen)
@@ -90,7 +96,7 @@ class GraphSignalDialog(QDialog):
         root.addChild(item)
 
     def _leaves(self):
-        for root in (self._gauge_root, self._meas_root):
+        for root in (self._gauge_root, self._meas_root, self._tun_root):
             for i in range(root.childCount()):
                 child = root.child(i)
                 if child.data(0, ROLE_ID):
@@ -98,7 +104,7 @@ class GraphSignalDialog(QDialog):
 
     def _apply_filter(self, text: str):
         text = text.strip().lower()
-        for root in (self._gauge_root, self._meas_root):
+        for root in (self._gauge_root, self._meas_root, self._tun_root):
             any_visible = False
             for i in range(root.childCount()):
                 child = root.child(i)

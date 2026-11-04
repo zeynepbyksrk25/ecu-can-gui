@@ -95,6 +95,7 @@ class DashboardTab(QWidget):
         self._act_rows: dict[str, dict] = {}
         self._gauge_cards: dict[str, GaugeCard] = {}
         self._measurement_names: list[str] = []
+        self._tunable_names: list[str] = []
         self._measurement_units: dict[str, str] = {}
         self._measurement_limits: dict[str, tuple] = {}
 
@@ -547,7 +548,8 @@ class DashboardTab(QWidget):
     # ======================================================================
     def set_measurements(self, measurements):
         """Yüklü A2L'deki ölçümleri (MeasurementInfo listesi) bildirir."""
-        self._measurement_names = [m.name for m in measurements]
+        self._measurement_names = [m.name for m in measurements if not hasattr(m, "char_type")]
+        self._tunable_names = [m.name for m in measurements if hasattr(m, "char_type")]
         self._measurement_units = {m.name: (m.unit or "") for m in measurements}
         self._measurement_limits = {
             m.name: (m.minimum, m.maximum) for m in measurements
@@ -560,7 +562,8 @@ class DashboardTab(QWidget):
 
     def _on_pick_graph_signals(self):
         from app.ui.graph_signal_dialog import GraphSignalDialog
-        dlg = GraphSignalDialog(GAUGE_KEYS, self._measurement_names, self.config.graph_signals, self)
+        dlg = GraphSignalDialog(GAUGE_KEYS, self._measurement_names, self.config.graph_signals, self,
+                                tunable_names=self._tunable_names)
         if dlg.exec() != GraphSignalDialog.Accepted:
             return
         self.set_graph_signals(dlg.selected_ids(), persist=True)

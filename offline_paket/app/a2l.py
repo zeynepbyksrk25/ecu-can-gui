@@ -61,6 +61,24 @@ class A2LSummary:
     measurements: list = field(default_factory=list)
     characteristics: list = field(default_factory=list)
 
+    # ---- okunabilir tek değerli nesneler (grafik / trend / çalışma alanı / performans) ----
+    def tunable_scalars(self) -> list:
+        """Ayarlanabilir (kalibrasyon) tek değerli parametreler: skaler CHARACTERISTIC (VALUE).
+        Adresi ve veri tipi çözülebilenler; clbc_* gibi parametreler buradadır."""
+        return [c for c in self.characteristics
+                if c.kind == "SCALAR" and c.address is not None and c.datatype
+                and (c.char_type in ("", "VALUE"))]
+
+    def readable(self) -> list:
+        """Sürekli okunup çizilebilen tüm nesneler: ölçümler + ayarlanabilir skaler parametreler."""
+        return list(self.measurements) + self.tunable_scalars()
+
+    def readable_by_name(self) -> dict:
+        """ad -> nesne; aynı ad ikisinde de varsa ölçüm önceliklidir."""
+        out = {c.name: c for c in self.tunable_scalars()}
+        out.update({m.name: m for m in self.measurements})
+        return out
+
 
 def _fix_axis_values(ad) -> list | None:
     """FIX_AXIS eksenlerinin nokta değerleri A2L içinde (ECU'ya gitmeden)
