@@ -154,7 +154,7 @@ class MainWindow(QMainWindow):
         self.stack = QStackedWidget()
         self._page_scrolls: dict[QWidget, QScrollArea] = {}
         # Koyu temaya geçirilmiş sayfalar (koyu gövdeye sarılır); diğerleri henüz açık temada.
-        self._dark_pages = {self.a2l_tab, self.tanilama_tab, self.session_tab, self.user_tab}
+        self._dark_pages = {self.a2l_tab, self.tanilama_tab, self.session_tab, self.user_tab, self.kalibrasyon_tab}
         for _icon, _label, page in self._nav_pages:
             # Ana Sayfa kaydırılmaz: 16" ekrana tamamen sığar (bkz. DashboardTab)
             self.stack.addWidget(page if page is self.dashboard_tab else self._make_scrollable_page(page))

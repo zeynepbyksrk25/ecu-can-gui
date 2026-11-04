@@ -83,3 +83,12 @@ def test_small_pages_dark_and_accessors(tmp_path):
     assert hasattr(w.tanilama_tab, "diagnostics") and hasattr(w.tanilama_tab, "errors")
     assert w.user_tab.role_combo.count() >= 3 and w.user_tab.profile_list is not None
     w.close()
+
+
+def test_kalibrasyon_dark_and_aliases():
+    from app.ui.main_window import MainWindow
+    w = MainWindow()
+    assert w.kalibrasyon_tab in w._dark_pages
+    k = w.kalibrasyon_tab
+    assert k.inner_tabs.count() == 4 and k.watch is not None and k.map_editor is not None
+    w.close()

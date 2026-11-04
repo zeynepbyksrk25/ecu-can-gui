@@ -38,13 +38,13 @@ ROLE_OBJECT = Qt.UserRole
 COL_ADDR, COL_HEX, COL_VALUE, COL_NAME, COL_UNIT, COL_TYPE, COL_DESC = range(7)
 HEADERS = ["Adres", "Hex", "Değer (Value)", "İsim (Name)", "Birim", "Tip", "Açıklama"]
 
-OK_BG = QColor("#c8f0d2")        # yazma doğrulandı (kısa süre)
-OK_FG = QColor("#0b5a22")
-PENDING_BG = QColor("#fff3b0")   # yazılmayı bekleyen değer (map_editor MODIFIED_BG ile aynı)
-PENDING_FG = QColor("#5a3a00")
-INVALID_BG = QColor("#ffb3b3")   # ayrıştırılamayan sayı
-INVALID_FG = QColor("#5c0000")
-ERROR_FG = QColor("#b00020")
+OK_BG = QColor("#12452a")        # yazma doğrulandı (kısa süre)
+OK_FG = QColor("#7dffb0")
+PENDING_BG = QColor("#4d3f0e")   # yazılmayı bekleyen değer (map_editor MODIFIED_BG ile aynı)
+PENDING_FG = QColor("#ffd166")
+INVALID_BG = QColor("#5a1c24")   # ayrıştırılamayan sayı
+INVALID_FG = QColor("#ffb3b3")
+ERROR_FG = QColor("#ff6b6b")
 
 _HEX_RE = re.compile(r"[+-]?0[xX][0-9a-fA-F]+")
 
@@ -165,7 +165,7 @@ class A2LPickerDialog(QDialog):
         hint = QLabel("İpucu: Dizi/tablo (ARRAY / CURVE / MAP) nesneleri burada "
                       "listelenmez; onlar için Harita Editörü'nü kullanın.")
         hint.setWordWrap(True)
-        hint.setStyleSheet("color: gray; font-size: 11px;")
+        hint.setStyleSheet("color: #8fa6bd; font-size: 11px;")
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.button(QDialogButtonBox.Ok).setText("Seçilenleri Ekle")
@@ -243,7 +243,7 @@ class ManualEntryDialog(QDialog):
 
         self.warn_label = QLabel("")
         self.warn_label.setWordWrap(True)
-        self.warn_label.setStyleSheet("color: #b00020;")
+        self.warn_label.setStyleSheet("color: #ff6b6b;")
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.button(QDialogButtonBox.Ok).setText("Ekle")
@@ -364,9 +364,9 @@ class WatchTab(QWidget):
         self.delete_button = QPushButton("Seçili Satırları Sil")
         self.clear_button = QPushButton("Listeyi Temizle")
         self.live_label = QLabel("● CCP bağlı değil")
-        self.live_label.setStyleSheet("color: red; font-weight: bold;")
+        self.live_label.setStyleSheet("color: #ff6b6b; font-weight: bold;")
         self.hint_label = QLabel("Değerler canlı izlenir · değiştirmek için Değer hücresine yazıp Enter'a basın (Esc iptal)")
-        self.hint_label.setStyleSheet("color: #5B6B79;")
+        self.hint_label.setStyleSheet("color: #8fa6bd;")
 
         self.add_a2l_button.clicked.connect(self._on_add_a2l)
         self.add_manual_button.clicked.connect(self._on_add_manual)
@@ -641,7 +641,7 @@ class WatchTab(QWidget):
 
     def set_live_state(self, state: str, text: str):
         """CCP oturum durumu (idle/connecting/online/lost) -> araç çubuğundaki canlı etiketi."""
-        color = {"idle": "red", "connecting": "#b06a00", "online": "green", "lost": "#c00000"}.get(state, "red")
+        color = {"idle": "#ff6b6b", "connecting": "#f0b04a", "online": "#4ade80", "lost": "#ff6b6b"}.get(state, "#ff6b6b")
         dot = "●" if state in ("online", "lost", "connecting") else "○"
         self.live_label.setText(f"{dot} {text}")
         self.live_label.setStyleSheet(f"color: {color}; font-weight: bold;")
@@ -720,7 +720,7 @@ class WatchTab(QWidget):
         if ok is None:
             self.status_label.setStyleSheet("")
         else:
-            self.status_label.setStyleSheet("color: green;" if ok else "color: #b00020;")
+            self.status_label.setStyleSheet("color: #4ade80;" if ok else "color: #ff6b6b;")
 
     # ---- Düzenleme / yazma ---------------------------------------------------
     def _on_item_changed(self, item: QTableWidgetItem):

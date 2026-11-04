@@ -133,6 +133,10 @@ DashboardTab QLabel#kvKey { color: #8fa6bd; font-size: 11.5px; font-weight: 600;
 DashboardTab QLabel#kvVal { color: #e8f0f8; font-size: 13px; font-weight: 600; }
 DashboardTab QLabel#chipBlue { background: #0f2540; color: #8cc4ff; border: 1px solid #1f4a7a; border-radius: 10px;
     padding: 2px 10px; font-size: 11.5px; font-weight: 600; }
+DashboardTab QTabBar { background: transparent; border: none; }
+DashboardTab QTabWidget::tab-bar { left: 0px; }
+DashboardTab QTabBar::close-button { background: #274360; border-radius: 3px; margin: 2px; subcontrol-position: right; }
+DashboardTab QTabBar::close-button:hover { background: #c0392b; }
 DashboardTab QGroupBox { background: transparent; border: 1px solid #1f3853; border-radius: 8px; margin-top: 10px;
     padding: 8px; color: #8fa6bd; font-weight: 700; }
 DashboardTab QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 6px; color: #cfe0f1; }

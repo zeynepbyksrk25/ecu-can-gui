@@ -27,8 +27,8 @@ from PySide6.QtWidgets import (
 )
 
 ROLE_OBJECT = Qt.UserRole
-MODIFIED_BG = QColor("#fff3b0")   # değişen hücre (ısı haritası kapalıyken)
-MODIFIED_FG = QColor("#8a4b00")   # değişen hücrede kalın/turuncu yazı (ısı haritası açıkken)
+MODIFIED_BG = QColor("#4d3f0e")   # değişen hücre (ısı haritası kapalıyken)
+MODIFIED_FG = QColor("#ffd166")   # değişen hücrede kalın/turuncu yazı (ısı haritası açıkken)
 PLACEHOLDER = "-"                 # ECU'dan okunmamış hücre yer tutucusu
 
 
@@ -100,7 +100,7 @@ class MapDocument(QWidget):
             "gerçek donanımla kullanmadan önce PCAN-View trace'iyle kontrol edin."
         )
         self.caveat_label.setWordWrap(True)
-        self.caveat_label.setStyleSheet("color: #b06a00;")
+        self.caveat_label.setStyleSheet("color: #f0b04a;")
         self.caveat_label.setVisible(
             c.kind in ("CURVE", "MAP") and any(a.attribute != "FIX_AXIS" for a in c.axes)
         )
@@ -151,7 +151,7 @@ class MapDocument(QWidget):
         bulk.addStretch()
 
         # --- INCA/Lookup tarzı grafik (üstte) ---
-        self.plot = pg.PlotWidget(background="#FFFFFF")
+        self.plot = pg.PlotWidget(background="#0b1a2b")
         self.plot.showGrid(x=True, y=True, alpha=0.25)
         self.plot.setMinimumHeight(150)
         self.plot.setMaximumHeight(300)
@@ -164,7 +164,7 @@ class MapDocument(QWidget):
         self.table = QTableWidget()
         self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         # Eksen değerleri (başlıklar) Lookup penceresindeki gibi gri zeminde, kalın
-        hdr_css = "QHeaderView::section { background:#d6dae8; color:#10213a; font-weight:bold; padding:3px 8px; border:1px solid #b8bed2; }"
+        hdr_css = "QHeaderView::section { background:#16304d; color:#cfe0f1; font-weight:bold; padding:3px 8px; border:1px solid #1f3853; }"
         self.table.horizontalHeader().setStyleSheet(hdr_css)
         self.table.verticalHeader().setStyleSheet(hdr_css)
         self.table.setSelectionBehavior(QAbstractItemView.SelectItems)
@@ -260,7 +260,7 @@ class MapDocument(QWidget):
         else:
             self.online_label.setText("OFFLINE")
             self.online_label.setStyleSheet(
-                "background:#9aa5b1; color:white; font-weight:bold; border-radius:4px; padding:3px 8px;")
+                "background:#3b5068; color:#cfe0f1; font-weight:bold; border-radius:4px; padding:3px 8px;")
 
     def set_online(self, online: bool):
         self._online = bool(online)
@@ -286,7 +286,7 @@ class MapDocument(QWidget):
             return
         cols = len(vals[0])
         xs = self._axis_x_values(cols)
-        palette = ["#0b5cad", "#c22a1d", "#1b8a4c", "#b9790f", "#7a3fb0", "#008b8b", "#555555"]
+        palette = ["#35c6f4", "#ff6b6b", "#4ade80", "#f0b04a", "#b48cff", "#2dd4bf", "#cfd8e3"]
         for r, row in enumerate(vals):
             pts = [(x, v) for x, v in zip(xs, row) if v is not None]
             if not pts:
@@ -437,7 +437,7 @@ class MapDocument(QWidget):
 
     def _set_status(self, message: str, ok: bool = True, warn: bool = False):
         self.status_label.setText(message)
-        color = "#b06a00" if warn else ("green" if ok else "#b00020")
+        color = "#f0b04a" if warn else ("#4ade80" if ok else "#ff6b6b")
         self.status_label.setStyleSheet(f"color: {color};")
 
     def _on_write_clicked(self):
@@ -520,16 +520,16 @@ class MapDocument(QWidget):
                     and abs(self._original_grid[r][c] - val) > 1e-9
                 )
                 if val is None:
-                    item.setBackground(QColor("white"))
-                    item.setForeground(QColor("#1a1a1a"))
+                    item.setBackground(QColor("#0b1a2b"))
+                    item.setForeground(QColor("#e8f0f8"))
                 elif heatmap_on:
                     ratio = (val - vmin) / span
-                    color = QColor.fromHsvF(0.66 * (1.0 - ratio), 0.55, 0.97)  # mavi (düşük) -> kırmızı (yüksek)
+                    color = QColor.fromHsvF(0.66 * (1.0 - ratio), 0.7, 0.55)  # mavi (düşük) -> kırmızı (yüksek)
                     item.setBackground(color)
-                    item.setForeground(MODIFIED_FG if modified else QColor("#1a1a1a"))
+                    item.setForeground(MODIFIED_FG if modified else QColor("#ffffff"))
                 else:
-                    item.setBackground(MODIFIED_BG if modified else QColor("white"))
-                    item.setForeground(QColor("#1a1a1a"))
+                    item.setBackground(MODIFIED_BG if modified else QColor("#0b1a2b"))
+                    item.setForeground(MODIFIED_FG if modified else QColor("#e8f0f8"))
                 font = item.font()
                 font.setBold(modified)
                 item.setFont(font)
@@ -767,7 +767,7 @@ class MapEditorTab(QWidget):
         self.tabs = QTabWidget()
         self.tabs.setTabsClosable(True)
         self.tabs.setMovable(True)
-        self.tabs.setDocumentMode(True)
+        self.tabs.setDocumentMode(False)
         self.tabs.tabCloseRequested.connect(self._on_tab_close)
         self.tabs.setVisible(False)
 
