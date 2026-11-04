@@ -61,6 +61,8 @@ DashboardTab QLabel#gaugeStatus { color: #ffcb6b; font-size: 10.5px; }
 """
 
 _EXTRA = """
+DashboardTab QAbstractItemView { background: #0f2034; color: #e8f0f8; selection-background-color: #2f8cff;
+    selection-color: #ffffff; border: 1px solid #2a4a6b; outline: none; }
 DashboardTab QComboBox { background: #0a1828; border: 1px solid #2a4a6b; border-radius: 6px; color: #e8f0f8;
     padding: 2px 8px; min-height: 22px; }
 DashboardTab QComboBox:disabled { color: #5d7893; border-color: #1f3853; }

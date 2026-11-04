@@ -11,7 +11,7 @@ seçilir.
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QComboBox, QCompleter, QDialog, QDialogButtonBox, QDoubleSpinBox, QGridLayout, QHBoxLayout,
+    QComboBox, QCompleter, QDialog, QDoubleSpinBox, QFrame, QGridLayout, QHBoxLayout,
     QLabel, QPushButton, QScrollArea, QTabWidget, QVBoxLayout, QWidget,
 )
 
@@ -20,6 +20,8 @@ from app.dashboard_config import (
     SENSOR_LABELS, SOURCE_A2L, SOURCE_CAN, Binding, DashboardConfig, MotorCommand, SignalMap,
 )
 from app.sim_interface import INPUT_DEFS, auto_match
+from app.ui.dark_theme import dark_qss
+from app.ui.dash_widgets import DK_CYAN, IconLabel
 
 
 def a2l_names(summary) -> list:
@@ -73,12 +75,12 @@ class BindingEditor(QWidget):
         self.source.addItem("CAN", SOURCE_CAN)
         if allow_a2l:
             self.source.addItem("A2L", SOURCE_A2L)
-        self.source.setFixedWidth(62)
+        self.source.setFixedWidth(68)
         self.source.currentIndexChanged.connect(self._reload)
         self.name = QComboBox()
         self.name.setEditable(True)
         self.name.setInsertPolicy(QComboBox.NoInsert)
-        self.name.setMinimumWidth(190)
+        self.name.setMinimumWidth(110)
         lay.addWidget(self.source)
         lay.addWidget(self.name, 1)
         self._reload()
@@ -131,142 +133,229 @@ def _scroll(widget: QWidget) -> QScrollArea:
     return sc
 
 
+def _card(title: str, icon: str) -> tuple:
+    """(kart, ızgara, başlık satırı): Ana Sayfa kartlarıyla aynı görünüm."""
+    card = QFrame()
+    card.setObjectName("card")
+    v = QVBoxLayout(card)
+    v.setContentsMargins(14, 8, 14, 10)
+    v.setSpacing(6)
+    head = QHBoxLayout()
+    head.setSpacing(8)
+    head.addWidget(IconLabel(icon, DK_CYAN, 18))
+    t = QLabel(title.upper())
+    t.setObjectName("cardTitle")
+    head.addWidget(t)
+    head.addStretch(1)
+    v.addLayout(head)
+    grid = QGridLayout()
+    grid.setHorizontalSpacing(12)
+    grid.setVerticalSpacing(4)
+    v.addLayout(grid)
+    v.addStretch(1)
+    return card, grid, head
+
+
+def _col_head(text: str) -> QLabel:
+    lab = QLabel(text.upper())
+    lab.setObjectName("colHead")
+    return lab
+
+
+def _row_label(text: str) -> QLabel:
+    lab = QLabel(text)
+    lab.setObjectName("rowName")
+    return lab
+
+
 class MappingDialog(QDialog):
+    """Koyu temalı, 2 sekmeli Eşleşmeler penceresi.
+
+    * **Sinyaller**: Sensörler (Değer / Anahtar / Arıza) tam genişlikte; altında yan yana
+      Eyleyiciler (Değer / Anahtar) ve Motor Komutları.
+    * **Girişler**: Uçuş Koşulları ve Motor Kontrol girişlerinin DBC sinyalleri (yan yana).
+    """
+
     def __init__(self, config: DashboardConfig, sim_panel, dbc, a2l_summary, parent=None):
         super().__init__(parent)
+        self.setObjectName("mappingDialog")
         self.setWindowTitle("Eşleşmeler — CAN (DBC) / A2L")
-        self.resize(1180, 720)
+        self.setStyleSheet("QDialog#mappingDialog { background: #08121f; }")
+        from PySide6.QtGui import QGuiApplication
+        screen = QGuiApplication.primaryScreen()
+        avail_h = screen.availableGeometry().height() if screen is not None else 800
+        self.resize(1180, min(720, int(avail_h * 0.92)))      # ekrana sığmazsa içerik kaydırılır
+        self.setMinimumSize(1000, 520)
         self._cfg = config
         self._sim = sim_panel
         self._dbc_names = dbc_signal_names(dbc)
         self._a2l = a2l_names(a2l_summary)
 
-        root = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        body = QWidget()
+        body.setObjectName("mapBody")
+        body.setStyleSheet(dark_qss("mapBody"))
+        outer.addWidget(body)
+        root = QVBoxLayout(body)
+        root.setContentsMargins(16, 12, 16, 12)
+        root.setSpacing(10)
+
+        warn = ""
+        if not self._dbc_names:
+            warn += "   <span style='color:#ffcb6b'>⚠ DBC yüklü değil.</span>"
+        if not self._a2l:
+            warn += "   <span style='color:#ffcb6b'>⚠ A2L yüklü değil.</span>"
         info = QLabel(
-            "Her sensör ve eyleyici için <b>Değer</b> ve <b>Anahtar (_sw)</b> eşleşmesi ayrı ayrı "
-            "CAN (DBC) ya da A2L olarak seçilir. Anahtar 1 iken değer arayüzden değiştirilebilir, "
-            "0 iken değiştirilemez."
-            + ("" if self._dbc_names else "  <span style='color:#B9790F'>DBC yüklü değil.</span>")
-            + ("" if self._a2l else "  <span style='color:#B9790F'>A2L yüklü değil.</span>"))
+            "Her sensör ve eyleyici için <b>Değer</b> ve <b>Anahtar (_sw)</b> ayrı ayrı CAN (DBC) ya da "
+            "A2L olarak seçilir. Anahtar 1 iken değer arayüzden değiştirilebilir, 0 iken değiştirilemez." + warn)
+        info.setObjectName("mutedSmall")
         info.setTextFormat(Qt.RichText)
         info.setWordWrap(True)
         root.addWidget(info)
-
-        self.tabs = QTabWidget()
-        root.addWidget(self.tabs, 1)
 
         self.sensor_ed: dict = {}
         self.actuator_ed: dict = {}
         self.motor_ed: dict = {}
         self.input_ed: dict = {}
-        self.tabs.addTab(self._build_signalmap_tab(
-            SENSOR_KEYS, SENSOR_LABELS, self.sensor_ed, with_fault=True), "Sensörler")
-        self.tabs.addTab(self._build_signalmap_tab(
-            ACTUATOR_KEYS, ACTUATOR_LABELS, self.actuator_ed, with_fault=False), "Eyleyiciler")
-        self.tabs.addTab(self._build_motor_tab(), "Motor Komutları")
-        self.tabs.addTab(self._build_inputs_tab(), "Girişler (Uçuş / Motor Kontrol)")
 
-        btns = QHBoxLayout()
+        self.tabs = QTabWidget()
+        self.tabs.addTab(self._build_signals_tab(), "Sinyaller")
+        self.tabs.addTab(self._build_inputs_tab(), "Girişler (Uçuş / Motor Kontrol)")
+        root.addWidget(self.tabs, 1)
+
+        bar = QHBoxLayout()
+        bar.setSpacing(8)
         auto = QPushButton("_sw'yi isimden otomatik bul (boş olanlar)")
+        auto.setProperty("compact", True)
         auto.clicked.connect(self._auto_sw)
-        btns.addWidget(auto)
-        btns.addStretch(1)
-        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        bb.button(QDialogButtonBox.Ok).setText("Kaydet")
-        bb.button(QDialogButtonBox.Cancel).setText("Vazgeç")
-        bb.accepted.connect(self.accept)
-        bb.rejected.connect(self.reject)
-        btns.addWidget(bb)
-        root.addLayout(btns)
+        bar.addWidget(auto)
+        bar.addStretch(1)
+        cancel = QPushButton("Vazgeç")
+        cancel.clicked.connect(self.reject)
+        save = QPushButton("Kaydet")
+        save.setProperty("tone", "go")
+        save.setDefault(True)
+        save.clicked.connect(self.accept)
+        bar.addWidget(cancel)
+        bar.addWidget(save)
+        root.addLayout(bar)
 
     # ------------------------------------------------------------ sekmeler
-    def _head(self, grid: QGridLayout, texts: list):
-        for c, t in enumerate(texts):
-            lab = QLabel(f"<b>{t}</b>")
-            lab.setTextFormat(Qt.RichText)
-            grid.addWidget(lab, 0, c)
+    def _editor(self, binding: Binding, allow_a2l: bool = True) -> BindingEditor:
+        ed = BindingEditor(self._dbc_names, self._a2l if allow_a2l else [], allow_a2l=allow_a2l)
+        ed.set_binding(binding)
+        return ed
 
-    def _build_signalmap_tab(self, keys, labels, store: dict, with_fault: bool) -> QWidget:
-        grid = QGridLayout()
-        grid.setHorizontalSpacing(14)
-        grid.setVerticalSpacing(6)
-        heads = ["", "Değer", "Anahtar (_sw)"] + (["Arıza (isteğe bağlı, ≠0 = arıza)"] if with_fault else [])
-        self._head(grid, heads)
-        src = self._cfg.sensors if with_fault else self._cfg.actuators
-        for r, key in enumerate(keys, start=1):
-            smap: SignalMap = src.get(key, SignalMap())
-            grid.addWidget(QLabel(labels[key]), r, 0)
-            ed = {"value": BindingEditor(self._dbc_names, self._a2l),
-                  "sw": BindingEditor(self._dbc_names, self._a2l)}
-            ed["value"].set_binding(smap.value)
-            ed["sw"].set_binding(smap.sw)
+    def _build_signals_tab(self) -> QWidget:
+        page = QWidget()
+        v = QVBoxLayout(page)
+        v.setContentsMargins(0, 8, 0, 0)
+        v.setSpacing(10)
+
+        # ---- Sensörler (tam genişlik)
+        card, grid, _h = _card("Sensörler", "gauge")
+        for c, t in enumerate(("", "Değer", "Anahtar (_sw)", "Arıza biti (isteğe bağlı, ≠0 = arıza)")):
+            grid.addWidget(_col_head(t), 0, c)
+        for r, key in enumerate(SENSOR_KEYS, start=1):
+            smap = self._cfg.sensors.get(key, SignalMap())
+            grid.addWidget(_row_label(SENSOR_LABELS[key]), r, 0)
+            ed = {"value": self._editor(smap.value), "sw": self._editor(smap.sw), "fault": self._editor(smap.fault)}
+            for c, name in enumerate(("value", "sw", "fault"), start=1):
+                grid.addWidget(ed[name], r, c)
+            self.sensor_ed[key] = ed
+        grid.setColumnMinimumWidth(0, 150)
+        for c in (1, 2, 3):
+            grid.setColumnStretch(c, 1)
+        v.addWidget(card)
+
+        # ---- Eyleyiciler | Motor Komutları (yan yana)
+        row = QHBoxLayout()
+        row.setSpacing(10)
+        card, grid, _h = _card("Eyleyiciler", "actuator")
+        for c, t in enumerate(("", "Değer", "Anahtar (_sw)")):
+            grid.addWidget(_col_head(t), 0, c)
+        for r, key in enumerate(ACTUATOR_KEYS, start=1):
+            smap = self._cfg.actuators.get(key, SignalMap())
+            grid.addWidget(_row_label(ACTUATOR_LABELS[key]), r, 0)
+            ed = {"value": self._editor(smap.value), "sw": self._editor(smap.sw)}
             grid.addWidget(ed["value"], r, 1)
             grid.addWidget(ed["sw"], r, 2)
-            if with_fault:
-                ed["fault"] = BindingEditor(self._dbc_names, self._a2l)
-                ed["fault"].set_binding(smap.fault)
-                grid.addWidget(ed["fault"], r, 3)
-            store[key] = ed
-        for c in range(1, len(heads)):
-            grid.setColumnStretch(c, 1)
-        holder = QWidget()
-        v = QVBoxLayout(holder)
-        v.addLayout(grid)
-        v.addStretch(1)
-        return _scroll(holder)
+            self.actuator_ed[key] = ed
+        grid.setColumnMinimumWidth(0, 140)
+        grid.setColumnStretch(1, 1)
+        grid.setColumnStretch(2, 1)
+        row.addWidget(card, 3)
 
-    def _build_motor_tab(self) -> QWidget:
-        grid = QGridLayout()
-        grid.setHorizontalSpacing(14)
-        grid.setVerticalSpacing(8)
-        self._head(grid, ["", "Komut (CAN veya A2L)", "Gönderilecek değer"])
+        card, grid, _h = _card("Motor Komutları", "play")
+        for c, t in enumerate(("", "Komut", "Değer")):
+            grid.addWidget(_col_head(t), 0, c)
         for r, key in enumerate(MOTOR_COMMAND_KEYS, start=1):
             cmd: MotorCommand = getattr(self._cfg, key)
-            grid.addWidget(QLabel(MOTOR_COMMAND_LABELS[key]), r, 0)
-            be = BindingEditor(self._dbc_names, self._a2l)
-            be.set_binding(cmd.binding)
+            grid.addWidget(_row_label(MOTOR_COMMAND_LABELS[key]), r, 0)
+            be = self._editor(cmd.binding)
             val = QDoubleSpinBox()
             val.setRange(-1e9, 1e9)
             val.setDecimals(3)
             val.setValue(cmd.value)
-            val.setFixedWidth(110)
+            val.setFixedWidth(96)
             grid.addWidget(be, r, 1)
             grid.addWidget(val, r, 2)
             self.motor_ed[key] = (be, val)
+        grid.setColumnMinimumWidth(0, 120)
         grid.setColumnStretch(1, 1)
-        holder = QWidget()
-        v = QVBoxLayout(holder)
-        v.addLayout(grid)
+        row.addWidget(card, 2)
+        v.addLayout(row)
         v.addStretch(1)
-        return _scroll(holder)
+        return _scroll(page)
 
     def _build_inputs_tab(self) -> QWidget:
-        grid = QGridLayout()
-        grid.setHorizontalSpacing(14)
-        grid.setVerticalSpacing(6)
-        self._head(grid, ["", "DBC sinyali (CAN hattından gönderilir)", ""])
+        page = QWidget()
+        v = QVBoxLayout(page)
+        v.setContentsMargins(0, 8, 0, 0)
+        v.setSpacing(10)
         sources = {s.key: s for s in self._sim.sources()}
-        auto_btn = QPushButton("İsme göre otomatik eşle (boş olanlar)")
-        auto_btn.clicked.connect(self._auto_inputs)
-        grid.addWidget(auto_btn, 0, 2)
-        for r, d in enumerate(INPUT_DEFS, start=1):
-            grid.addWidget(QLabel(d.display + (f"  [{d.unit}]" if d.unit else "")), r, 0)
-            be = BindingEditor(self._dbc_names, [], allow_a2l=False)
-            cur = self._sim.config.input_map.get(d.key, "")
-            s = sources.get(cur)
-            if s is not None:
-                be.set_binding(Binding(SOURCE_CAN, s.where, s.name))
-            elif cur.startswith("dbc:") and "." in cur:
-                m, sg = cur[4:].split(".", 1)
-                be.set_binding(Binding(SOURCE_CAN, m, sg))
-            grid.addWidget(be, r, 1)
-            self.input_ed[d.key] = be
-        grid.setColumnStretch(1, 1)
-        holder = QWidget()
-        v = QVBoxLayout(holder)
-        v.addLayout(grid)
+
+        top = QHBoxLayout()
+        lab = QLabel("Girişler yalnızca CAN hattından (DBC mesajı) gönderilir.")
+        lab.setObjectName("mutedSmall")
+        auto = QPushButton("İsme göre otomatik eşle (boş olanlar)")
+        auto.setProperty("compact", True)
+        auto.clicked.connect(self._auto_inputs)
+        top.addWidget(lab)
+        top.addStretch(1)
+        top.addWidget(auto)
+        v.addLayout(top)
+
+        row = QHBoxLayout()
+        row.setSpacing(10)
+        for title, icon, group in (("Uçuş Koşulları", "plane", "aircraft"), ("Motor Kontrol", "sliders", "control")):
+            card, grid, _h = _card(title, icon)
+            grid.setVerticalSpacing(12)           # az satırlı sekme daha ferah dursun
+            grid.addWidget(_col_head(""), 0, 0)
+            grid.addWidget(_col_head("DBC sinyali"), 0, 1)
+            r = 1
+            for d in INPUT_DEFS:
+                if d.group != group:
+                    continue
+                grid.addWidget(_row_label(d.display + (f"  [{d.unit}]" if d.unit else "")), r, 0)
+                be = BindingEditor(self._dbc_names, [], allow_a2l=False)
+                cur = self._sim.config.input_map.get(d.key, "")
+                src = sources.get(cur)
+                if src is not None:
+                    be.set_binding(Binding(SOURCE_CAN, src.where, src.name))
+                elif cur.startswith("dbc:") and "." in cur:
+                    m, sg = cur[4:].split(".", 1)
+                    be.set_binding(Binding(SOURCE_CAN, m, sg))
+                grid.addWidget(be, r, 1)
+                self.input_ed[d.key] = be
+                r += 1
+            grid.setColumnMinimumWidth(0, 150)
+            grid.setColumnStretch(1, 1)
+            row.addWidget(card, 1)
+        v.addLayout(row)
         v.addStretch(1)
-        return _scroll(holder)
+        return _scroll(page)
 
     # ------------------------------------------------------------ otomatik
     def _auto_sw(self):

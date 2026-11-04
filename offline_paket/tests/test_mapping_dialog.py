@@ -43,7 +43,7 @@ def test_dialog_has_value_sw_and_fault_columns_for_sensors_and_value_sw_for_actu
     w, d = dlg
     assert set(d.sensor_ed["RPM"]) == {"value", "sw", "fault"}
     assert set(d.actuator_ed["pompa_fuel"]) == {"value", "sw"}
-    assert [d.tabs.tabText(i) for i in range(d.tabs.count())][:3] == ["Sensörler", "Eyleyiciler", "Motor Komutları"]
+    assert [d.tabs.tabText(i) for i in range(d.tabs.count())] == ["Sinyaller", "Girişler (Uçuş / Motor Kontrol)"]
 
 
 def test_result_config_keeps_independent_sources_and_auto_sw(dlg):
@@ -104,3 +104,13 @@ def test_alfa_beta_are_enabled_and_sent_over_can(qapp, monkeypatch):
     panel.refresh_sources(w.transmit_tab.dbc)
     assert {"alfa", "beta"} <= set(panel.sendable_keys())
     w.close()
+
+
+def test_dialog_is_dark_scoped_and_message_boxes_stay_light(dlg):
+    from PySide6.QtWidgets import QMessageBox, QWidget
+    w, d = dlg
+    body = d.findChild(QWidget, "mapBody")
+    assert body is not None and "#0f2034" in body.styleSheet()          # koyu stil yalnızca gövdede
+    assert "mapBody" not in d.styleSheet()                              # iletişim kutusunun kendisinde yalnız zemin rengi
+    box = QMessageBox(d)                                                # açık tema korunur (okunaklı kalır)
+    assert box.styleSheet() == "" and not body.isAncestorOf(box)
