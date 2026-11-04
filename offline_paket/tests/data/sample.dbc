@@ -1,0 +1,28 @@
+VERSION ""
+
+NS_ :
+
+BS_:
+
+BU_: ECU PC
+
+BO_ 256 ENG_STATUS: 8 ECU
+ SG_ rpm : 0|16@1+ (1,0) [0|7000] "rpm" PC
+ SG_ tt2_c : 16|16@1+ (0.1,-40) [-40|200] "degC" PC
+ SG_ tt2_fault : 32|1@1+ (1,0) [0|1] "" PC
+
+BO_ 512 OVERRIDE: 8 PC
+ SG_ pump_dc : 0|16@1+ (0.1,0) [0|100] "%" ECU
+ SG_ pump_dc_sw : 16|1@1+ (1,0) [0|1] "" ECU
+ SG_ valf_cmd : 24|16@1+ (0.1,0) [0|100] "%" ECU
+ SG_ valf_cmd_sw : 40|1@1+ (1,0) [0|1] "" ECU
+
+BO_ 768 CMD: 8 PC
+ SG_ start_req : 0|1@1+ (1,0) [0|1] "" ECU
+ SG_ stop_req : 1|1@1+ (1,0) [0|1] "" ECU
+ SG_ estop_req : 2|1@1+ (1,0) [0|1] "" ECU
+
+BO_ 1024 AIRCRAFT: 8 PC
+ SG_ altitude : 0|16@1+ (0.01,0) [0|30] "kft" ECU
+ SG_ mach : 16|16@1+ (0.001,0) [0|2] "" ECU
+ SG_ p_amb : 32|16@1+ (0.001,0) [0|10] "bar" ECU

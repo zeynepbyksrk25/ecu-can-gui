@@ -8,7 +8,7 @@ from PySide6.QtGui import QColor, QGuiApplication
 from PySide6.QtWidgets import (
     QApplication, QFrame, QGraphicsDropShadowEffect, QHBoxLayout, QLabel,
     QListWidget, QListWidgetItem, QMainWindow, QMessageBox, QPushButton,
-    QScrollArea, QSizePolicy, QStackedWidget, QVBoxLayout, QWidget,
+    QScrollArea, QSizePolicy, QStackedWidget, QTabBar, QVBoxLayout, QWidget,
 )
 
 from app.can_worker import CanConnection
@@ -20,7 +20,9 @@ from app import control_panel as cpanel
 from app.ui.control_panel_tab import ControlPanelTab
 from app.ui.performance_tab import PerformanceTab
 from app.sim_interface import INPUT_DEFS, SimConfig
-from app.dashboard_config import DashboardConfigStore
+from app.dashboard_config import (
+    GAUGE_KEYS, SOURCE_A2L, SOURCE_CAN, Binding, DashboardConfigStore,
+)
 from app.eventlog import EventLog
 from app.history import CalibrationHistory
 from app.logger import CanLogger
@@ -136,7 +138,7 @@ class MainWindow(QMainWindow):
             ("🎛", "Kontrol Paneli", self.control_panel_tab),
             ("🛡", "Tanılama", self.tanilama_tab),
             ("🗓", "Test Oturumu", self.session_tab),
-            ("👤", "Kullanıcı / Profil", self.user_tab),
+            ("👤", "Profil", self.user_tab),
         ]
         # Her sayfa kendi QScrollArea'sı içinde yaşar: pencere sayfa
         # içeriğinden KÜÇÜKSE (düşük çözünürlüklü laptop vb.) içerik aşağıdan
@@ -148,11 +150,13 @@ class MainWindow(QMainWindow):
         self.stack = QStackedWidget()
         self._page_scrolls: dict[QWidget, QScrollArea] = {}
         for _icon, _label, page in self._nav_pages:
-            self.stack.addWidget(self._make_scrollable_page(page))
+            # Ana Sayfa kaydırılmaz: 16" ekrana tamamen sığar (bkz. DashboardTab)
+            self.stack.addWidget(page if page is self.dashboard_tab else self._make_scrollable_page(page))
 
         self._build_ui_chrome()
 
         self.dashboard_tab.set_config(self.dashboard_config_store.load())
+        self._rebuild_dash_can_map()
         self.watch_tab.set_storage_path(data_path("watchlist.json"))
 
         # İzleme sekmesi, Gönderim sekmesindeki DBC ile AYNI nesneyi kullanır;
@@ -200,8 +204,12 @@ class MainWindow(QMainWindow):
         self.dashboard_tab.open_graph_requested.connect(
             lambda: self.setCurrentWidget(self.graph_tab)
         )
-        self.dashboard_tab.actuator_command.connect(self._send_actuator_override)
+        self.dashboard_tab.writer = self._write_binding
+        self.transmit_tab.dbc_loaded.connect(self._on_dashboard_sources_changed)
+        self.a2l_tab.a2l_loaded.connect(self._on_dashboard_sources_changed)
         self.dashboard_tab.set_role(self.current_role)
+        if hasattr(self, "header_role_label"):
+            self._update_role_label()
 
         self._wire_signals()
 
@@ -237,7 +245,7 @@ class MainWindow(QMainWindow):
         """İlk pencere boyutu EKRANA sığmalı: sabit 1600x950, 1366x768 gibi
         laptop ekranlarında pencereyi alt kenardan dışarı taşırıyordu.
         Kullanılabilir alanın %92'sini aşmayacak şekilde seçilir."""
-        self.setMinimumSize(900, 560)
+        self.setMinimumSize(1100, 600)
         screen = QGuiApplication.primaryScreen()
         if screen is None:
             self.resize(1280, 800)
@@ -245,7 +253,7 @@ class MainWindow(QMainWindow):
         avail = screen.availableGeometry()
         width = min(1600, int(avail.width() * 0.92))
         height = min(950, int(avail.height() * 0.92))
-        self.resize(max(900, width), max(560, height))
+        self.resize(max(1100, width), max(600, height))
         frame = self.frameGeometry()
         frame.moveCenter(avail.center())
         self.move(frame.topLeft())
@@ -264,16 +272,18 @@ class MainWindow(QMainWindow):
         central_layout.setSpacing(0)
         central_layout.addWidget(self._build_top_header())
         central_layout.addWidget(self._build_action_status_row())
-
-        body = QHBoxLayout()
-        body.setContentsMargins(0, 0, 0, 0)
-        body.setSpacing(0)
-        body.addWidget(self._build_sidebar())
-        body.addWidget(self.stack, stretch=1)
-        central_layout.addLayout(body, stretch=1)
+        central_layout.addWidget(self.stack, stretch=1)
 
         self.setCentralWidget(central)
         self.statusBar().setSizeGripEnabled(False)
+        # Ana Sayfa kaydırılmadığı için pencere, sayfanın sığacağı en küçük boyuttan
+        # küçültülemez (16" laptop: 1280x720 etkin çözünürlükte bile sığar).
+        hint = central.minimumSizeHint()
+        self.setMinimumSize(max(1100, hint.width()), max(600, hint.height() + 26))
+        self.resize(max(self.width(), self.minimumWidth()), max(self.height(), self.minimumHeight()))
+        self.header_clock_label = QLabel("")
+        self.header_clock_label.setObjectName("headerClock")
+        self.statusBar().addPermanentWidget(self.header_clock_label)
         self._update_connection_display()
 
         self._clock_timer = QTimer(self)
@@ -289,79 +299,37 @@ class MainWindow(QMainWindow):
         effect.setColor(QColor(20, 30, 40, alpha))
         widget.setGraphicsEffect(effect)
 
-    def _build_sidebar(self) -> QWidget:
-        root = QWidget()
-        root.setObjectName("sidebarRoot")
-        root.setFixedWidth(220)
-        layout = QVBoxLayout(root)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-
-        self.nav_list = QListWidget()
-        self.nav_list.setObjectName("sidebarNav")
-        self.nav_list.setFocusPolicy(Qt.NoFocus)
-        for icon, label, _page in self._nav_pages:
-            item = QListWidgetItem(f"{icon}   {label}")
-            self.nav_list.addItem(item)
-        self.nav_list.setCurrentRow(0)
-        self.nav_list.currentRowChanged.connect(self.stack.setCurrentIndex)
-        layout.addWidget(self.nav_list, stretch=1)
-
-        # Alt durum bloğu: referans mockup'ta koyu lacivert sidebar
-        # zemininin üzerinde YÜZEN, BEYAZ/açık renkli yuvarlak köşeli bir
-        # "kart" (düz metin DEĞİL — bkz. görev tanımı madde 7).
-        status = QFrame()
-        status.setObjectName("sidebarStatusCard")
-        status_layout = QVBoxLayout(status)
-        status_layout.setContentsMargins(14, 12, 14, 10)
-        status_layout.setSpacing(3)
-
-        self.sidebar_conn_label = QLabel()
-        self.sidebar_conn_label.setTextFormat(Qt.RichText)
-        self.sidebar_conn_label.setObjectName("sidebarStatusTitle")
-        self.sidebar_iface_label = QLabel("Bağlantı: Pasif")
-        self.sidebar_iface_label.setObjectName("sidebarStatusDim")
-        self.sidebar_version_label = QLabel("CAN 2.0A / 2.0B")
-        self.sidebar_version_label.setObjectName("sidebarStatusDim")
-        status_layout.addWidget(self.sidebar_conn_label)
-        status_layout.addWidget(self.sidebar_iface_label)
-        status_layout.addWidget(self.sidebar_version_label)
-
-        settings_link = QPushButton("⚙  Ayarlar")
-        settings_link.setObjectName("sidebarSettingsLink")
-        settings_link.setCursor(Qt.PointingHandCursor)
-        settings_link.clicked.connect(lambda: self.nav_list.setCurrentRow(
-            len(self._nav_pages) - 1))  # "Kullanıcı / Profil" sekmesine götürür
-        status_layout.addSpacing(4)
-        status_layout.addWidget(settings_link)
-
-        status_margin = QWidget()
-        status_margin_layout = QVBoxLayout(status_margin)
-        status_margin_layout.setContentsMargins(10, 8, 10, 14)
-        status_margin_layout.addWidget(status)
-        self._apply_shadow(status, blur=16, dy=2, alpha=70)
-        layout.addWidget(status_margin)
-        return root
-
     def _build_top_header(self) -> QWidget:
-        """Üst koyu lacivert başlık şeridi: logo rozeti + başlık + bağlantı
-        pili (referans mockup'taki ince navy şerit)."""
+        """Üst şerit: logo + başlık + YATAY sekme çubuğu (sidebar yok) + bağlantı pili.
+        Sekmeler sabittir: kapatılamaz/taşınamaz, "Ana Sayfa" her zaman ilk sekmedir."""
         header = QFrame()
         header.setObjectName("topHeaderNavy")
         outer = QHBoxLayout(header)
-        outer.setContentsMargins(16, 10, 16, 10)
-        outer.setSpacing(10)
+        outer.setContentsMargins(14, 0, 14, 0)
+        outer.setSpacing(14)
 
-        logo = QLabel("🔧")
+        logo = QLabel("⚡")
         logo.setObjectName("headerLogoBadge")
-        logo.setFixedSize(30, 30)
+        logo.setFixedSize(24, 24)
         logo.setAlignment(Qt.AlignCenter)
         outer.addWidget(logo)
-
-        title = QLabel("ECU CAN Haberleşme Arayüzü")
+        title = QLabel("ECU CAN Arayüzü")
         title.setObjectName("headerTitle")
         outer.addWidget(title)
-        outer.addStretch()
+
+        self.nav_bar = QTabBar()
+        self.nav_bar.setObjectName("topNav")
+        self.nav_bar.setDrawBase(False)
+        self.nav_bar.setExpanding(False)
+        self.nav_bar.setMovable(False)
+        self.nav_bar.setTabsClosable(False)
+        self.nav_bar.setUsesScrollButtons(False)
+        self.nav_bar.setFocusPolicy(Qt.NoFocus)
+        for _icon, label, _page in self._nav_pages:
+            self.nav_bar.addTab(label)
+        self.nav_bar.setCurrentIndex(0)
+        self.nav_bar.currentChanged.connect(self.stack.setCurrentIndex)
+        outer.addWidget(self.nav_bar, 1)
 
         self.header_conn_pill = QLabel("●  Bağlı değil")
         self.header_conn_pill.setObjectName("connPillBad")
@@ -369,50 +337,45 @@ class MainWindow(QMainWindow):
         return header
 
     def _build_action_status_row(self) -> QWidget:
-        """Başlık şeridinin HEMEN altındaki TEK satır: solda motor
-        komutu düğmeleri (her biri hafif gölgeli birer "kart" gibi),
-        sağda ikonlu durum okumaları (Sistem / Ortam / Tarih-Saat) — arka
-        plan kartı YOK, doğrudan sayfa zemini üzerinde (görev tanımı
-        madde 3). Büyük koyu ikaz lambası şeridi burada KASITLI OLARAK
-        YOK (bkz. app/ui/dashboard_tab.py DashboardTab sınıf yorumu ve bu
-        dosyanın değişiklik raporu: lamba verisi/mantığı korunuyor,
-        yalnızca görünür ana akıştan çıkarıldı)."""
+        """Sekmelerin altındaki komut şeridi (TÜM sayfalarda görünür; Acil Durdurma
+        her zaman erişilebilir): Motoru Başlat / Durdur / Acil Durdurma, sağda rol ve
+        ⚙ Eşleşmeler."""
         row = QFrame()
         row.setObjectName("actionStatusRow")
         layout = QHBoxLayout(row)
-        layout.setContentsMargins(16, 10, 20, 10)
+        layout.setContentsMargins(14, 4, 14, 4)
         layout.setSpacing(10)
 
-        # Dashboard sekmesinin KENDİ düğmelerini (mantık/onay diyalogları
-        # zaten orada) burada, tek görünür satırda kullanıyoruz — ayrı bir
-        # "Motor Komutları" kutusu / kopya düğme YOK.
         self.dashboard_tab.start_button.setText("▶  Motoru Başlat")
         self.dashboard_tab.stop_button.setText("⏹  Motoru Durdur")
         self.dashboard_tab.estop_button.setText("⚠  Acil Durdurma")
-        self.dashboard_tab.estop_button.setProperty("danger", True)
         for btn in (self.dashboard_tab.start_button, self.dashboard_tab.stop_button,
                     self.dashboard_tab.estop_button):
-            btn.setMinimumHeight(36)
-            btn.setMaximumWidth(180)
+            btn.setFixedHeight(30)
+            btn.setMinimumWidth(150)
             btn.setCursor(Qt.PointingHandCursor)
-            self._apply_shadow(btn, blur=12, dy=2, alpha=35)
             layout.addWidget(btn)
 
         layout.addStretch()
-
-        self.header_system_label = QLabel("ⓘ Sistem:  <span style=\"color:#1B8A4C;\">●</span> Aktif")
-        self.header_ambient_label = QLabel("🌡 Ortam:  <span style=\"color:#1B8A4C;\">●</span> Normal")
-        self.header_clock_label = QLabel("📅 Tarih/Saat  —")
-        for lbl in (self.header_system_label, self.header_ambient_label, self.header_clock_label):
-            lbl.setObjectName("headerReadout")
-            lbl.setTextFormat(Qt.RichText)
-            layout.addWidget(lbl)
-            layout.addSpacing(18)
+        self.header_role_label = QLabel("")
+        self.header_role_label.setObjectName("headerReadout")
+        self.header_role_label.setTextFormat(Qt.RichText)
+        layout.addWidget(self.header_role_label)
+        self.mappings_button = QPushButton("⚙  Eşleşmeler")
+        self.mappings_button.setFixedHeight(28)
+        self.mappings_button.setCursor(Qt.PointingHandCursor)
+        self.mappings_button.setToolTip("Sensör, eyleyici, motor komutu ve giriş sinyallerinin CAN (DBC) / A2L eşleşmeleri")
+        self.mappings_button.clicked.connect(self.dashboard_tab.open_mappings)
+        layout.addWidget(self.mappings_button)
+        self._update_role_label()
         return row
+
+    def _update_role_label(self):
+        self.header_role_label.setText(f"Rol: <b style='color:#fff'>{self.current_role.value}</b>")
 
     def _update_clock(self):
         now_text = datetime.now().strftime("%d.%m.%Y  %H:%M:%S")
-        self.header_clock_label.setText(f"📅 Tarih/Saat  {now_text}")
+        self.header_clock_label.setText(now_text)
 
     def _update_connection_display(self, health_message: str | None = None):
         connected = self._conn_state["connected"]
@@ -423,21 +386,12 @@ class MainWindow(QMainWindow):
         if connected:
             self.header_conn_pill.setObjectName("connPillOk")
             self.header_conn_pill.setText(f"●  Bağlı  |  {interface}")
-            self.sidebar_iface_label.setText("Bağlantı: Aktif")
-            dot_color = "#58D88C"
         elif lost:
             self.header_conn_pill.setObjectName("connPillBad")
             self.header_conn_pill.setText("●  Bağlantı koptu — yeniden bağlanılıyor…")
-            self.sidebar_iface_label.setText("Bağlantı: KOPTU")
-            dot_color = "#E0A030"
         else:
             self.header_conn_pill.setObjectName("connPillBad")
             self.header_conn_pill.setText("●  Bağlı değil")
-            self.sidebar_iface_label.setText("Bağlantı: Pasif")
-            dot_color = "#C22A1D"
-        self.sidebar_conn_label.setText(
-            f'<span style="color:{dot_color};">●</span>&nbsp;&nbsp;<b>PCAN-USB</b>'
-        )
         # objectName değiştiğinde QSS'in yeniden uygulanması gerekir.
         self.header_conn_pill.style().unpolish(self.header_conn_pill)
         self.header_conn_pill.style().polish(self.header_conn_pill)
@@ -465,10 +419,10 @@ class MainWindow(QMainWindow):
         """Eski QTabWidget tabanlı kodun `self.setCurrentWidget(...)`
         çağrılarının (bkz. open_graph_requested bağlantısı) değişmeden
         çalışmaya devam etmesi için ince bir uyumluluk katmanı: hem sayfa
-        yığınını hem de sidebar seçimini günceller."""
+        yığınını hem de üst sekme çubuğunu günceller."""
         index = self.stack.indexOf(self._page_scrolls.get(widget, widget))
         if index != -1:
-            self.nav_list.setCurrentRow(index)
+            self.nav_bar.setCurrentIndex(index)
 
     def _wire_signals(self):
         self.connection_tab.connect_requested.connect(self._on_connect)
@@ -726,6 +680,7 @@ class MainWindow(QMainWindow):
             self.control_panel_tab.on_can_frame(msg.arbitration_id, bytes(msg.data))
             self.performance_tab.on_can_frame(msg.arbitration_id, bytes(msg.data))
             self.workspace_tab.on_can_frame(msg.arbitration_id, bytes(msg.data))
+            self._dash_on_can_frame(msg.arbitration_id, bytes(msg.data))
             if self.can_logger.is_active:
                 self.can_logger.write(msg.timestamp, msg.arbitration_id, msg.dlc,
                                        msg.data, msg.is_extended_id)
@@ -1331,40 +1286,138 @@ class MainWindow(QMainWindow):
         self._log_event("KALIBRASYON", f"{obj.name} eski değerine geri yazıldı: {entry.old_value}")
 
     # ---- Ana Sayfa (Dashboard) -----------------------------------------------
-    def _send_dbc_command(self, command_name: str, cmd) -> bool:
-        if not cmd.message or not cmd.signal:
+    # Her değişken bir Binding ile tanımlıdır: CAN (DBC mesaj.sinyal) ya da A2L (CCP).
+    _can_tx_values: dict = {}
+
+    def _write_binding(self, binding: Binding, value: float, label: str, merge: bool = True) -> bool:
+        """Bir Binding'e değer yazar (DashboardTab.writer). Başarısızlıkta kullanıcıyı
+        bilgilendirir ve False döner. ``merge``: aynı CAN mesajına daha önce yazılan
+        diğer sinyallerin son değerleri korunur (değer + anahtar aynı mesajda olabilir)."""
+        if not binding.is_set:
+            QMessageBox.warning(self, "Eşleşme yok", f"{label} için eşleşme tanımlı değil (⚙ Eşleşmeler).")
             return False
+        if binding.source == SOURCE_A2L:
+            return self._write_a2l(binding, value, label)
+        return self._write_can(binding, value, label, merge)
+
+    def _write_can(self, binding: Binding, value: float, label: str, merge: bool = True) -> bool:
         if not self.connection.is_connected:
-            QMessageBox.warning(
-                self, "CAN bağlantısı yok",
-                f"{command_name} göndermeden önce Bağlantı sekmesinden CAN hattına bağlanın."
-            )
+            QMessageBox.warning(self, "CAN bağlantısı yok",
+                                f"{label} göndermeden önce CAN hattına bağlanın.")
             return False
+        vals = self._can_tx_values.setdefault(binding.message, {}) if merge else {}
+        vals[binding.signal] = value
         try:
-            can_id, data, extended = self.transmit_tab.dbc.encode(cmd.message, {cmd.signal: cmd.value})
+            can_id, data, extended = self.transmit_tab.dbc.encode(binding.message, dict(vals))
             self.connection.send(can_id, data, extended)
         except Exception as exc:  # cantools/python-can çeşitli hata tipleri fırlatabilir
-            QMessageBox.critical(self, f"{command_name} gönderilemedi", str(exc))
-            self._log_event("HATA", f"{command_name} gönderilemedi: {exc}")
+            QMessageBox.critical(self, f"{label} gönderilemedi", str(exc))
+            self._log_event("HATA", f"{label} gönderilemedi: {exc}")
             return False
         sent_msg = can.Message(arbitration_id=can_id, data=data, is_extended_id=extended,
                                 timestamp=time.time())
         self.monitor_tab.add_message(sent_msg, direction="TX")
-        self._log_event("MOTOR", f"{command_name} gönderildi ({cmd.message}.{cmd.signal}={cmd.value})")
+        self._log_event("EYLEYICI", f"{label} [CAN {binding.message}.{binding.signal}] = {value:g} "
+                                    f"({self.current_user}/{self.current_role.value})")
         return True
 
+    def _a2l_info(self, name: str):
+        summary = self.a2l_tab.db.summary
+        if summary is None:
+            return None
+        for coll in (summary.measurements, summary.characteristics):
+            for m in coll:
+                if m.name == name:
+                    return m
+        return None
+
+    def _write_a2l(self, binding: Binding, value: float, label: str) -> bool:
+        if self.ccp_client is None:
+            QMessageBox.warning(self, "CCP bağlı değil",
+                                f"{label} A2L üzerinden yazılmadan önce CCP bağlantısı kurun.")
+            return False
+        info = self._a2l_info(binding.a2l_name)
+        try:
+            if info is None:
+                raise ValueError(f"A2L'de '{binding.a2l_name}' bulunamadı")
+            if info.address is None:
+                raise ValueError(f"'{binding.a2l_name}' için ECU adresi yok")
+            cpanel.ccp_write_value(self.ccp_client, info, value)
+        except Exception as exc:
+            QMessageBox.critical(self, f"{label} yazılamadı", str(exc))
+            self._log_event("HATA", f"{label} A2L yazılamadı: {exc}")
+            return False
+        self._log_event("EYLEYICI", f"{label} [A2L {binding.a2l_name}] = {value:g} "
+                                    f"({self.current_user}/{self.current_role.value})")
+        return True
+
+    def _send_motor_command(self, command_name: str, cmd) -> bool:
+        if not cmd.binding.is_set:
+            return False
+        # Komutlar tek sinyallik darbedir: diğer sinyallerin eski değerleri taşınmaz.
+        ok = self._write_binding(cmd.binding, cmd.value, command_name, merge=False)
+        if ok:
+            self._log_event("MOTOR", f"{command_name} gönderildi ({cmd.binding.text}={cmd.value:g})")
+        return ok
+
     def _on_motor_start(self):
-        self._send_dbc_command("Motor Start", self.dashboard_tab.config.motor_start)
+        self._send_motor_command("Motor Start", self.dashboard_tab.config.motor_start)
 
     def _on_motor_stop(self):
-        self._send_dbc_command("Motor Stop", self.dashboard_tab.config.motor_stop)
+        self._send_motor_command("Motor Stop", self.dashboard_tab.config.motor_stop)
 
     def _on_estop(self):
-        self._send_dbc_command("ACİL STOP", self.dashboard_tab.config.estop)
+        self._send_motor_command("ACİL DURDURMA", self.dashboard_tab.config.estop)
 
     def _on_dashboard_config_saved(self, cfg):
         self.dashboard_config_store.save(cfg)
-        self._log_event("AYAR", "Ana Sayfa ayarları (DBC/A2L eşlemeleri) kaydedildi.")
+        self._rebuild_dash_can_map()
+        self._log_event("AYAR", "Eşleşmeler (CAN/A2L) kaydedildi.")
+
+    def _on_dashboard_sources_changed(self, *_):
+        summary = self.a2l_tab.db.summary
+        self.dashboard_tab.set_sources(self.transmit_tab.dbc, summary)
+        self._rebuild_dash_can_map()
+
+    # ---- Ana Sayfa: CAN'dan (DBC) sensör okuma --------------------------------
+    _dash_can: dict = {}
+
+    def _rebuild_dash_can_map(self):
+        """CAN kaynaklı sensör değer/arıza sinyallerini frame id'ye göre indeksler."""
+        self._dash_can = {}
+        cdb = getattr(self.transmit_tab.dbc, "_db", None)
+        if cdb is None:
+            return
+        cfg = self.dashboard_tab.config
+        for key in GAUGE_KEYS:
+            smap = cfg.sensor_map(key)
+            for role, b in (("value", smap.value), ("fault", smap.fault)):
+                if b.source != SOURCE_CAN or not b.is_set:
+                    continue
+                try:
+                    msg = cdb.get_message_by_name(b.message)
+                except KeyError:
+                    continue
+                ent = self._dash_can.setdefault(msg.frame_id, {"msg": msg, "sigs": []})
+                ent["sigs"].append((b.signal, role, key))
+
+    def _dash_on_can_frame(self, can_id: int, data: bytes):
+        ent = self._dash_can.get(can_id)
+        if ent is None:
+            return
+        try:
+            vals = ent["msg"].decode(bytes(data), decode_choices=False)
+        except Exception:
+            return
+        dt = self.dashboard_tab
+        for sig, role, key in ent["sigs"]:
+            v = vals.get(sig)
+            if not isinstance(v, (int, float)):
+                continue
+            if role == "value":
+                dt.set_gauge_value(key, float(v))
+            else:
+                dt.set_sensor_fault(key, "Sensör arızası" if v else None)
 
     def _sync_workspace_a2l(self):
         summary = self.a2l_tab.db.summary
@@ -1396,116 +1449,81 @@ class MainWindow(QMainWindow):
         summary = self.a2l_tab.db.summary
         self.dashboard_tab.set_measurements(summary.measurements if summary is not None else [])
 
+    # ---- Ana Sayfa: A2L'den (CCP) okuma --------------------------------------
     def _on_dashboard_tick(self, names: list):
+        dt = self.dashboard_tab
+        cfg = dt.config
+        a2l_gauges = cfg.gauge_a2l_map()                    # gösterge -> A2L adı
         if self.ccp_client is None:
+            for key in a2l_gauges:
+                dt.set_gauge_error(key, "CCP bağlı değil")
             return
         summary = self.a2l_tab.db.summary
         if summary is None:
+            for key in a2l_gauges:
+                dt.set_gauge_error(key, "A2L yüklü değil")
             return
-        from app.dashboard_config import AMBIENT_KEYS, GAUGE_KEYS
 
         by_name = {m.name: m for m in summary.measurements}
-        name_to_key = {v: k for k, v in self.dashboard_tab.config.measurement_map().items()}
-        graph_names = set(self.dashboard_tab.graph_measurement_names())
-        for name in names:
+        roles: dict[str, list] = {}                          # A2L adı -> [(rol, gösterge)]
+        for key, name in a2l_gauges.items():
+            roles.setdefault(name, []).append(("value", key))
             m = by_name.get(name)
-            key = name_to_key.get(name)
+            if m is not None:
+                dt.set_gauge_limits(key, m.minimum, m.maximum)
+        for key in GAUGE_KEYS:
+            f = cfg.sensor_map(key).fault
+            if f.source == SOURCE_A2L and f.a2l_name.strip():
+                roles.setdefault(f.a2l_name.strip(), []).append(("fault", key))
+        graph_names = set(dt.graph_measurement_names())
+
+        for name in names:
+            targets = roles.get(name, [])
             graph_wanted = name in graph_names
-            if m is None or m.address is None or (key is None and not graph_wanted):
+            if not targets and not graph_wanted:
+                continue
+            m = by_name.get(name)
+
+            def fail(reason: str, targets=targets):
+                for role, key in targets:
+                    if role == "value":
+                        dt.set_gauge_error(key, reason)
+
+            if m is None:
+                fail(f"A2L'de '{name}' yok")
+                continue
+            if m.address is None:
+                fail("ECU adresi yok")
                 continue
             try:
                 size = ccp_codec.datatype_size(m.datatype)
                 raw_bytes = self.ccp_client.read_memory(m.address, size, m.address_extension or 0)
                 raw_value = ccp_codec.decode_value(m.datatype, raw_bytes, m.byte_order)
                 phys_value = ccp_codec.raw_to_physical(m.compu_method, raw_value)
-            except (ccp_protocol.CCPError, ccp_protocol.CCPTimeoutError,
-                    ccp_codec.UnknownDatatypeError, ValueError):
+            except ccp_protocol.CCPTimeoutError:
+                fail("ECU cevap vermedi")
+                continue
+            except ccp_protocol.CCPError as exc:
+                fail(f"CCP hatası: {exc}")
+                continue
+            except ccp_codec.UnknownDatatypeError:
+                fail(f"Veri tipi desteklenmiyor ({m.datatype})")
+                continue
+            except ValueError as exc:
+                fail(str(exc))
                 continue
             if graph_wanted and isinstance(phys_value, (int, float)):
-                self.dashboard_tab.add_measurement_sample(name, float(phys_value))
-            if key in GAUGE_KEYS:
-                self.dashboard_tab.set_gauge_value(key, float(phys_value))
-            elif key in AMBIENT_KEYS:
-                unit = f" {m.unit}" if m.unit else ""
-                text = f"{phys_value:.4g}{unit}" if isinstance(phys_value, float) else f"{phys_value}{unit}"
-                self.dashboard_tab.set_ambient_value(key, text)
-
-    # ---- Eyleyiciler (manuel override) --------------------------------------
-    def _send_actuator_override(self, actuator_key: str, enable: bool, value: float):
-        """DashboardTab, gating (rol kontrolü + onay diyaloğu) işini
-        KENDİSİ yapar (bkz. DashboardTab._on_actuator_toggle); bu
-        fonksiyon yalnızca ZATEN onaylanmış bir override isteğinin
-        gerçek CAN gönderimini yapar — tıpkı _send_dbc_command gibi.
-        Reuses the same DBC-encode-and-send mechanism as motor komutları."""
-        from app.dashboard_config import ACTUATOR_LABELS
-
-        cmd = self.dashboard_tab.config.actuators.get(actuator_key)
-        label = ACTUATOR_LABELS.get(actuator_key, actuator_key)
-        if cmd is not None and cmd.channel == "a2l":
-            self._send_actuator_override_a2l(actuator_key, cmd, label, enable, value)
-            return
-        if cmd is None or not cmd.message or not cmd.enable_signal:
-            self.dashboard_tab.set_actuator_feedback(actuator_key, "DBC eşlemesi tanımsız")
-            return
-        if not self.connection.is_connected:
-            QMessageBox.warning(
-                self, "CAN bağlantısı yok",
-                f"{label} override göndermeden önce Bağlantı grubundan CAN hattına bağlanın."
-            )
-            return
-        values = {cmd.enable_signal: 1.0 if enable else 0.0}
-        if cmd.value_signal:
-            values[cmd.value_signal] = value
-        try:
-            can_id, data, extended = self.transmit_tab.dbc.encode(cmd.message, values)
-            self.connection.send(can_id, data, extended)
-        except Exception as exc:  # cantools/python-can çeşitli hata tipleri fırlatabilir
-            QMessageBox.critical(self, f"{label} override gönderilemedi", str(exc))
-            self._log_event("HATA", f"{label} override gönderilemedi: {exc}")
-            return
-        sent_msg = can.Message(arbitration_id=can_id, data=data, is_extended_id=extended,
-                                timestamp=time.time())
-        self.monitor_tab.add_message(sent_msg, direction="TX")
-        state_text = f"override AÇIK, değer={value:g}" if enable else "override KAPALI"
-        self.dashboard_tab.set_actuator_feedback(
-            actuator_key, f"%{value:g}" if enable else "Kapalı"
-        )
-        self._log_event(
-            "EYLEYICI",
-            f"{label}: {state_text} ({self.current_user}/{self.current_role.value})"
-        )
-
-    def _send_actuator_override_a2l(self, actuator_key, cmd, label, enable, value):
-        """A2L kanalı: override-enable ve değer değişkenlerini CCP ile yazar."""
-        if not cmd.a2l_enable:
-            self.dashboard_tab.set_actuator_feedback(actuator_key, "A2L eşlemesi tanımsız")
-            return
-        if self.ccp_client is None:
-            QMessageBox.warning(self, "CCP bağlı değil",
-                                f"{label} A2L üzerinden yazılmadan önce CCP bağlantısı kurun.")
-            return
-        summary = self.a2l_tab.db.summary
-        by_name = {m.name: m for m in summary.measurements} if summary is not None else {}
-        steps = []
-        if enable and cmd.a2l_value:
-            steps.append((cmd.a2l_value, value))        # önce değer
-        steps.append((cmd.a2l_enable, 1.0 if enable else 0.0))  # sonra bayrak
-        try:
-            for name, v in steps:
-                info = by_name.get(name)
-                if info is None:
-                    raise ValueError(f"A2L'de '{name}' bulunamadı")
-                cpanel.ccp_write_value(self.ccp_client, info, v)
-        except Exception as exc:
-            QMessageBox.critical(self, f"{label} override yazılamadı", str(exc))
-            self._log_event("HATA", f"{label} A2L override yazılamadı: {exc}")
-            return
-        self.dashboard_tab.set_actuator_feedback(
-            actuator_key, f"%{value:g}" if enable else "Kapalı")
-        self._log_event(
-            "EYLEYICI",
-            f"{label} [A2L]: {'override AÇIK, değer=%g' % value if enable else 'override KAPALI'} "
-            f"({self.current_user}/{self.current_role.value})")
+                dt.add_measurement_sample(name, float(phys_value))
+            for role, key in targets:
+                if role == "value":
+                    dt.set_gauge_value(key, float(phys_value))
+                    dt.set_gauge_debug(
+                        key, f"A2L: {name}  @0x{m.address:X}  {m.datatype}  "
+                             f"{m.byte_order or 'bayt sırası: varsayılan (MSB_FIRST)'}\n"
+                             f"ham = {raw_value}   →   fiziksel = {float(phys_value):.6g} {m.unit or ''}"
+                             f"   [{getattr(m.compu_method, 'conversionType', 'dönüşüm yok')}]")
+                else:
+                    dt.set_sensor_fault(key, "Sensör arızası" if phys_value else None)
 
     # ---- Kullanıcı / Profil -------------------------------------------------
     # ---- Kontrol Paneli ---------------------------------------------------
@@ -1711,6 +1729,8 @@ class MainWindow(QMainWindow):
         self.current_user = user_name
         self.current_role = Role(role_value)
         self.dashboard_tab.set_role(self.current_role)
+        if hasattr(self, "header_role_label"):
+            self._update_role_label()
         self.control_panel_tab.set_allowed(can_override_actuator(self.current_role))
         self.dashboard_tab.sim_inputs.set_allowed(can_override_actuator(self.current_role))
         self._log_event("KULLANICI", f"Rol uygulandı: {user_name} ({role_value})")

@@ -153,6 +153,26 @@ uygulamada donanımla doğrulanmamıştır**. Bu yüzden:
 - Gerçek donanımda ilk denemenizi önce test ortamında (yedek bir ECU ya da
   düşük riskli bir parametreyle) yapmanız önerilir.
 
+### Ana Sayfa (tek ekran, sidebar'sız)
+
+- Üstte yatay sekme çubuğu; **Ana Sayfa sekmesi sabittir** (kapatılamaz/taşınamaz) ve
+  16" laptopta (en az ~1280x720 etkin çözünürlük) **kaydırma olmadan** tek ekrana sığar.
+- Sol: **Uçuş Koşulları** ve **Motor Kontrol** (CAN/DBC üzerinden gönderilen girişler) +
+  **Eyleyiciler**. Sağ: **Motor Parametreleri** (8 gösterge) + **Canlı Trendler**.
+- **⚙ Eşleşmeler**: sensör, eyleyici, motor komutu ve giriş sinyalleri. Sensör ve eyleyicilerde
+  her değişkenin **Değer** ve **Anahtar (`_sw`)** eşleşmesi ayrı ayrı **CAN (DBC) ya da A2L**
+  olarak seçilir (sensörlerde isteğe bağlı *Arıza* biti de). Motoru Başlat / Durdur / Acil
+  Durdurma da CAN veya A2L olabilir. Eski `dashboard_config.json` otomatik göç eder.
+- **Kilit (`_sw`)**: kilitli (anahtar=0) iken değer değiştirilemez. Kilit açılınca (Mühendis/Yönetici
+  + onay) önce değer, sonra `<ad>_sw = 1` yazılır; tekrar kilitleyince `<ad>_sw = 0`.
+- **Canlı Trendler**: normalize yok, her sinyal gerçek birimiyle (çoklu Y ekseni); 60 sn/5 dk/10 dk/1 sa,
+  yakınlaştır/uzaklaştır, A/B imleçleri ve Δ, iki sinyalin farkı, Test Başlat/Bitir işaretleri,
+  CSV/MAT/MDF dışa aktarım.
+- Gösterge değer göstermiyorsa nedeni kartın altında yazar (CCP bağlı değil, ECU adresi yok, ECU
+  cevap vermedi…); fare ile üzerine gelince kaynak/ham/fiziksel değer görünür. A2L'deki
+  `MOD_COMMON BYTE_ORDER` artık okunur (küçük-endian ECU'larda değerler eskiden bozuk çıkıyordu).
+- Testler: `python -m pytest tests` (Windows için `1_kurulum` sonrası venv içinde).
+
 ### PCAN-View ile birlikte test etme (donanımsız-adjacent)
 
 PEAK-System'in PCAN-View programı ve bu uygulama, aynı CAN kanalına

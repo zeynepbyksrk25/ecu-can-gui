@@ -1,69 +1,41 @@
-"""Ana Sayfa'daki "Simülasyon Girişleri" paneli: kullanıcı ve uçak girişleri
-(anahtarlar, sürgüler, sabit değer kutuları). Gönderimi MainWindow yapar;
-bu widget yalnızca `values_changed({anahtar: değer})` sinyali yayar."""
+"""Ana Sayfa'daki iki giriş kartı: **Uçuş Koşulları** (uçaktan gelen değerler) ve
+**Motor Kontrol** (kullanıcı komutları). Değerler CAN hattından (DBC) basılır;
+gönderimi MainWindow yapar, bu widget yalnızca ``values_changed({anahtar: değer})``
+sinyali yayar. Sinyal eşleşmeleri "Eşleşmeler" penceresinden yapılır."""
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFormLayout, QFrame, QGridLayout,
-    QHBoxLayout, QLabel, QPushButton, QScrollArea, QSlider, QVBoxLayout, QWidget,
+    QDoubleSpinBox, QFrame, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QSlider, QVBoxLayout, QWidget,
 )
 
 from app.sim_interface import INPUT_BY_KEY, INPUT_DEFS, SimConfig, auto_match, list_sources
+from app.ui.dash_widgets import DK_CYAN, DK_MUT, IconLabel, ToggleSwitch
 
-GROUP_TITLES = {"control": "Kontrol (Kullanıcı)", "aircraft": "Uçak", "const": "Sabit değerler (şimdilik)"}
-GROUP_LETTERS = {"control": "A", "aircraft": "B", "const": "C"}
+FLIGHT_LEFT = ["altitude", "ma", "alfa", "beta"]
+FLIGHT_RIGHT = ["p_amb", "t_amb", "p_total"]
+CONTROL_ORDER = ["start", "spark", "throttle", "primary_fuel"]
 
-
-class _MappingDialog(QDialog):
-    def __init__(self, sources, current: dict, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Giriş sinyallerini bağla (DBC)")
-        self.resize(560, 520)
-        self._sources = sources
-        lay = QVBoxLayout(self)
-        lay.addWidget(QLabel("Her giriş için DBC'deki sinyali seçin (uçak mesajı sinyalleri). "
-                             "Seçimler kaydedilir."))
-        form = QFormLayout()
-        self.combos: dict[str, QComboBox] = {}
-        for d in INPUT_DEFS:
-            cb = QComboBox()
-            cb.addItem("— bağlı değil —", "")
-            for s in sources:
-                cb.addItem(f"{s.where}.{s.name}" + (f"  [{s.unit}]" if s.unit else ""), s.key)
-            i = cb.findData(current.get(d.key, ""))
-            cb.setCurrentIndex(i if i >= 0 else 0)
-            self.combos[d.key] = cb
-            form.addRow(f"{d.label}" + (f" [{d.unit}]" if d.unit else "") + ":", cb)
-        holder = QWidget()
-        holder.setLayout(form)
-        sc = QScrollArea()
-        sc.setWidgetResizable(True)
-        sc.setWidget(holder)
-        lay.addWidget(sc, 1)
-        auto = QPushButton("İsme göre otomatik eşle (boş olanları)")
-        auto.clicked.connect(self._auto)
-        lay.addWidget(auto)
-        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        bb.accepted.connect(self.accept)
-        bb.rejected.connect(self.reject)
-        lay.addWidget(bb)
-
-    def _auto(self):
-        for d in INPUT_DEFS:
-            cb = self.combos[d.key]
-            if cb.currentData():
-                continue
-            hit = auto_match(d.aliases, d.label, self._sources)
-            if hit is not None:
-                cb.setCurrentIndex(cb.findData(hit.key))
-
-    def mapping(self) -> dict:
-        return {k: cb.currentData() for k, cb in self.combos.items() if cb.currentData()}
-
+ICON_OF = {
+    "altitude": "alt", "ma": "mach", "alfa": "alpha", "beta": "beta",
+    "p_amb": "cloud", "t_amb": "temp", "p_total": "pin",
+    "start": "power", "spark": "spark", "throttle": "throttle", "primary_fuel": "fuel",
+}
+DECIMALS = {"altitude": 1, "ma": 2, "alfa": 1, "beta": 1, "p_amb": 3, "t_amb": 1, "p_total": 3, "throttle": 1}
 
 _FALLBACK_DEFAULTS = {"ma": 0.0, "p_total": 1.013, "p_amb": 1.013, "t_amb": 15.0}
 
 
-class SimInputsPanel(QFrame):
+def card_title(text: str, icon: str) -> QHBoxLayout:
+    row = QHBoxLayout()
+    row.setSpacing(8)
+    row.addWidget(IconLabel(icon, DK_CYAN, 18))
+    t = QLabel(text.upper())
+    t.setObjectName("cardTitle")
+    row.addWidget(t)
+    row.addStretch(1)
+    return row
+
+
+class SimInputsPanel(QWidget):
     values_changed = Signal(dict)
 
     def __init__(self, config: SimConfig | None = None, parent=None):
@@ -75,186 +47,173 @@ class SimInputsPanel(QFrame):
         self._allowed = True
         self._ctrl: dict[str, dict] = {}
         self._building = False
-        self.setObjectName("simInputs")
-        self.setStyleSheet("QFrame#simInputs { background:#FFFFFF; border:1px solid #EDF1F5; border-radius:10px; }")
         self._build()
 
     # ------------------------------------------------------------ yapı
     def _build(self):
-        from app.ui.dashboard_tab import ToggleSwitch
         self._building = True
         root = QVBoxLayout(self)
-        root.setContentsMargins(12, 10, 12, 12)
-        root.setSpacing(4)
-        head = QHBoxLayout()
-        t = QLabel("SİMÜLASYON GİRİŞLERİ")
-        t.setStyleSheet("font-weight:800; color:#14202C; font-size:14px;")
-        self.bind_button = QPushButton("⚙ Bağla")
-        self.bind_button.setFixedHeight(24)
-        self.bind_button.clicked.connect(self._open_mapping)
-        head.addWidget(t, 1)
-        head.addWidget(self.bind_button)
-        root.addLayout(head)
-        self.info_label = QLabel("")
-        self.info_label.setStyleSheet("color:#A8231A; font-size:12px;")
-        self.info_label.setWordWrap(True)
-        root.addWidget(self.info_label)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(10)
 
-        current_group = None
-        switch_row = None
-        self._group_titles: dict[str, QLabel] = {}
-        for d in INPUT_DEFS:
-            if d.group != current_group:
-                current_group = d.group
-                gh = QHBoxLayout()
-                badge = QLabel(GROUP_LETTERS[d.group])
-                badge.setFixedSize(20, 20)
-                badge.setAlignment(Qt.AlignCenter)
-                badge.setStyleSheet("background:#0E6E8C; color:#FFFFFF; border-radius:10px; font-weight:800; font-size:12px;")
-                gl = QLabel(GROUP_TITLES[d.group])
-                gl.setStyleSheet("color:#14202C; font-weight:700; font-size:13px;")
-                gh.addWidget(badge)
-                gh.addWidget(gl, 1)
-                self._group_titles[d.group] = gl
-                gw = QFrame()
-                gw.setLayout(gh)
-                gw.setStyleSheet("QFrame { border-bottom:1px solid #E3EAF1; margin-top:2px; }")
-                root.addWidget(gw)
-                if d.kind == "switch":
-                    switch_row = QHBoxLayout()
-                    root.addLayout(switch_row)
-                elif d.kind == "const":
-                    const_grid = QGridLayout()
-                    const_grid.setHorizontalSpacing(10)
-                    const_grid.setVerticalSpacing(4)
-                    root.addLayout(const_grid)
-                    const_i = 0
-            if d.kind == "switch":
-                cell = QVBoxLayout()
-                cell.setAlignment(Qt.AlignHCenter)
-                sw = ToggleSwitch()
-                sw.toggled.connect(lambda checked, k=d.key: self._on_switch(k, checked))
-                lbl = QLabel(d.label)
-                lbl.setAlignment(Qt.AlignHCenter)
-                lbl.setStyleSheet("font-weight:700; font-size:12px;")
-                warn = QLabel("")
-                warn.setAlignment(Qt.AlignHCenter)
-                warn.setStyleSheet("color:#B9790F; font-size:11px;")
-                onoff = QLabel("Off")
-                onoff.setAlignment(Qt.AlignHCenter)
-                onoff.setStyleSheet("color:#5B6B79; font-size:12px; font-weight:700;")
-                sent = QLabel("")
-                sent.setAlignment(Qt.AlignHCenter)
-                sent.setStyleSheet("color:#8A99A8; font-size:11px;")
-                sw.toggled.connect(lambda c, o=onoff: (o.setText("On" if c else "Off"),
-                                                       o.setStyleSheet("color:%s; font-size:12px; font-weight:700;" %
-                                                                       ("#1B8A4C" if c else "#5B6B79"))))
-                cell.addWidget(onoff)
-                cell.addWidget(sw, 0, Qt.AlignHCenter)
-                cell.addWidget(lbl)
-                sent.setVisible(False)
-                cell.addWidget(sent)
-                switch_row.addLayout(cell, 1)
-                self._ctrl[d.key] = {"kind": "switch", "w": sw, "warn": warn, "label": lbl,
-                                     "onoff": onoff, "sent": sent}
-                continue
-            entry = self._make_numeric(d)
-            if d.note:                      # Alfa / Beta: tek satır, pasif
-                if not getattr(self, "_note_row_done", False):
-                    self._note_row_done = True
-                    nl = QLabel("Alfa / Beta  —  şimdilik kullanılmıyor")
-                    nl.setStyleSheet("color:#8A99A8; font-size:12px; font-style:italic; padding:2px 0;")
-                    root.addWidget(nl)
-                entry["w"].setParent(self)
-                entry["w"].setVisible(False)
-                if "slider" in entry:
-                    entry["slider"].setParent(self)
-                    entry["slider"].setVisible(False)
-                self._ctrl[d.key] = entry
-                continue
-            if d.kind == "const":
-                cell = QVBoxLayout()
-                cell.setSpacing(1)
-                cell.addWidget(entry["label"])
-                cell.addWidget(entry["w"])
-                const_grid.addLayout(cell, const_i // 2, const_i % 2)
-                const_i += 1
-            else:
-                box = QVBoxLayout()
-                box.setSpacing(1)
-                row = QHBoxLayout()
-                row.addWidget(entry["label"], 1)
-                row.addWidget(entry["warn"])
-                row.addWidget(entry["w"])
-                box.addLayout(row)
-                box.addWidget(entry["slider"])
-                box.addLayout(self._scale_row(d.minimum, d.maximum))
-                root.addLayout(box)
-            self._ctrl[d.key] = entry
+        # ---- Uçuş Koşulları
+        self.flight_card = QFrame()
+        self.flight_card.setObjectName("card")
+        fl = QVBoxLayout(self.flight_card)
+        fl.setContentsMargins(14, 8, 14, 6)
+        fl.setSpacing(2)
+        head = card_title("Uçuş Koşulları", "plane")
+        self.flight_cycle = QLabel("")
+        self.flight_cycle.setObjectName("mutedSmall")
+        head.addWidget(self.flight_cycle)
+        fl.addLayout(head)
+        cols = QHBoxLayout()
+        cols.setSpacing(12)
+        for keys in (FLIGHT_LEFT, FLIGHT_RIGHT):
+            col = QVBoxLayout()
+            col.setSpacing(0)
+            for k in keys:
+                col.addLayout(self._flight_row(INPUT_BY_KEY[k]))
+            col.addStretch(1)
+            cols.addLayout(col, 20 if keys is FLIGHT_LEFT else 22)
+            if keys is FLIGHT_LEFT:
+                sep = QFrame()
+                sep.setObjectName("vsep")
+                sep.setFixedWidth(1)
+                cols.addWidget(sep)
+        fl.addLayout(cols)
+        root.addWidget(self.flight_card)
 
-        btns = QHBoxLayout()
+        # ---- Motor Kontrol
+        self.control_card = QFrame()
+        self.control_card.setObjectName("card")
+        cl = QVBoxLayout(self.control_card)
+        cl.setContentsMargins(14, 8, 14, 6)
+        cl.setSpacing(0)
+        head = card_title("Motor Kontrol", "sliders")
         self.send_all_button = QPushButton("Hepsini gönder")
-        self.send_all_button.setProperty("primary", True)
+        self.send_all_button.setProperty("compact", True)
+        self.send_all_button.setProperty("tone", "go")
         self.send_all_button.clicked.connect(self._send_all)
-        self.reset_button = QPushButton("Varsayılana dön")
+        self.reset_button = QPushButton("Varsayılan")
+        self.reset_button.setProperty("compact", True)
         self.reset_button.clicked.connect(self._reset)
-        btns.addWidget(self.send_all_button)
-        btns.addWidget(self.reset_button)
-        root.addLayout(btns)
+        head.addWidget(self.reset_button)
+        head.addWidget(self.send_all_button)
+        cl.addLayout(head)
+        for k in CONTROL_ORDER:
+            cl.addLayout(self._control_row(INPUT_BY_KEY[k]))
+        # Tek satırlık durum: gönderim sonucu varsa o, yoksa eşleşme uyarısı
+        self._info_text = ""
+        self._status_text = ""
+        self._status_ok = True
         self.status_label = QLabel("")
-        self.status_label.setWordWrap(True)
-        self.status_label.setStyleSheet("font-size:12px; color:#5B6B79;")
-        root.addWidget(self.status_label)
+        self.status_label.setObjectName("mutedSmall")
+        self.status_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        cl.addWidget(self.status_label)
+        root.addWidget(self.control_card)
+
         self._building = False
         for d in INPUT_DEFS:
             self._set_widget(d.key, self._initial(d.key))
         self._refresh_warn()
 
-    def _make_numeric(self, d):
-        txt = f"{d.label} [{d.unit}]" if d.unit else d.label
-        if d.kind == "const":
-            unit = f"{d.unit} · " if d.unit else ""
-            txt = (f"{d.label}<br><span style='color:#6A7C8B; font-weight:500; font-size:10px;'>"
-                   f"{unit}{d.minimum:g} – {d.maximum:g}</span>")
-        name = QLabel(txt)
-        name.setTextFormat(Qt.RichText)
-        name.setWordWrap(True)
-        name.setToolTip(f"{d.label} [{d.unit}]" if d.unit else d.label)
-        name.setStyleSheet("font-weight:600; font-size:11px;")
-        warn = QLabel("")
-        warn.setStyleSheet("color:#B9790F; font-size:11px;")
+    def _name_label(self, d) -> QLabel:
+        lab = QLabel(d.display)
+        lab.setObjectName("rowName")
+        lab.setToolTip(f"{d.label} [{d.unit}]" if d.unit else d.label)
+        return lab
+
+    def _spin(self, d) -> QDoubleSpinBox:
         spin = QDoubleSpinBox()
         spin.setRange(d.minimum, d.maximum)
-        spin.setDecimals(3 if d.kind == "const" else 1)
-        spin.setSingleStep(0.1 if d.kind == "const" else 1.0)
-        spin.setFixedWidth(88 if d.kind != "const" else 110)
-        entry = {"kind": d.kind, "w": spin, "warn": warn, "label": name}
-        if d.kind == "slider":
+        spin.setDecimals(DECIMALS.get(d.key, 2))
+        spin.setSingleStep(1.0 if d.kind == "slider" else 0.1)
+        spin.setAlignment(Qt.AlignRight)
+        if d.unit:
+            spin.setSuffix(f" {d.unit}")
+        spin.setObjectName("valueSpin")
+        spin.setKeyboardTracking(False)
+        return spin
+
+    def _flight_row(self, d) -> QHBoxLayout:
+        row = QHBoxLayout()
+        row.setSpacing(6)
+        row.setContentsMargins(0, 0, 0, 0)
+        spin = self._spin(d)
+        spin.setObjectName("flightSpin")
+        spin.setFixedWidth(80)
+        spin.editingFinished.connect(lambda k=d.key: self._emit_one(k))
+        warn = QLabel("")
+        warn.setObjectName("warnDot")
+        warn.setVisible(False)
+        lab = self._name_label(d)
+        lab.setStyleSheet("font-size: 11.5px;")
+        # dar sütunda metin kırpılabilsin diye etiket küçülebilir (kart taşmaz)
+        lab.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        lab.setMinimumWidth(40)
+        row.addWidget(IconLabel(ICON_OF[d.key], DK_MUT, 16))
+        row.addWidget(lab, 1)
+        row.addWidget(warn)
+        row.addWidget(spin)
+        if not d.enabled:
+            spin.setEnabled(False)
+            lab.setEnabled(False)
+        self._ctrl[d.key] = {"kind": "num", "w": spin, "warn": warn, "label": lab}
+        wrap = QFrame()
+        wrap.setObjectName("rowFrame")
+        wrap.setLayout(row)
+        wrap.setFixedHeight(28)
+        outer = QHBoxLayout()
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(wrap)
+        return outer
+
+    def _control_row(self, d) -> QVBoxLayout:
+        box = QVBoxLayout()
+        box.setSpacing(0)
+        box.setContentsMargins(0, 0, 0, 0)
+        row = QHBoxLayout()
+        row.setSpacing(10)
+        row.setContentsMargins(0, 0, 0, 0)
+        lab = self._name_label(d)
+        warn = QLabel("")
+        warn.setObjectName("warnDot")
+        row.addWidget(IconLabel(ICON_OF[d.key], DK_MUT, 18))
+        row.addWidget(lab, 1)
+        row.addWidget(warn)
+        if d.kind == "switch":
+            sw = ToggleSwitch()
+            sw.toggled.connect(lambda checked, k=d.key: self._on_switch(k, checked))
+            row.addWidget(sw)
+            self._ctrl[d.key] = {"kind": "switch", "w": sw, "warn": warn, "label": lab}
+        else:
+            spin = self._spin(d)
+            spin.setMinimumWidth(92)
             sl = QSlider(Qt.Horizontal)
             sl.setRange(int(d.minimum * 10), int(d.maximum * 10))
             sl.sliderReleased.connect(lambda k=d.key: self._emit_one(k))
             sl.valueChanged.connect(lambda v, k=d.key: self._slider_moved(k, v))
             spin.editingFinished.connect(lambda k=d.key: self._spin_done(k))
-            entry["slider"] = sl
-        else:
-            spin.editingFinished.connect(lambda k=d.key: self._emit_one(k))
-        if not d.enabled:
-            spin.setEnabled(False)
-            if "slider" in entry:
-                entry["slider"].setEnabled(False)
-        return entry
-
-    @staticmethod
-    def _scale_row(minimum: float, maximum: float, n: int = 6):
-        row = QHBoxLayout()
-        row.setContentsMargins(4, 0, 4, 0)
-        step = (maximum - minimum) / n
-        for i in range(n + 1):
-            lab = QLabel(f"{minimum + i * step:g}")
-            lab.setStyleSheet("color:#6A7C8B; font-size:11px;")
-            lab.setAlignment(Qt.AlignLeft if i == 0 else Qt.AlignRight if i == n else Qt.AlignHCenter)
-            row.addWidget(lab, 1)
-        return row
+            row.addWidget(spin)
+            self._ctrl[d.key] = {"kind": "slider", "w": spin, "slider": sl, "warn": warn, "label": lab}
+        wrap = QFrame()
+        wrap.setObjectName("rowFrame")
+        wrap.setLayout(row)
+        wrap.setFixedHeight(30)
+        box.addWidget(wrap)
+        if d.kind == "slider":
+            srow = QHBoxLayout()
+            srow.setContentsMargins(28, 0, 0, 2)
+            srow.setSpacing(8)
+            lo, hi = QLabel(f"{d.minimum:g}%"), QLabel(f"{d.maximum:g}%")
+            for x in (lo, hi):
+                x.setObjectName("mutedSmall")
+            srow.addWidget(lo)
+            srow.addWidget(self._ctrl[d.key]["slider"], 1)
+            srow.addWidget(hi)
+            box.addLayout(srow)
+        return box
 
     # ------------------------------------------------------------ değerler
     def _default_of(self, key: str) -> float:
@@ -351,18 +310,14 @@ class SimInputsPanel(QFrame):
             return
         for k, v in vals.items():
             self.config.input_values[k] = float(v)
-            c = self._ctrl.get(k, {})
-            if "sent" in c:
-                c["sent"].setVisible(True)
-                c["sent"].setText("gönderiliyor…")
-                c["sent"].setStyleSheet("color:#8A99A8; font-size:11px;")
+        self.set_status("gönderiliyor…", True)
         self.config.save()
         self.values_changed.emit(vals)
 
     def _send_all(self):
         keys = self.sendable_keys()
         if not keys:
-            self.set_status("Bağlı giriş yok: ⚙ Bağla ile DBC sinyallerini seçin.", False)
+            self.set_status("Bağlı giriş yok: ⚙ Eşleşmeler ile DBC sinyallerini seçin.", False)
             return
         self._emit({k: self.value_of(k) for k in keys})
 
@@ -371,7 +326,7 @@ class SimInputsPanel(QFrame):
             self._set_widget(d.key, self._default_of(d.key))
             self.config.input_values.pop(d.key, None)
         self.config.save()
-        self.set_status("Değerler varsayılana döndü (gönderilmedi; göndermek için 'Hepsini gönder').", True)
+        self.set_status("Değerler varsayılana döndü (gönderilmedi).", True)
 
     # ------------------------------------------------------------ dışarıdan
     def set_allowed(self, allowed: bool):
@@ -390,17 +345,25 @@ class SimInputsPanel(QFrame):
             self.set_status("", True)
 
     def set_sent(self, keys, ok: bool = True):
-        """Anahtarların altındaki 'Gönderildi' işaretini günceller."""
-        for k in keys:
-            c = self._ctrl.get(k, {})
-            if "sent" in c:
-                c["sent"].setVisible(True)
-                c["sent"].setText("✓ Gönderildi" if ok else "✕ Gönderilemedi")
-                c["sent"].setStyleSheet(f"color:{'#1B8A4C' if ok else '#A8231A'}; font-size:11px; font-weight:600;")
+        """Gönderim sonucunu tek satırlık durumda gösterir."""
+        keys = list(keys)
+        if keys:
+            self.set_status(f"✓ {len(keys)} değer gönderildi" if ok else "✕ Gönderilemedi", ok)
 
     def set_status(self, text: str, ok: bool):
+        self._status_text, self._status_ok = text, ok
+        self._render_status()
+
+    def _render_status(self):
+        if self._status_text:
+            text, name = self._status_text, ("okSmall" if self._status_ok else "errSmall")
+        else:
+            text, name = self._info_text, "warnSmall"
         self.status_label.setText(text)
-        self.status_label.setStyleSheet(f"font-size:12px; color:{'#1B8A4C' if ok else '#A8231A'};")
+        self.status_label.setObjectName(name if text else "mutedSmall")
+        self.status_label.style().unpolish(self.status_label)
+        self.status_label.style().polish(self.status_label)
+        self.status_label.setToolTip(text)
 
     def refresh_sources(self, dbc=None):
         if dbc is not None:
@@ -423,38 +386,31 @@ class SimInputsPanel(QFrame):
             self.config.save()
         self._refresh_warn()
 
+    def sources(self) -> list:
+        return list(self._sources)
+
     def _refresh_warn(self):
         missing = []
+        show = bool(self._sources)  # DBC hiç yokken satır satır uyarı yok; tek banner
         for d in INPUT_DEFS:
             c = self._ctrl[d.key]
             bound = self.mapped(d.key) is not None
-            show = bool(self._sources)  # DBC hiç yokken satır satır uyarı yok; tek banner
-            c["warn"].setText("" if (bound or not d.enabled or not show) else "⚠ bağlı değil")
-            if d.kind != "switch" and d.enabled:
-                c["label"].setStyleSheet("font-weight:600; font-size:12px;" +
-                                         ("" if (bound or not show) else " color:#B9790F;"))
+            c["warn"].setText("" if (bound or not d.enabled or not show) else "⚠")
+            c["warn"].setVisible(bool(c["warn"].text()))
+            c["warn"].setToolTip("DBC sinyali bağlı değil — ⚙ Eşleşmeler")
             tip = (f"{self.config.input_map.get(d.key, '')}" if bound else
-                   "DBC sinyali bağlı değil — ⚙ Bağla")
+                   "DBC sinyali bağlı değil — ⚙ Eşleşmeler")
             c["w"].setToolTip(tip)
             if d.enabled and not bound:
-                missing.append(d.label)
-        cyc = ""
+                missing.append(d.display)
         m = self.mapped("altitude")
         msg = self._dbc.get_message(m[0]) if (m and self._dbc is not None) else None
         ct = getattr(msg, "cycle_time", None) if msg is not None else None
-        cyc = f"   ·   CAN {ct} ms periyodik" if ct else ("   ·   CAN periyodik" if m else "")
-        self._group_titles["aircraft"].setText(GROUP_TITLES["aircraft"] + cyc)
+        self.flight_cycle.setText(f"CAN {ct} ms" if ct else ("CAN periyodik" if m else ""))
         if not self._sources:
-            self.info_label.setText("DBC yüklenmedi (CAN Monitor → DBC).")
+            self._info_text = "DBC yüklenmedi (CAN Monitor → DBC)."
         elif missing:
-            self.info_label.setText(f"{len(missing)} giriş DBC sinyaline bağlı değil: ⚙ Bağla")
+            self._info_text = f"⚠ {len(missing)} giriş DBC sinyaline bağlı değil"
         else:
-            self.info_label.setText("")
-        self.info_label.setVisible(bool(self.info_label.text()))
-
-    def _open_mapping(self):
-        dlg = _MappingDialog(self._sources, self.config.input_map, self)
-        if dlg.exec() == QDialog.Accepted:
-            self.config.input_map = dlg.mapping()
-            self.config.save()
-            self._refresh_warn()
+            self._info_text = ""
+        self._render_status()

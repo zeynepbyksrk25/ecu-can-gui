@@ -25,26 +25,31 @@ class InputDef:
     enabled: bool = True
     note: str = ""
     aliases: tuple = ()
+    title: str = ""      # Ana Sayfa'da gösterilen tek satırlık Türkçe ad (boşsa label)
+
+    @property
+    def display(self) -> str:
+        return self.title or self.label
 
 
 INPUT_DEFS: list[InputDef] = [
-    InputDef("start", "Start", "", 0, 1, "switch", "control", aliases=("start", "engstart", "enginestart")),
-    InputDef("spark", "Spark", "", 0, 1, "switch", "control", aliases=("spark", "ignition")),
+    InputDef("start", "Start", "", 0, 1, "switch", "control", aliases=("start", "engstart", "enginestart"), title="Çalıştırma (Start)"),
+    InputDef("spark", "Spark", "", 0, 1, "switch", "control", aliases=("spark", "ignition"), title="Ateşleme (Spark)"),
     InputDef("primary_fuel", "Primary Fuel", "", 0, 1, "switch", "control",
-             aliases=("primaryfuel", "primfuel", "fuelprimary")),
-    InputDef("throttle", "Throttle", "%", 0, 120, "slider", "control", aliases=("throttle", "pla", "thr")),
-    InputDef("altitude", "Altitude", "kft", 0, 30, "slider", "aircraft", aliases=("altitude", "alt", "acaltitude")),
+             aliases=("primaryfuel", "primfuel", "fuelprimary"), title="Birincil Yakıt"),
+    InputDef("throttle", "Throttle", "%", 0, 120, "slider", "control", aliases=("throttle", "pla", "thr"), title="Gaz Kolu (PLA)"),
+    InputDef("altitude", "Altitude", "kft", 0, 30, "slider", "aircraft", aliases=("altitude", "alt", "acaltitude"), title="Rakım"),
     InputDef("alfa", "Alfa", "°", -90, 90, "slider", "aircraft", enabled=False,
-             note="Şimdilik kullanılmıyor", aliases=("alfa", "alpha", "acalpha", "acalfa")),
+             note="Şimdilik kullanılmıyor", aliases=("alfa", "alpha", "acalpha", "acalfa"), title="Hücum Açısı (α)"),
     InputDef("beta", "Beta", "°", -90, 90, "slider", "aircraft", enabled=False,
-             note="Şimdilik kullanılmıyor", aliases=("beta", "acbeta")),
-    InputDef("ma", "Ma Number", "", 0, 2, "const", "const", aliases=("ma", "mach", "manumber", "acmach")),
-    InputDef("p_total", "Total Inlet Pressure", "bar", 0.01, 10, "const", "const",
-             aliases=("totalinletpressure", "ptotal", "pt", "pinlet", "totalpressure")),
-    InputDef("p_amb", "Ambient Pressure", "bar", 0.01, 10, "const", "const",
-             aliases=("ambientpressure", "pamb", "pambient", "pa", "ps0")),
-    InputDef("t_amb", "Ambient Temperature", "°C", -40, 40, "const", "const",
-             aliases=("ambienttemperature", "tamb", "tambient", "ta", "ambtemp", "acambtemp")),
+             note="Şimdilik kullanılmıyor", aliases=("beta", "acbeta"), title="Kayma Açısı (β)"),
+    InputDef("ma", "Ma Number", "", 0, 2, "const", "aircraft", aliases=("ma", "mach", "manumber", "acmach"), title="Mach Sayısı"),
+    InputDef("p_total", "Total Inlet Pressure", "bar", 0.01, 10, "const", "aircraft",
+             aliases=("totalinletpressure", "ptotal", "pt", "pinlet", "totalpressure"), title="Giriş Basıncı (Pt)"),
+    InputDef("p_amb", "Ambient Pressure", "bar", 0.01, 10, "const", "aircraft",
+             aliases=("ambientpressure", "pamb", "pambient", "pa", "ps0"), title="Ortam Basıncı"),
+    InputDef("t_amb", "Ambient Temperature", "°C", -40, 40, "const", "aircraft",
+             aliases=("ambienttemperature", "tamb", "tambient", "ta", "ambtemp", "acambtemp"), title="Ortam Sıcaklığı"),
 ]
 INPUT_BY_KEY = {d.key: d for d in INPUT_DEFS}
 

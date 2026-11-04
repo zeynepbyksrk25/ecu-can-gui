@@ -1,20 +1,17 @@
 """Ana Sayfa (Dashboard) için, koddan bağımsız olarak KULLANICI tarafından
-girilip diske (JSON) kaydedilen eşlemeler:
+"Eşleşmeler" penceresinde girilip diske (JSON) kaydedilen eşleşmeler.
 
-  - Motor Start / Motor Stop / Acil Stop (E-Stop) komutlarının hangi DBC
-    mesajı/sinyaline, hangi değerle gönderileceği.
-  - Motor Parametreleri panelindeki 8 gösterge (RPM, İtki, PLA, Tt5, FP,
-    FT, Ps2, Tt2) ile Ortam Koşulları panelindeki 4 değerin A2L
-    dosyasındaki hangi Measurement ismina karşılık geldiği.
-  - Eyleyiciler panelindeki her bir manuel override kontrolünün (Yakıt
-    Pompası Start/Fuel, Yakıt Debisi Valfi, Glow Plug, Başlatma Motoru)
-    hangi DBC mesajı/"override enable" sinyali/"komut değeri" sinyaline
-    karşılık geldiği.
+Her değişken (sensör değeri, eyleyici komutu, motor komutu...) bir
+``Binding`` ile tanımlanır; kaynak iki türden biri olabilir:
 
-Bu bilgiler projeye özel (kullanıcının kendi DBC/A2L dosyasına bağlı)
-olduğu için kod içine gömülmek yerine burada, Ana Sayfa sekmesindeki
-"Ayarlar" panelinden kullanıcı tarafından bir kere girilip kalıcı
-tutulur — yeni bir kod değişikliği gerekmez.
+  * ``can`` — DBC mesajı + sinyali (CAN hattından gönderilir / okunur)
+  * ``a2l`` — A2L değişken adı (CCP ile yazılır / okunur)
+
+Sensörler ve eyleyiciler için Simulink tarafında her değişkenin bir
+"anahtar" (``<ad>_sw``) değişkeni vardır: anahtar 1 iken ``<ad>`` değeri
+arayüzden değiştirilebilir, 0 iken değiştirilemez. Bu yüzden her sensör ve
+her eyleyicinin ``value`` (değer) ve ``sw`` (anahtar) olmak üzere İKİ ayrı
+eşleşmesi vardır; ikisinin kaynağı (CAN/A2L) birbirinden bağımsız seçilir.
 """
 
 import json
@@ -23,28 +20,16 @@ from dataclasses import asdict, dataclass, field
 
 DEFAULT_PATH = "dashboard_config.json"
 
-# Motor Parametreleri panelindeki 8 gösterge; sıra mockup'taki ile aynıdır:
-# ilk 4'ü büyük/birincil (RPM, İtki, PLA, Tt5), son 4'ü küçük/ikincil
-# (FP, FT, Ps2, Tt2).
+# Motor Parametreleri panelindeki 8 gösterge (= 8 sensör).
 GAUGE_KEYS = ["RPM", "İtki", "PLA", "Tt5", "FP", "FT", "Ps2", "Tt2"]
-
-# Ortam Koşulları panelindeki 4 değer.
-AMBIENT_KEYS = ["BataryaV", "OrtamBasinc", "AtmSicaklik", "Tt0"]
-
-AMBIENT_LABELS = {
-    "BataryaV": "Batarya Gerilimi",
-    "OrtamBasinc": "Ortam Basıncı",
-    "AtmSicaklik": "Atmosferik Sıcaklık",
-    "Tt0": "Toplam Hava Basıncı/Tt0",
-}
-AMBIENT_UNITS = {
-    "BataryaV": "V",
-    "OrtamBasinc": "bar",
-    "AtmSicaklik": "°C",
-    "Tt0": "bar",
+SENSOR_KEYS = GAUGE_KEYS
+SENSOR_LABELS = {
+    "RPM": "Devir (RPM)", "İtki": "İtki", "PLA": "Gaz Kolu (PLA)", "Tt5": "Egzoz Sıcaklığı (Tt5)",
+    "FP": "Yakıt Basıncı (FP)", "FT": "Yakıt Sıcaklığı (FT)", "Ps2": "Giriş Basıncı (Ps2)",
+    "Tt2": "Giriş Sıcaklığı (Tt2)",
 }
 
-# Eyleyiciler panelindeki 5 manuel override kontrolü.
+# Eyleyiciler (manuel override).
 ACTUATOR_KEYS = ["pompa_start", "pompa_fuel", "valf", "glow_plug", "starter"]
 ACTUATOR_LABELS = {
     "pompa_start": "Yakıt Pompası Start",
@@ -62,95 +47,187 @@ ACTUATOR_KINDS = {
     "starter": "toggle",
 }
 
-# Ortam Koşulları/Measurement eşleme alanlarının dataclass öznitelik adına
-# çevrimi, DashboardConfig.measurement_map() içinde kullanılır.
-_GAUGE_ATTR = {
-    "RPM": "measurement_rpm",
-    "İtki": "measurement_itki",
-    "PLA": "measurement_pla",
-    "Tt5": "measurement_tt5",
-    "FP": "measurement_fp",
-    "FT": "measurement_ft",
-    "Ps2": "measurement_ps2",
-    "Tt2": "measurement_tt2",
-}
-_AMBIENT_ATTR = {
-    "BataryaV": "measurement_batarya",
-    "OrtamBasinc": "measurement_ortam_basinc",
-    "AtmSicaklik": "measurement_atm_sicaklik",
-    "Tt0": "measurement_tt0",
+MOTOR_COMMAND_KEYS = ["motor_start", "motor_stop", "estop"]
+MOTOR_COMMAND_LABELS = {
+    "motor_start": "Motoru Başlat",
+    "motor_stop": "Motoru Durdur",
+    "estop": "Acil Durdurma",
 }
 
+DEFAULT_GRAPH_SIGNALS = ["g:RPM", "g:Tt5", "g:FP"]
 
-DEFAULT_GRAPH_SIGNALS = ["g:RPM", "g:Tt5", "g:İtki"]
+SOURCE_CAN = "can"
+SOURCE_A2L = "a2l"
+
+
+@dataclass
+class Binding:
+    """Tek bir değişkenin kaynağı: CAN (DBC mesaj+sinyal) veya A2L adı."""
+    source: str = SOURCE_CAN
+    message: str = ""     # DBC mesaj adı (source == "can")
+    signal: str = ""      # DBC sinyal adı (source == "can")
+    a2l_name: str = ""    # A2L değişken adı (source == "a2l")
+
+    @property
+    def is_set(self) -> bool:
+        if self.source == SOURCE_A2L:
+            return bool(self.a2l_name.strip())
+        return bool(self.message.strip() and self.signal.strip())
+
+    @property
+    def text(self) -> str:
+        if not self.is_set:
+            return ""
+        return self.a2l_name if self.source == SOURCE_A2L else f"{self.message}.{self.signal}"
+
+
+@dataclass
+class SignalMap:
+    """Bir sensör/eyleyici için değer + anahtar (+ sensörlerde arıza) eşleşmesi."""
+    value: Binding = field(default_factory=Binding)
+    sw: Binding = field(default_factory=Binding)
+    fault: Binding = field(default_factory=Binding)   # yalnız sensörler: ≠0 ise arıza
 
 
 @dataclass
 class MotorCommand:
-    message: str = ""   # DBC mesaj ismi
-    signal: str = ""    # DBC sinyal ismi
-    value: float = 1.0  # gönderilecek sinyal değeri
+    """Motor Başlat/Durdur/Acil Durdurma: CAN veya A2L; ``value`` yazılacak değer."""
+    binding: Binding = field(default_factory=Binding)
+    value: float = 1.0
 
 
-@dataclass
-class ActuatorCommand:
-    """Bir eyleyici override kontrolünün DBC karşılığı. İki sinyal de AYNI
-    mesaj içinde olabilir: biri 'override enable = 0/1' (dış MATLAB/
-    Simulink modelindeki override anahtarını süren bit), diğeri de o an
-    komut edilen değeri taşır (toggle'larda 0/1, valfte 0-100)."""
-    message: str = ""
-    enable_signal: str = ""
-    value_signal: str = ""
-    # Gönderim kanalı: "can" (DBC mesajı) veya "a2l" (CCP ile A2L adı yazımı).
-    channel: str = "can"
-    a2l_enable: str = ""   # A2L'de override-enable değişkeninin adı
-    a2l_value: str = ""    # A2L'de komut değeri değişkeninin adı
+def _default_sensors() -> dict:
+    return {k: SignalMap() for k in SENSOR_KEYS}
+
+
+def _default_actuators() -> dict:
+    return {k: SignalMap() for k in ACTUATOR_KEYS}
 
 
 @dataclass
 class DashboardConfig:
-    # A2L Measurement adları (kullanıcının gerçek A2L dosyasındaki isimler)
-    measurement_itki: str = ""
-    measurement_pla: str = ""
-    measurement_tt2: str = ""
-    measurement_tt5: str = ""
-    measurement_fp: str = ""
-    measurement_ft: str = ""
-    measurement_rpm: str = ""
-    measurement_ps2: str = ""
-
-    measurement_batarya: str = ""
-    measurement_ortam_basinc: str = ""
-    measurement_atm_sicaklik: str = ""
-    measurement_tt0: str = ""
-
-    # Motor komutları (DBC'de zaten tanımlı mesaj/sinyaller)
+    sensors: dict = field(default_factory=_default_sensors)
+    actuators: dict = field(default_factory=_default_actuators)
     motor_start: MotorCommand = field(default_factory=MotorCommand)
     motor_stop: MotorCommand = field(default_factory=MotorCommand)
     estop: MotorCommand = field(default_factory=MotorCommand)
 
-    # Eyleyici override komutları (bkz. ACTUATOR_KEYS)
-    actuators: dict = field(default_factory=lambda: {k: ActuatorCommand() for k in ACTUATOR_KEYS})
-
-    # Ana Sayfa > Canlı Grafik'te çizilen sinyaller (kullanıcı seçer, kalıcıdır).
-    # Kimlikler: "g:<gösterge anahtarı>" (ör. "g:RPM") veya "m:<A2L ölçüm adı>".
+    # Canlı Trendler'de çizilen sinyaller (kalıcı). Kimlikler:
+    # "g:<gösterge anahtarı>" (ör. "g:RPM") veya "m:<A2L ölçüm adı>".
     graph_signals: list = field(default_factory=lambda: list(DEFAULT_GRAPH_SIGNALS))
 
+    # ---- sorgular ---------------------------------------------------------
+    def sensor_map(self, key: str) -> SignalMap:
+        return self.sensors.setdefault(key, SignalMap())
+
+    def actuator_map(self, key: str) -> SignalMap:
+        return self.actuators.setdefault(key, SignalMap())
+
+    def gauge_a2l_map(self) -> dict:
+        """{gösterge: A2L adı} — değeri A2L'den (CCP) okunacak sensörler."""
+        return {k: m.value.a2l_name.strip() for k, m in self.sensors.items()
+                if m.value.source == SOURCE_A2L and m.value.a2l_name.strip()}
+
+    def gauge_can_map(self) -> dict:
+        """{gösterge: (mesaj, sinyal)} — değeri CAN'dan (DBC) okunacak sensörler."""
+        return {k: (m.value.message.strip(), m.value.signal.strip()) for k, m in self.sensors.items()
+                if m.value.source == SOURCE_CAN and m.value.is_set}
+
+    def unbound_gauges(self) -> list:
+        return [k for k in GAUGE_KEYS if not self.sensor_map(k).value.is_set]
+
     def measurement_map(self) -> dict:
-        """{tile_key: measurement_name} — boş olanlar dahil değildir.
-        Hem gösterge (gauge) hem Ortam Koşulları anahtarlarını içerir."""
-        pairs = {}
-        for key, attr in {**_GAUGE_ATTR, **_AMBIENT_ATTR}.items():
-            value = getattr(self, attr, "")
-            if value and value.strip():
-                pairs[key] = value.strip()
-        return pairs
+        """Eski ad: {gösterge: A2L adı}."""
+        return self.gauge_a2l_map()
 
-    def gauge_measurement_map(self) -> dict:
-        return {k: getattr(self, attr) for k, attr in _GAUGE_ATTR.items() if getattr(self, attr, "").strip()}
 
-    def ambient_measurement_map(self) -> dict:
-        return {k: getattr(self, attr) for k, attr in _AMBIENT_ATTR.items() if getattr(self, attr, "").strip()}
+# ---------------------------------------------------------------------------
+# Kalıcılık
+# ---------------------------------------------------------------------------
+def _binding_from(raw) -> Binding:
+    if not isinstance(raw, dict):
+        return Binding()
+    return Binding(
+        source=SOURCE_A2L if raw.get("source") == SOURCE_A2L else SOURCE_CAN,
+        message=str(raw.get("message", "") or ""),
+        signal=str(raw.get("signal", "") or ""),
+        a2l_name=str(raw.get("a2l_name", "") or ""),
+    )
+
+
+def _signalmap_from(raw) -> SignalMap:
+    raw = raw if isinstance(raw, dict) else {}
+    return SignalMap(value=_binding_from(raw.get("value")), sw=_binding_from(raw.get("sw")),
+                     fault=_binding_from(raw.get("fault")))
+
+
+def _float(v, default=1.0) -> float:
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return default
+
+
+# Eski sürüm (measurement_* alanları) -> yeni sensör anahtarı.
+_LEGACY_GAUGE_ATTR = {
+    "RPM": "measurement_rpm", "İtki": "measurement_itki", "PLA": "measurement_pla",
+    "Tt5": "measurement_tt5", "FP": "measurement_fp", "FT": "measurement_ft",
+    "Ps2": "measurement_ps2", "Tt2": "measurement_tt2",
+}
+
+
+def config_from_dict(raw: dict) -> DashboardConfig:
+    """JSON sözlüğünden yapılandırma kurar; eski biçimi (measurement_*,
+    ActuatorCommand.message/enable_signal/value_signal/channel) otomatik göç ettirir."""
+    cfg = DashboardConfig()
+    if not isinstance(raw, dict):
+        return cfg
+
+    # --- sensörler
+    sensors = raw.get("sensors")
+    if isinstance(sensors, dict):
+        for key in SENSOR_KEYS:
+            cfg.sensors[key] = _signalmap_from(sensors.get(key))
+    else:  # eski biçim
+        for key, attr in _LEGACY_GAUGE_ATTR.items():
+            name = str(raw.get(attr, "") or "").strip()
+            if name:
+                cfg.sensors[key] = SignalMap(value=Binding(SOURCE_A2L, a2l_name=name))
+
+    # --- eyleyiciler
+    actuators = raw.get("actuators", {})
+    for key in ACTUATOR_KEYS:
+        sub = actuators.get(key, {}) if isinstance(actuators, dict) else {}
+        if isinstance(sub, dict) and ("value" in sub or "sw" in sub):
+            cfg.actuators[key] = _signalmap_from(sub)
+        elif isinstance(sub, dict):  # eski biçim
+            if sub.get("channel") == "a2l":
+                cfg.actuators[key] = SignalMap(
+                    value=Binding(SOURCE_A2L, a2l_name=str(sub.get("a2l_value", "") or "")),
+                    sw=Binding(SOURCE_A2L, a2l_name=str(sub.get("a2l_enable", "") or "")))
+            else:
+                msg = str(sub.get("message", "") or "")
+                cfg.actuators[key] = SignalMap(
+                    value=Binding(SOURCE_CAN, msg, str(sub.get("value_signal", "") or "")),
+                    sw=Binding(SOURCE_CAN, msg, str(sub.get("enable_signal", "") or "")))
+
+    # --- motor komutları
+    for key in MOTOR_COMMAND_KEYS:
+        sub = raw.get(key, {})
+        if not isinstance(sub, dict):
+            continue
+        if "binding" in sub:
+            cfg_cmd = MotorCommand(binding=_binding_from(sub.get("binding")), value=_float(sub.get("value")))
+        else:  # eski biçim: yalnız DBC
+            cfg_cmd = MotorCommand(
+                binding=Binding(SOURCE_CAN, str(sub.get("message", "") or ""), str(sub.get("signal", "") or "")),
+                value=_float(sub.get("value")))
+        setattr(cfg, key, cfg_cmd)
+
+    sigs = raw.get("graph_signals")
+    if isinstance(sigs, list):
+        cfg.graph_signals = [s for s in sigs if isinstance(s, str) and s]
+    return cfg
 
 
 class DashboardConfigStore:
@@ -162,38 +239,7 @@ class DashboardConfigStore:
             return DashboardConfig()
         try:
             with open(self.path, "r", encoding="utf-8") as f:
-                raw = json.load(f)
-            cfg = DashboardConfig()
-            for k in ("measurement_itki", "measurement_pla", "measurement_tt2",
-                      "measurement_tt5", "measurement_fp", "measurement_ft",
-                      "measurement_rpm", "measurement_ps2",
-                      "measurement_batarya", "measurement_ortam_basinc",
-                      "measurement_atm_sicaklik", "measurement_tt0"):
-                setattr(cfg, k, raw.get(k, ""))
-            for k in ("motor_start", "motor_stop", "estop"):
-                sub = raw.get(k, {})
-                setattr(cfg, k, MotorCommand(
-                    message=sub.get("message", ""),
-                    signal=sub.get("signal", ""),
-                    value=sub.get("value", 1.0),
-                ))
-            actuators = {}
-            raw_actuators = raw.get("actuators", {})
-            for key in ACTUATOR_KEYS:
-                sub = raw_actuators.get(key, {})
-                actuators[key] = ActuatorCommand(
-                    message=sub.get("message", ""),
-                    enable_signal=sub.get("enable_signal", ""),
-                    value_signal=sub.get("value_signal", ""),
-                    channel="a2l" if sub.get("channel") == "a2l" else "can",
-                    a2l_enable=sub.get("a2l_enable", ""),
-                    a2l_value=sub.get("a2l_value", ""),
-                )
-            cfg.actuators = actuators
-            sigs = raw.get("graph_signals")
-            if isinstance(sigs, list):
-                cfg.graph_signals = [s for s in sigs if isinstance(s, str) and s]
-            return cfg
+                return config_from_dict(json.load(f))
         except (OSError, ValueError, TypeError):
             return DashboardConfig()
 

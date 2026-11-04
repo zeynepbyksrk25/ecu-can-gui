@@ -349,126 +349,126 @@ QLabel[pill="watch"] {{
     font-size: 11px;
 }}
 
-/* ---- Sol kenar çubuğu (sidebar) navigasyonu --------------------------- */
-QListWidget#sidebarNav {{
-    background: {SIDEBAR_BG};
-    border: none;
-    outline: none;
-    padding: 8px 10px;
-    font-size: 13px;
+/* ---- Kompakt düğme (küçük, kenarlıklı; metin KESİLMEZ) -------------------- */
+QPushButton[compact="true"] {{
+    padding: 3px 10px;
+    min-height: 18px;
 }}
 
-/* Seçili öge: referans mockup'taki gibi, ince sol kenarlık YERİNE,
-   sidebar genişliğinin büyük bölümünü kaplayan yuvarlak köşeli parlak
-   bir arkaplan (bkz. görev tanımı madde 8). */
-QListWidget#sidebarNav::item {{
-    color: {SIDEBAR_TEXT_DIM};
-    padding: 11px 14px;
-    margin: 2px 2px;
-    border-radius: 8px;
-    border-left: none;
-}}
-
-QListWidget#sidebarNav::item:selected {{
-    background: {ACCENT};
-    color: #FFFFFF;
-    font-weight: 700;
-}}
-
-QListWidget#sidebarNav::item:hover:!selected {{
-    background: {SIDEBAR_ITEM_HOVER};
-    color: {SIDEBAR_TEXT};
-}}
-
-QWidget#sidebarRoot {{
-    background: {SIDEBAR_BG};
-}}
-
-/* Sidebar alt durum bloğu: koyu zemin üzerinde YÜZEN beyaz/açık "kart"
-   (bkz. görev tanımı madde 7) — derinlik app/ui/main_window.py'de ayrıca
-   bir QGraphicsDropShadowEffect ile sağlanır. */
-QFrame#sidebarStatusCard {{
-    background: {SURFACE};
-    border-radius: 10px;
-}}
-
-QLabel#sidebarStatusTitle {{
-    color: {INK};
-    font-size: 12px;
-    background: transparent;
-}}
-
-QLabel#sidebarStatusDim {{
-    color: {INK_2};
-    font-size: 10.5px;
-    background: transparent;
-}}
-
-QPushButton#sidebarSettingsLink {{
-    background: transparent;
-    color: {ACCENT_INK};
-    border: none;
-    border-top: 1px solid {BORDER};
-    text-align: left;
-    padding: 7px 2px 2px 2px;
-    font-size: 11px;
-    font-weight: 600;
-    border-radius: 0px;
-}}
-
-QPushButton#sidebarSettingsLink:hover {{
-    color: {ACCENT};
-}}
-
-/* ---- Üst (koyu lacivert) başlık şeridi ---------------------------------- */
+/* ---- Üst başlık şeridi + yatay gezinme (sidebar YOK) ---------------------- */
 QFrame#topHeaderNavy {{
-    background: {SIDEBAR_BG};
+    background: #07101C;
     border: none;
+    border-bottom: 1px solid #1F3853;
 }}
 
 QLabel#headerLogoBadge {{
-    background: {ACCENT};
+    background: #2F8CFF;
     color: white;
-    border-radius: 7px;
-    font-size: 14px;
+    border-radius: 6px;
+    font-size: 13px;
 }}
 
 QLabel#headerTitle {{
-    font-size: 15px;
+    font-size: 13.5px;
     font-weight: 700;
     color: #FFFFFF;
     background: transparent;
 }}
 
-/* ---- Buton + durum satırı (başlık şeridinin hemen altı) ----------------- */
+QTabBar#topNav {{
+    background: transparent;
+}}
+
+QTabBar#topNav::tab {{
+    background: transparent;
+    color: #8FA6BD;
+    padding: 0 8px;
+    height: 38px;
+    margin: 0 1px;
+    border: none;
+    border-bottom: 2px solid transparent;
+    font-size: 12.5px;
+}}
+
+QTabBar#topNav::tab:selected {{
+    color: #FFFFFF;
+    background: rgba(53, 198, 244, 0.10);
+    border-bottom: 2px solid #35C6F4;
+    font-weight: 600;
+}}
+
+QTabBar#topNav::tab:hover:!selected {{
+    color: #E8F0F8;
+}}
+
+/* ---- Komut şeridi (sekmelerin hemen altı): koyu --------------------------- */
 QFrame#actionStatusRow {{
-    background: {BG};
-    border-bottom: 1px solid {BORDER};
+    background: #0A1626;
+    border-bottom: 1px solid #1F3853;
+}}
+
+QFrame#actionStatusRow QPushButton {{
+    background: #12263D;
+    color: #E8F0F8;
+    border: 1px solid #2A4A6B;
+    border-radius: 8px;
+    padding: 0 16px;
+    font-weight: 600;
+}}
+
+QFrame#actionStatusRow QPushButton:hover {{
+    border-color: #35C6F4;
+    color: #FFFFFF;
+}}
+
+QFrame#actionStatusRow QPushButton:disabled {{
+    color: #5D7893;
+    border-color: #1F3853;
+}}
+
+QFrame#actionStatusRow QPushButton[primary="true"] {{
+    background: #0F2C20;
+    border-color: #1D7F4B;
+    color: #8BF0B4;
+}}
+
+QFrame#actionStatusRow QPushButton[danger="true"] {{
+    background: #3A1313;
+    border-color: #8C2B2B;
+    color: #FF9A9A;
+}}
+
+QFrame#actionStatusRow QPushButton[danger="true"]:hover {{
+    background: #5A1B1B;
+    color: #FFFFFF;
 }}
 
 QLabel#headerReadout {{
-    color: {INK_2};
-    font-size: 11.5px;
+    color: #8FA6BD;
+    font-size: 12px;
     font-weight: 600;
     background: transparent;
 }}
 
 QLabel#connPillOk {{
-    background: {OK_WEAK};
-    color: {OK};
-    border-radius: 10px;
+    background: #0E2A22;
+    color: #6EE7A1;
+    border: 1px solid #1B6B45;
+    border-radius: 12px;
     padding: 3px 12px;
-    font-weight: 700;
-    font-size: 11px;
+    font-weight: 600;
+    font-size: 12px;
 }}
 
 QLabel#connPillBad {{
-    background: {DANGER_WEAK};
-    color: {DANGER};
-    border-radius: 10px;
+    background: #3A1416;
+    color: #FF9A9A;
+    border: 1px solid #7A2A2A;
+    border-radius: 12px;
     padding: 3px 12px;
-    font-weight: 700;
-    font-size: 11px;
+    font-weight: 600;
+    font-size: 12px;
 }}
 """
 
