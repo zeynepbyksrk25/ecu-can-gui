@@ -511,3 +511,23 @@ class GaugeCard(QFrame):
         if event.button() == Qt.LeftButton and self.lock.is_open:
             self.value_requested.emit(self.key)
         super().mousePressEvent(event)
+
+
+def make_card(title: str, icon: str):
+    """Koyu tema kartı: (QFrame#card, içerik QVBoxLayout, başlık QHBoxLayout). Başlığın sağına
+    ``head.addWidget(...)`` ile düğme/çip eklenebilir."""
+    from PySide6.QtWidgets import QHBoxLayout
+    card = QFrame()
+    card.setObjectName("card")
+    v = QVBoxLayout(card)
+    v.setContentsMargins(14, 10, 14, 12)
+    v.setSpacing(8)
+    head = QHBoxLayout()
+    head.setSpacing(8)
+    head.addWidget(IconLabel(icon, DK_CYAN, 18))
+    t = QLabel(title.upper())
+    t.setObjectName("cardTitle")
+    head.addWidget(t)
+    head.addStretch(1)
+    v.addLayout(head)
+    return card, v, head

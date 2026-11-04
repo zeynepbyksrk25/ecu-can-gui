@@ -70,3 +70,16 @@ def test_a2l_page_summary_tree_filter_and_details(qapp):
     tab._on_item_clicked(leaf, 0)
     assert "Parametre Listesi" in tab.detail_use.text() and tab.detail_readonly.text().startswith("Evet")
     tab.search_edit.setText("")
+
+
+def test_small_pages_dark_and_accessors(tmp_path):
+    from PySide6.QtWidgets import QApplication
+    from app.ui.main_window import MainWindow
+    w = MainWindow()
+    for page in (w.tanilama_tab, w.session_tab, w.user_tab):
+        assert page in w._dark_pages
+    s = w.session_tab
+    assert s.stop_button.isEnabled() is False and s.state_chip.text() == "Oturum yok"
+    assert hasattr(w.tanilama_tab, "diagnostics") and hasattr(w.tanilama_tab, "errors")
+    assert w.user_tab.role_combo.count() >= 3 and w.user_tab.profile_list is not None
+    w.close()

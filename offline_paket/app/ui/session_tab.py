@@ -6,12 +6,12 @@ görüntüleme ve PDF test raporu oluşturma.
 import time
 
 from PySide6.QtWidgets import (
-    QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLineEdit,
-    QMessageBox, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout,
-    QWidget,
+    QFileDialog, QGridLayout, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMessageBox, QPushButton,
+    QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
 from app.report import build_session_report
+from app.ui.dash_widgets import make_card
 
 
 class SessionTab(QWidget):
@@ -24,17 +24,23 @@ class SessionTab(QWidget):
         self._ended_at: float | None = None
 
         layout = QVBoxLayout(self)
-        layout.addWidget(self._build_session_group())
-        layout.addWidget(self._build_log_table(), stretch=1)
+        layout.setContentsMargins(14, 8, 14, 8)
+        layout.setSpacing(10)
+        layout.addWidget(self._build_session_card())
+        layout.addWidget(self._build_log_card(), stretch=1)
 
-    def _build_session_group(self) -> QGroupBox:
-        box = QGroupBox("Test oturumu")
+    def _build_session_card(self):
+        card, v, head = make_card("Test oturumu", "flag")
+        self.state_chip = QLabel("Oturum yok")
+        self.state_chip.setObjectName("chipDim")
+        head.addWidget(self.state_chip)
+
         self.name_edit = QLineEdit()
         self.name_edit.setPlaceholderText("örn. Soğutma testi #3")
         self.operator_edit = QLineEdit()
         self.operator_edit.setPlaceholderText("Operatör ismi")
-
         self.start_button = QPushButton("Oturumu Başlat")
+        self.start_button.setProperty("tone", "go")
         self.start_button.clicked.connect(self._on_start)
         self.stop_button = QPushButton("Oturumu Bitir")
         self.stop_button.clicked.connect(self._on_stop)
@@ -42,32 +48,41 @@ class SessionTab(QWidget):
         self.pdf_button = QPushButton("PDF Rapor Oluştur")
         self.pdf_button.clicked.connect(self._on_export_pdf)
 
-        form = QFormLayout()
-        form.addRow("Test ismi:", self.name_edit)
-        form.addRow("Operatör:", self.operator_edit)
-
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(12)
+        grid.setVerticalSpacing(6)
+        for col, text in ((0, "TEST İSMİ"), (1, "OPERATÖR")):
+            lab = QLabel(text)
+            lab.setObjectName("colHead")
+            grid.addWidget(lab, 0, col)
+        grid.addWidget(self.name_edit, 1, 0)
+        grid.addWidget(self.operator_edit, 1, 1)
         buttons = QHBoxLayout()
+        buttons.setSpacing(8)
         buttons.addWidget(self.start_button)
         buttons.addWidget(self.stop_button)
         buttons.addWidget(self.pdf_button)
-        buttons.addStretch()
+        grid.addLayout(buttons, 1, 2)
+        grid.setColumnStretch(0, 3)
+        grid.setColumnStretch(1, 2)
+        v.addLayout(grid)
+        return card
 
-        outer = QVBoxLayout()
-        outer.addLayout(form)
-        outer.addLayout(buttons)
-        box.setLayout(outer)
-        return box
-
-    def _build_log_table(self) -> QGroupBox:
-        box = QGroupBox("Olay günlüğü")
+    def _build_log_card(self):
+        card, v, _head = make_card("Olay günlüğü", "trend")
         self.table = QTableWidget()
         self.table.setColumnCount(4)
         self.table.setHorizontalHeaderLabels(["Zaman", "Kullanıcı / Rol", "Kategori", "Mesaj"])
         self.table.horizontalHeader().setStretchLastSection(True)
-        layout = QVBoxLayout()
-        layout.addWidget(self.table)
-        box.setLayout(layout)
-        return box
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+        self.table.verticalHeader().setVisible(False)
+        self.table.setAlternatingRowColors(True)
+        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.table.setColumnWidth(0, 80)
+        self.table.setColumnWidth(1, 150)
+        self.table.setColumnWidth(2, 110)
+        v.addWidget(self.table, 1)
+        return card
 
     def _on_start(self):
         if self.event_log is None:
@@ -84,6 +99,7 @@ class SessionTab(QWidget):
         self.stop_button.setEnabled(True)
         self.name_edit.setEnabled(False)
         self.operator_edit.setEnabled(False)
+        self._set_chip(f"● Oturum açık · {time.strftime('%H:%M', time.localtime(self._started_at))}'den beri", True)
 
     def _on_stop(self):
         if self.event_log is None:
@@ -95,6 +111,13 @@ class SessionTab(QWidget):
         self.stop_button.setEnabled(False)
         self.name_edit.setEnabled(True)
         self.operator_edit.setEnabled(True)
+        self._set_chip("Oturum bitti", False)
+
+    def _set_chip(self, text: str, active: bool):
+        self.state_chip.setText(text)
+        self.state_chip.setObjectName("chipGreen" if active else "chipDim")
+        self.state_chip.style().unpolish(self.state_chip)
+        self.state_chip.style().polish(self.state_chip)
 
     def refresh_log(self):
         if self.event_log is None:
@@ -111,7 +134,7 @@ class SessionTab(QWidget):
     def _on_export_pdf(self):
         if self.event_log is None:
             return
-        path, _ = QFileDialog.getSaveFileName(self, "PDF rapor kaydet", "test_raporu.pdf", "PDF (*.pdf)")
+        path, _ = QFileDialog.getSaveFileName(self.window(), "PDF rapor kaydet", "test_raporu.pdf", "PDF (*.pdf)")
         if not path:
             return
         try:
@@ -120,6 +143,6 @@ class SessionTab(QWidget):
                 self._started_at, self._ended_at, self.event_log,
             )
         except Exception as exc:
-            QMessageBox.critical(self, "Rapor oluşturulamadı", str(exc))
+            QMessageBox.critical(self.window(), "Rapor oluşturulamadı", str(exc))
             return
-        QMessageBox.information(self, "Rapor oluşturuldu", f"PDF kaydedildi:\n{path}")
+        QMessageBox.information(self.window(), "Rapor oluşturuldu", f"PDF kaydedildi:\n{path}")
