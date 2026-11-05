@@ -21,3 +21,4 @@ offline_paket/sim_interface.json
 offline_paket/workspace_layouts.json
 offline_paket/tablo_yedekleri/
 offline_paket/can_loglari/
+offline_paket/*.json.bak
