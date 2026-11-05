@@ -110,3 +110,18 @@ def test_workspace_and_control_panel_dark():
     assert w.workspace_tab.browser_hint.isVisible() is False
     assert "Uygula'ya basınca" not in w.control_panel_tab.effects_title.text()
     w.close()
+
+
+def test_detached_workspace_panel_is_dark():
+    from app.ui.main_window import MainWindow
+    w = MainWindow()
+    ws = w.workspace_tab
+    ws.add_panel("table")
+    panel = ws._panels[0] if hasattr(ws, "_panels") and ws._panels else None
+    from app.ui.workspace_tab import _Float
+    f = _Float(panel.__class__(ws.hub), "t") if panel is None else None
+    if f is None:
+        f = _Float(ws.mdi.subWindowList()[0].widget(), "t")
+    assert f.objectName() == "floatBody" and "#08121f" in f.styleSheet()
+    f.deleteLater()
+    w.close()

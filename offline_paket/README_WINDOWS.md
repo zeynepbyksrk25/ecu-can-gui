@@ -281,6 +281,7 @@ Sol menüde **Çalışma Alanı**. Tek ekranda istediğiniz pencereleri kurarsı
 - **Dondur:** ekran sabitlenir, veri arka planda kaydedilmeye devam eder; fareyle yakınlaştırıp kaydırabilirsiniz. **Devam** canlı akışa döner.
 - Grafik penceresi: **Üst üste / Ayrı ayrı** çizim, tablodan sinyal başına **renk ve kalınlık**, fareyle gezince anlık değerler, **İmleçler (A/B)** ile aralıkta Δ, ortalama, min, maks.
 - **ƒ Matematik sinyali…**: ölçekle (a·x+b), A+B / A−B / A×B / A÷B (örn. P3/P2), hareketli ortalama. Sonuç yeni bir sinyal olarak çizilir; geçmiş veriye de uygulanır.
+- **⧉ Paneli ayır:** seçili paneli (başlığına tıklayıp) uygulamanın dışında ayrı bir pencereye alır; ikinci monitöre taşıyabilirsiniz. Ayrı penceredeki **Çalışma alanına geri yerleştir** düğmesi geri getirir. Ayrılmış pencereler konumlarıyla birlikte yerleşime kaydedilir.
 - **Kaydı temizle:** veriyi siler, zamanı 0'a alır. **CSV'ye aktar / CSV aç:** kayıtları dışa/içe aktarır; eski bir kaydı yenisiyle üst üste çizip karşılaştırabilirsiniz.
 
 ## Sorun giderme: .bat dosyasına çift tıklayınca bir şey olmuyorsa
