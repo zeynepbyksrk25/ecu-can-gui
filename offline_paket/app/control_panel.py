@@ -320,10 +320,17 @@ def ccp_read_value(client, info) -> float:
                                      ccp_codec.decode_value(info.datatype, raw, info.byte_order))
 
 
-def ccp_write_value(client, info, phys: float):
-    raw_value = ccp_codec.physical_to_raw(info.compu_method, phys)
-    data = ccp_codec.encode_value(info.datatype, raw_value, info.byte_order)
-    client.write_memory(info.address, data, info.address_extension or 0)
+def ccp_write_value(client, info, phys: float, enforce_limits: bool = True, verify: bool = False):
+    """A2L bilgisinden fiziksel değer yazar. Değer doğrulanır (sonlu, tür
+    aralığı; enforce_limits ise A2L min/max ve READ_ONLY). Güvenlik amaçlı
+    "override kapat" yazımı enforce_limits=False ile çağrılır: kapatma değeri
+    hiçbir sınır yüzünden engellenmemelidir (yine de sonlu/tür kontrolü var)."""
+    if enforce_limits:
+        data = ccp_codec.encode_for_write(info, phys)
+    else:
+        raw = ccp_codec.physical_to_raw(info.compu_method, float(phys))
+        data = ccp_codec.encode_value(info.datatype, raw, info.byte_order)
+    client.write_memory(info.address, data, info.address_extension or 0, verify=verify)
 
 
 def parse_input_value(text, choices: dict | None = None) -> float | None:

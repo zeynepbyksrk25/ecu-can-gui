@@ -26,6 +26,28 @@ import can
 from app.ccp import protocol as ccp
 
 
+class CCPVerifyError(ValueError):
+    """Yazma sonrası geri okunan bayt, yazılandan farklı."""
+
+
+class CCPShortResponseError(ValueError):
+    """DTO beklenenden az veri taşıdı (kısa/bozuk cevap)."""
+
+
+# MTA0'ı ilerleten veya ECU'da kalıcı etki yaratan komutlar İDEMPOTENT
+# DEĞİLDİR: cevabı (DTO) kaybolan bir DNLOAD/UPLOAD/PROGRAM aynı CTR ile
+# yeniden gönderilirse ECU komutu ikinci kez çalıştırır (MTA ilerlediği
+# için bitişik belleğe yazar / bir sonraki baytları okur). Bu yüzden bu
+# komutlar OTOMATİK YENİDEN DENENMEZ; çağıran (SET_MTA ile başlayan) üst
+# seviye işlem hatayı görür.
+_NON_IDEMPOTENT = frozenset({
+    ccp.UPLOAD, ccp.DNLOAD, ccp.DNLOAD_6, ccp.PROGRAM, ccp.PROGRAM_6, ccp.CLEAR_MEMORY,
+})
+
+# Flaş silme saniyeler sürebilir (varsayılan 0.5 s timeout çok kısa).
+FLASH_CLEAR_TIMEOUT = 10.0
+
+
 class _CallbackListener(can.Listener):
     """can.Listener soyut bir sınıftır (on_message_received abstract);
     basit bir callback'e sarmak için minimal somut alt sınıf."""
@@ -51,6 +73,7 @@ class CCPClient:
         self._ctr = 0
         self._connected = False
         self._lock = threading.Lock()  # CCP protokolü tek seferde tek komut bekler
+        self._ctr_lock = threading.Lock()
 
         # dto_queue verildiyse (GUI kullanımı) o kuyruğu okuruz; verilmediyse
         # (bağımsız/test kullanımı) kendi Notifier'ımızı açıp kendi
@@ -69,8 +92,9 @@ class CCPClient:
         return self._connected
 
     def _next_ctr(self) -> int:
-        self._ctr = (self._ctr + 1) % 256
-        return self._ctr
+        with self._ctr_lock:
+            self._ctr = (self._ctr + 1) % 256
+            return self._ctr
 
     def _on_message(self, msg: can.Message):
         if msg.arbitration_id == self.dto_id and msg.data and msg.data[0] == ccp.PID_COMMAND_RETURN:
@@ -87,7 +111,8 @@ class CCPClient:
             self._notifier.stop()
             self._notifier = None
 
-    def _send_and_wait(self, cro: bytes, expected_ctr: int) -> tuple[int, bytes]:
+    def _send_and_wait(self, cro: bytes, expected_ctr: int, retries: int | None = None,
+                       timeout: float | None = None) -> tuple[int, bytes]:
         """CRO gönderir, eşleşen CTR'li DTO'yu bekler. Zaman aşımında
         `retries` kez yeniden dener. Dönen: (return_code, data[5])."""
         # Aynı istasyona ait eski cevapları (retry öncesi) temizle.
@@ -97,11 +122,13 @@ class CCPClient:
             except queue.Empty:
                 break
 
-        attempts = self.retries + 1
+        retries = self.retries if retries is None else retries
+        timeout = self.timeout if timeout is None else timeout
+        attempts = retries + 1
         last_exc = None
         for attempt in range(attempts):
             self.bus.send(can.Message(arbitration_id=self.cro_id, data=cro, is_extended_id=False))
-            deadline = time.time() + self.timeout
+            deadline = time.time() + timeout
             while time.time() < deadline:
                 remaining = deadline - time.time()
                 try:
@@ -118,13 +145,14 @@ class CCPClient:
                     continue  # eski/başka bir isteğin cevabı, yoksay
                 return return_code, data
             last_exc = ccp.CCPTimeoutError(
-                f"CCP: DTO cevabı {self.timeout}s içinde gelmedi (deneme {attempt + 1}/{attempts})."
+                f"CCP: DTO cevabı {timeout}s içinde gelmedi (deneme {attempt + 1}/{attempts})."
             )
         raise last_exc
 
-    def _command(self, cro: bytes, ctr: int, command_code: int) -> bytes:
+    def _command(self, cro: bytes, ctr: int, command_code: int, timeout: float | None = None) -> bytes:
+        retries = 0 if command_code in _NON_IDEMPOTENT else None
         with self._lock:
-            return_code, data = self._send_and_wait(cro, ctr)
+            return_code, data = self._send_and_wait(cro, ctr, retries=retries, timeout=timeout)
         if return_code != ccp.RC_OK:
             self.last_error = ccp.return_code_name(return_code)
             raise ccp.CCPError(command_code, return_code)
@@ -181,20 +209,26 @@ class CCPClient:
         cro = ccp.build_set_mta(ctr, address, address_extension, mta_number)
         self._command(cro, ctr, ccp.SET_MTA)
 
+    @staticmethod
+    def _exact(data: bytes, size: int, name: str) -> bytes:
+        if len(data) < size:
+            raise CCPShortResponseError(f"{name}: {size} bayt beklendi, {len(data)} bayt geldi.")
+        return bytes(data[:size])
+
     def upload(self, size: int) -> bytes:
         """Mevcut MTA0'dan `size` bayt okur (MTA0 sürücüde otomatik ilerler).
         size en fazla 5; daha büyük okumalar read_memory() ile parçalanır."""
         ctr = self._next_ctr()
         cro = ccp.build_upload(ctr, size)
         data = self._command(cro, ctr, ccp.UPLOAD)
-        return data[:size]
+        return self._exact(data, size, "UPLOAD")
 
     def short_upload(self, address: int, size: int, address_extension: int = 0) -> bytes:
         """SET_MTA'ya gerek kalmadan tek komutla (adres + boyut) okur."""
         ctr = self._next_ctr()
         cro = ccp.build_short_upload(ctr, size, address, address_extension)
         data = self._command(cro, ctr, ccp.SHORT_UP)
-        return data[:size]
+        return self._exact(data, size, "SHORT_UP")
 
     def dnload(self, data: bytes) -> bytes:
         """Mevcut MTA0'a en fazla 5 bayt yazar (önce set_mta() çağrılmalı)."""
@@ -210,24 +244,24 @@ class CCPClient:
     def read_memory(self, address: int, length: int, address_extension: int = 0) -> bytes:
         """Herhangi bir uzunlukta veriyi, gerektiği kadar SHORT_UP/UPLOAD
         komutuna bölerek okur (her CCP komutu en fazla 5 bayt taşıyabilir)."""
+        # Her parça SHORT_UP ile okunur: adres her seferinde açıkça verildiği
+        # için komut İDEMPOTENT'tir (kayıp DTO'da güvenle yeniden denenir;
+        # SET_MTA+UPLOAD çiftinde ise tekrar MTA'yı kaydırırdı).
         result = bytearray()
         remaining = length
         addr = address
-        first = True
         while remaining > 0:
             chunk = min(5, remaining)
-            if first:
-                result += self.short_upload(addr, chunk, address_extension)
-                first = False
-            else:
-                self.set_mta(addr, address_extension)
-                result += self.upload(chunk)
+            result += self.short_upload(addr, chunk, address_extension)
             addr += chunk
             remaining -= chunk
         return bytes(result)
 
-    def write_memory(self, address: int, data: bytes, address_extension: int = 0):
-        """Herhangi bir uzunlukta veriyi SET_MTA + DNLOAD/DNLOAD_6 ile yazar."""
+    def write_memory(self, address: int, data: bytes, address_extension: int = 0,
+                     verify: bool = False):
+        """Herhangi bir uzunlukta veriyi SET_MTA + DNLOAD/DNLOAD_6 ile yazar.
+        verify=True ise yazdıktan sonra geri okuyup karşılaştırır ve fark
+        varsa CCPVerifyError fırlatır. DNLOAD otomatik yeniden denenmez."""
         offset = 0
         while offset < len(data):
             chunk = data[offset:offset + 6]
@@ -237,6 +271,13 @@ class CCPClient:
             else:
                 self.dnload(chunk)
             offset += len(chunk)
+        if verify:
+            back = self.read_memory(address, len(data), address_extension)
+            if back != bytes(data):
+                raise CCPVerifyError(
+                    f"Yazma doğrulaması başarısız @0x{address:08X}: yazılan {bytes(data).hex()} "
+                    f"!= okunan {back.hex()}"
+                )
 
     # ---- Kalıcı (flaş) yazma -------------------------------------------
     # DİKKAT: Bu metotlar ASAM CCP 2.1 spesifikasyonundaki standart
@@ -251,7 +292,7 @@ class CCPClient:
     def clear_memory(self, size: int):
         ctr = self._next_ctr()
         cro = ccp.build_clear_memory(ctr, size)
-        self._command(cro, ctr, ccp.CLEAR_MEMORY)
+        self._command(cro, ctr, ccp.CLEAR_MEMORY, timeout=FLASH_CLEAR_TIMEOUT)
 
     def program(self, data: bytes) -> bytes:
         ctr = self._next_ctr()
@@ -264,7 +305,7 @@ class CCPClient:
         return self._command(cro, ctr, ccp.PROGRAM_6)
 
     def write_flash_memory(self, address: int, data: bytes, address_extension: int = 0,
-                            clear_first: bool = True):
+                            clear_first: bool = True, verify: bool = False):
         """SET_MTA + (isteğe bağlı) CLEAR_MEMORY + PROGRAM/PROGRAM_6 ile
         KALICI (flaş) belleğe yazar. write_memory()'nin flaş karşılığıdır;
         aynı 5/6 baytlık parçalama mantığını kullanır."""
@@ -282,3 +323,10 @@ class CCPClient:
             else:
                 self.program(chunk)
             offset += len(chunk)
+        if verify:
+            back = self.read_memory(address, len(data), address_extension)
+            if back != bytes(data):
+                raise CCPVerifyError(
+                    f"Flaş doğrulaması başarısız @0x{address:08X}: yazılan {bytes(data).hex()} "
+                    f"!= okunan {back.hex()}"
+                )

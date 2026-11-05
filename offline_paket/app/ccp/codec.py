@@ -4,11 +4,17 @@ ve A2L COMPU_METHOD üzerinden ham (internal)<->fiziksel değer dönüşümü.
 Bu modül, bir Measurement/Characteristic'in ECU belleğindeki ham baytlarını
 Python sayısına (ve tersine) çevirir. Fiziksel<->ham dönüşümü pya2l'in
 kendi COMPU_METHOD evaluator'ına (LINEAR: f(x)=ax+b, IDENTICAL: f(x)=x)
-devredilir; desteklenmeyen/karmaşık bir dönüşüm (TAB_INTP, RAT_FUNC vb.)
-için sessizce ham değere düşer (yaklaşık gösterim), hata fırlatmaz.
+devredilir; desteklenmeyen/karmaşık bir dönüşüm (TAB_INTP, RAT_FUNC vb.) OKUMADA
+ham değere düşer (uyarı loglanır); YAZMADA ise ASLA sessizce ham değere
+düşmez: UnsupportedConversionError (ValueError alt sınıfı) fırlatılır ve
+ECU'ya hiçbir şey yazılmaz.
 """
 
+import logging
+import math
 import struct
+
+log = logging.getLogger(__name__)
 
 _STRUCT_CODES = {
     "UBYTE": "B", "SBYTE": "b",
@@ -21,6 +27,24 @@ _STRUCT_CODES = {
 
 class UnknownDatatypeError(ValueError):
     pass
+
+
+class UnsupportedConversionError(ValueError):
+    """COMPU_METHOD ters çevrilemedi: yazma güvenli değil."""
+
+
+class WriteValidationError(ValueError):
+    """Yazılmak istenen değer güvenlik kontrolünden geçemedi."""
+
+
+_INT_RANGES = {
+    "UBYTE": (0, 2**8 - 1), "SBYTE": (-2**7, 2**7 - 1),
+    "UWORD": (0, 2**16 - 1), "SWORD": (-2**15, 2**15 - 1),
+    "ULONG": (0, 2**32 - 1), "SLONG": (-2**31, 2**31 - 1),
+    "A_UINT64": (0, 2**64 - 1), "A_INT64": (-2**63, 2**63 - 1),
+}
+_FLOAT_MAX = {"FLOAT16_IEEE": 65504.0, "FLOAT32_IEEE": 3.4028234663852886e38,
+              "FLOAT64_IEEE": 1.7976931348623157e308}
 
 
 def datatype_size(datatype: str) -> int:
@@ -42,11 +66,27 @@ def encode_value(datatype: str, value, byte_order: str | None = None) -> bytes:
     code = _STRUCT_CODES.get((datatype or "").upper())
     if code is None:
         raise UnknownDatatypeError(f"Bilinmeyen A2L veri tipi: {datatype!r}")
-    if code in ("f", "d", "e"):
+    dt = datatype.upper()
+    try:
         value = float(value)
+    except (TypeError, ValueError):
+        raise WriteValidationError(f"Sayısal olmayan değer: {value!r}")
+    if not math.isfinite(value):
+        raise WriteValidationError(f"Sonlu olmayan değer yazılamaz: {value}")
+    if code in ("f", "d", "e"):
+        if abs(value) > _FLOAT_MAX[dt]:
+            raise WriteValidationError(f"{value:g}, {dt} aralığının dışında.")
     else:
-        value = int(round(value))
-    return struct.pack(_endian_char(byte_order) + code, value)
+        # round() banker's rounding yapar (2.5 -> 2); ECU'ya yazarken açık
+        # "yarıyı yukarı" yuvarlama kullanılır.
+        value = int(math.floor(value + 0.5))
+        lo, hi = _INT_RANGES[dt]
+        if not lo <= value <= hi:
+            raise WriteValidationError(f"{value}, {dt} aralığının ({lo}..{hi}) dışında.")
+    try:
+        return struct.pack(_endian_char(byte_order) + code, value)
+    except (struct.error, OverflowError) as exc:
+        raise WriteValidationError(f"{dt} için kodlanamadı: {exc}")
 
 
 def decode_value(datatype: str, data: bytes, byte_order: str | None = None):
@@ -67,7 +107,8 @@ def raw_to_physical(compu_method, raw):
         return raw
     try:
         return float(compu_method.evaluator.int_to_physical(raw))
-    except Exception:
+    except Exception as exc:
+        log.warning("COMPU_METHOD ham->fiziksel dönüşümü başarısız (%s); ham değer gösteriliyor.", exc)
         return raw
 
 
@@ -79,5 +120,36 @@ def physical_to_raw(compu_method, phys):
         return phys
     try:
         return float(compu_method.evaluator.physical_to_int(phys))
-    except Exception:
-        return phys
+    except Exception as exc:
+        raise UnsupportedConversionError(
+            f"COMPU_METHOD ters dönüşümü desteklenmiyor veya değer aralık dışı ({exc}); yazma yapılmadı."
+        )
+
+
+def validate_write(info, phys, check_read_only: bool = True) -> float:
+    """ECU'ya yazmadan ÖNCE fiziksel değeri doğrular: sayısal ve sonlu mu,
+    nesne READ_ONLY mi, A2L alt/üst sınırları içinde mi. Geçerli değeri
+    (float) döndürür; aksi halde WriteValidationError fırlatır."""
+    name = getattr(info, "name", "?")
+    if check_read_only and getattr(info, "read_only", False):
+        raise WriteValidationError(f"{name}: A2L'de READ_ONLY olarak işaretli, yazılamaz.")
+    try:
+        v = float(phys)
+    except (TypeError, ValueError):
+        raise WriteValidationError(f"{name}: sayısal olmayan değer {phys!r}.")
+    if not math.isfinite(v):
+        raise WriteValidationError(f"{name}: sonlu olmayan değer ({v}) yazılamaz.")
+    lo, hi = getattr(info, "minimum", None), getattr(info, "maximum", None)
+    # lowerLimit == upperLimit (çoğunlukla 0/0) "sınır tanımsız" anlamına gelir.
+    if lo is not None and hi is not None and lo != hi:
+        if v < lo or v > hi:
+            raise WriteValidationError(f"{name}: {v:g}, izinli aralığın ({lo:g} .. {hi:g}) dışında.")
+    return v
+
+
+def encode_for_write(info, phys, check_read_only: bool = True) -> bytes:
+    """Kullanıcının fiziksel değerini doğrulayıp ECU'ya yazılacak ham
+    baytlara çevirir. Tüm yazma yolları bunu kullanmalıdır."""
+    v = validate_write(info, phys, check_read_only)
+    raw = physical_to_raw(getattr(info, "compu_method", None), v)
+    return encode_value(info.datatype, raw, getattr(info, "byte_order", None))
