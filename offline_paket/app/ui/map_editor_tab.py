@@ -153,7 +153,7 @@ class MapDocument(QWidget):
         bulk.addStretch()
 
         # --- INCA/Lookup tarzı grafik (üstte) ---
-        self.plot = pg.PlotWidget(background="#0b1a2b")
+        self.plot = pg.PlotWidget(background="#F7F9FB")
         self.plot.showGrid(x=True, y=True, alpha=0.25)
         self.plot.setMinimumHeight(150)
         self.plot.setMaximumHeight(300)
@@ -166,7 +166,7 @@ class MapDocument(QWidget):
         self.table = QTableWidget()
         self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         # Eksen değerleri (başlıklar) Lookup penceresindeki gibi gri zeminde, kalın
-        hdr_css = "QHeaderView::section { background:#16304d; color:#cfe0f1; font-weight:bold; padding:3px 8px; border:1px solid #1f3853; }"
+        hdr_css = "QHeaderView::section { background:#16304d; color:#243442; font-weight:bold; padding:3px 8px; border:1px solid #D6DEE6; }"
         self.table.horizontalHeader().setStyleSheet(hdr_css)
         self.table.verticalHeader().setStyleSheet(hdr_css)
         self.table.setSelectionBehavior(QAbstractItemView.SelectItems)
@@ -262,7 +262,7 @@ class MapDocument(QWidget):
         else:
             self.online_label.setText("OFFLINE")
             self.online_label.setStyleSheet(
-                "background:#3b5068; color:#cfe0f1; font-weight:bold; border-radius:4px; padding:3px 8px;")
+                "background:#3b5068; color:#243442; font-weight:bold; border-radius:4px; padding:3px 8px;")
 
     def set_online(self, online: bool):
         self._online = bool(online)
@@ -288,7 +288,7 @@ class MapDocument(QWidget):
             return
         cols = len(vals[0])
         xs = self._axis_x_values(cols)
-        palette = ["#35c6f4", "#ff6b6b", "#4ade80", "#f0b04a", "#b48cff", "#2dd4bf", "#cfd8e3"]
+        palette = ["#0E6E8C", "#ff6b6b", "#4ade80", "#f0b04a", "#b48cff", "#2dd4bf", "#cfd8e3"]
         for r, row in enumerate(vals):
             pts = [(x, v) for x, v in zip(xs, row) if v is not None]
             if not pts:
@@ -522,16 +522,16 @@ class MapDocument(QWidget):
                     and abs(self._original_grid[r][c] - val) > 1e-9
                 )
                 if val is None:
-                    item.setBackground(QColor("#0b1a2b"))
-                    item.setForeground(QColor("#e8f0f8"))
+                    item.setBackground(QColor("#F7F9FB"))
+                    item.setForeground(QColor("#121A22"))
                 elif heatmap_on:
                     ratio = (val - vmin) / span
                     color = QColor.fromHsvF(0.66 * (1.0 - ratio), 0.7, 0.55)  # mavi (düşük) -> kırmızı (yüksek)
                     item.setBackground(color)
                     item.setForeground(MODIFIED_FG if modified else QColor("#ffffff"))
                 else:
-                    item.setBackground(MODIFIED_BG if modified else QColor("#0b1a2b"))
-                    item.setForeground(MODIFIED_FG if modified else QColor("#e8f0f8"))
+                    item.setBackground(MODIFIED_BG if modified else QColor("#F7F9FB"))
+                    item.setForeground(MODIFIED_FG if modified else QColor("#121A22"))
                 font = item.font()
                 font.setBold(modified)
                 item.setFont(font)

@@ -140,11 +140,11 @@ class MonitorModel(QAbstractTableModel):
             now = time.monotonic()
             stale_after = max(STALE_MIN_S, (r.period_ms or 0) * 5 / 1000.0)
             if now - r.last_wall > stale_after:
-                return QColor("#5d7893")                # uzun süredir gelmeyen mesaj soluk
+                return QColor("#7C8B98")                # uzun süredir gelmeyen mesaj soluk
             if r.is_error:
-                return QColor("#ff9a9a")
+                return QColor("#C22A1D")
             if c == C_DIR:
-                return QColor("#35c6f4" if r.direction == "TX" else "#6ee7a1")
+                return QColor("#0E6E8C" if r.direction == "TX" else "#1B8A4C")
         elif role == Qt.BackgroundRole:
             if c == C_DATA and time.monotonic() - r.changed_at < CHANGE_HIGHLIGHT_S:
                 return QColor(245, 158, 11, 70)          # değişen veri kısa süre vurgulanır

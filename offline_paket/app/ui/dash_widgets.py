@@ -14,21 +14,21 @@ from PySide6.QtWidgets import (
 from app.theme import INK, INK_2, INK_3
 
 # ---- Koyu tema renkleri (Ana Sayfa) ---------------------------------------
-DK_BG = "#08121f"
-DK_CARD = "#0f2034"
-DK_CARD2 = "#12263d"
-DK_LINE = "#1f3853"
-DK_LINE2 = "#2a4a6b"
-DK_INK = "#e8f0f8"
-DK_MUT = "#8fa6bd"
-DK_DIM = "#5d7893"
-DK_BLUE = "#2f8cff"
-DK_CYAN = "#35c6f4"
-DK_GREEN = "#22c55e"
-DK_AMBER = "#f59e0b"
-DK_RED = "#ef4444"
-DK_PURPLE = "#a45cf0"
-DK_ORANGE = "#f08a1c"
+DK_BG = "#EEF2F6"
+DK_CARD = "#FFFFFF"
+DK_CARD2 = "#F4F7FA"
+DK_LINE = "#D6DEE6"
+DK_LINE2 = "#B7C4D0"
+DK_INK = "#121A22"
+DK_MUT = "#51616F"
+DK_DIM = "#7C8B98"
+DK_BLUE = "#1F6FE0"
+DK_CYAN = "#0E6E8C"
+DK_GREEN = "#1B8A4C"
+DK_AMBER = "#B9790F"
+DK_RED = "#C22A1D"
+DK_PURPLE = "#7B3FD1"
+DK_ORANGE = "#D9710B"
 
 # ---- Çizgi simgeleri (20x20) ----------------------------------------------
 ICONS = {
@@ -121,7 +121,7 @@ class IconButton(QPushButton):
         col = self._checked_color if on else self._color
         border = QColor(col if on else DK_LINE2)
         border.setAlpha(150 if on else 255)
-        fill = QColor("#0a1828")
+        fill = QColor("#FFFFFF")
         if on:
             fill = QColor(col)
             fill.setAlpha(36)
@@ -143,7 +143,7 @@ class LockButton(IconButton):
     lock_requested = Signal(bool)   # True: kilidi aç (sw=1), False: kilitle (sw=0)
 
     def __init__(self, size: int = 28, parent=None):
-        super().__init__("lock", size, DK_MUT, "#ffcb6b", parent)
+        super().__init__("lock", size, DK_MUT, "#9A6208", parent)
         self.setCheckable(True)
         self.setToolTip("Kilitli: değer değiştirilemez (anahtar=0). Tıkla: manuel değer (anahtar=1)")
         self.clicked.connect(self._clicked)
@@ -183,11 +183,11 @@ class ToggleSwitch(QPushButton):
         on = self.isChecked()
         painter.setOpacity(1.0 if self.isEnabled() else 0.4)
         painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor(self._on_color) if on else QColor("#2a3d52"))
+        painter.setBrush(QColor(self._on_color) if on else QColor("#B7C4D0"))
         painter.drawRoundedRect(self.rect(), 11, 11)
         d = 16
         x = self.width() - d - 3 if on else 3
-        painter.setBrush(QColor("#FFFFFF") if on else QColor("#cbd8e6"))
+        painter.setBrush(QColor("#FFFFFF") if on else QColor("#FFFFFF"))
         painter.drawEllipse(x, 3, d, d)
 
 
@@ -343,9 +343,9 @@ class GaugeWidget(QWidget):
 
 class DarkGauge(GaugeWidget):
     """GaugeWidget'ın koyu temalı varyantı (Performans / Çalışma Alanı)."""
-    ZONES = [(0.0, 1.0, "#35c6f4")]
+    ZONES = [(0.0, 1.0, "#0E6E8C")]
     C_ARC, C_TICK, C_NEEDLE, C_SCALE, C_PILL, C_VALUE, C_UNIT, C_LABEL = (
-        "#1a3049", "#4d6a86", "#e8f0f8", "#8fa6bd", "#0a1626", "#ffffff", "#8fa6bd", "#cfe0f1")
+        "#DDE5EC", "#9AA8B5", "#121A22", "#51616F", "#FFFFFF", "#121A22", "#51616F", "#243442")
 
 
 # ===========================================================================
@@ -406,7 +406,7 @@ class DashGauge(QWidget):
         cx, cy, r, w = 100.0, 80.0, 68.0, 9.0
         rect = QRectF(cx - r, cy - r, 2 * r, 2 * r)
         p.setOpacity(0.45 if self._dim or self._value is None else 1.0)
-        pen = QPen(QColor("#1d3550"), w + 4)
+        pen = QPen(QColor("#DDE5EC"), w + 4)
         pen.setCapStyle(Qt.FlatCap)
         p.setPen(pen)
         p.drawArc(rect, 180 * 16, -180 * 16)
@@ -415,7 +415,7 @@ class DashGauge(QWidget):
             pen.setCapStyle(Qt.FlatCap)
             p.setPen(pen)
             p.drawArc(rect, 180 * 16 - int(a * 180 * 16), -int((b - a) * 180 * 16))
-        p.setPen(QPen(QColor("#6b86a1"), 1.2))
+        p.setPen(QPen(QColor("#9AA8B5"), 1.2))
         for i in range(11):
             ang = math.radians(180 - 18 * i)
             r1 = r - 9
@@ -439,15 +439,15 @@ class DashGauge(QWidget):
             f.setBold(bold)
             return f
 
-        p.setFont(font(11, True))
-        p.setPen(QColor("#7f97ae"))
+        p.setFont(font(13, True))
+        p.setPen(QColor("#6B7C8A"))
         p.drawText(QRectF(cx - r - 14, cy + 4, 44, 14), Qt.AlignLeft | Qt.AlignVCenter, _format_scale_number(self._min))
         p.drawText(QRectF(cx + r - 30, cy + 4, 44, 14), Qt.AlignRight | Qt.AlignVCenter, _format_scale_number(self._max))
         p.setFont(font(25, True))
         p.setPen(QColor(DK_INK if self._value is not None and not self._dim else DK_DIM))
         p.drawText(QRectF(0, cy + 14, self._DW, 32), Qt.AlignHCenter | Qt.AlignVCenter,
                    format_value(self._value))
-        p.setFont(font(11.5))
+        p.setFont(font(13))
         p.setPen(QColor(DK_MUT))
         p.drawText(QRectF(0, cy + 46, self._DW, 16), Qt.AlignHCenter | Qt.AlignVCenter, self._unit)
 
@@ -493,10 +493,10 @@ class GaugeCard(QFrame):
         self.tag.setVisible(bool(text))
         self.tag.setText(text)
         if kind == "fault":
-            css = "background:#3a1416; color:#ff9a9a; border:1px solid #7a2a2a;"
+            css = "background:#FBE9E7; color:#C22A1D; border:1px solid #E3A29B;"
         else:
-            css = "background:#2a210c; color:#ffcb6b; border:1px solid #8a6a1e;"
-        self.tag.setStyleSheet(f"{css} border-radius:8px; padding:0 6px; font-size:10px; font-weight:700;")
+            css = "background:#FFF4DC; color:#9A6208; border:1px solid #D9A441;"
+        self.tag.setStyleSheet(f"{css} border-radius:8px; padding:0 6px; font-size:11px; font-weight:700;")
         state = kind
         if state != self._state:
             self._state = state

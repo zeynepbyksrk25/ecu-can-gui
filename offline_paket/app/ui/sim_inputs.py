@@ -69,7 +69,7 @@ class SimInputsPanel(QWidget):
         head.addWidget(self.flight_cycle)
         fl.addLayout(head)
         cols = QHBoxLayout()
-        cols.setSpacing(12)
+        cols.setSpacing(16)
         for keys in (FLIGHT_LEFT, FLIGHT_RIGHT):
             col = QVBoxLayout()
             col.setSpacing(0)
@@ -78,7 +78,7 @@ class SimInputsPanel(QWidget):
             for k in keys:
                 col.addLayout(self._flight_row(INPUT_BY_KEY[k]))
             col.addStretch(1)
-            cols.addLayout(col, 20 if keys is FLIGHT_LEFT else 22)
+            cols.addLayout(col, 9 if keys is FLIGHT_LEFT else 11)
             if keys is FLIGHT_LEFT:
                 sep = QFrame()
                 sep.setObjectName("vsep")
@@ -145,16 +145,14 @@ class SimInputsPanel(QWidget):
         row.setContentsMargins(0, 0, 0, 0)
         spin = self._spin(d)
         spin.setObjectName("flightSpin")
-        spin.setFixedWidth(84)
+        spin.setMinimumWidth(108)
         spin.editingFinished.connect(lambda k=d.key: self._emit_one(k))
         warn = QLabel("")
         warn.setObjectName("warnDot")
         warn.setVisible(False)
         lab = self._name_label(d)
-        lab.setStyleSheet("font-size: 11.5px;")
         # dar sütunda metin kırpılabilsin diye etiket küçülebilir (kart taşmaz)
-        lab.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        lab.setMinimumWidth(40)
+        lab.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
         row.addWidget(IconLabel(ICON_OF[d.key], DK_MUT, 16))
         row.addWidget(lab, 1)
         row.addWidget(warn)
@@ -166,7 +164,7 @@ class SimInputsPanel(QWidget):
         wrap = QFrame()
         wrap.setObjectName("rowFrame")
         wrap.setLayout(row)
-        wrap.setFixedHeight(28)
+        wrap.setMinimumHeight(34)
         outer = QHBoxLayout()
         outer.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(wrap)
@@ -192,7 +190,7 @@ class SimInputsPanel(QWidget):
             self._ctrl[d.key] = {"kind": "switch", "w": sw, "warn": warn, "label": lab}
         else:
             spin = self._spin(d)
-            spin.setMinimumWidth(92)
+            spin.setMinimumWidth(108)
             sl = no_wheel(QSlider(Qt.Horizontal))
             sl.setRange(int(d.minimum * 10), int(d.maximum * 10))
             sl.sliderReleased.connect(lambda k=d.key: self._emit_one(k))
@@ -203,7 +201,7 @@ class SimInputsPanel(QWidget):
         wrap = QFrame()
         wrap.setObjectName("rowFrame")
         wrap.setLayout(row)
-        wrap.setFixedHeight(30)
+        wrap.setMinimumHeight(34)
         box.addWidget(wrap)
         if d.kind == "slider":
             srow = QHBoxLayout()

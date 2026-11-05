@@ -19,7 +19,7 @@ class DetachedWindow(QWidget):
         from app.ui.dark_theme import dark_qss
         self.setWindowTitle(title)
         self.setObjectName("floatBody")
-        self.setStyleSheet("QWidget#floatBody { background:#08121f; }" + dark_qss("floatBody"))
+        self.setStyleSheet("QWidget#floatBody { background:#EEF2F6; }" + dark_qss("floatBody"))
         self._lay = QVBoxLayout(self)
         self._lay.setContentsMargins(4, 4, 4, 4)
         btn = QPushButton("⤓  Ana pencereye geri yerleştir")

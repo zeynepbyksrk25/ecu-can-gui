@@ -110,7 +110,7 @@ def test_dialog_is_dark_scoped_and_message_boxes_stay_light(dlg):
     from PySide6.QtWidgets import QMessageBox, QWidget
     w, d = dlg
     body = d.findChild(QWidget, "mapBody")
-    assert body is not None and "#0f2034" in body.styleSheet()          # koyu stil yalnızca gövdede
+    assert body is not None and "#FFFFFF" in body.styleSheet()          # koyu stil yalnızca gövdede
     assert "mapBody" not in d.styleSheet()                              # iletişim kutusunun kendisinde yalnız zemin rengi
     box = QMessageBox(d)                                                # açık tema korunur (okunaklı kalır)
     assert box.styleSheet() == "" and not body.isAncestorOf(box)

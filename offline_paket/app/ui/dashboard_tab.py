@@ -122,7 +122,7 @@ class DashboardTab(QWidget):
         left.addWidget(self._build_actuators_card(), 1)
         left_w = QWidget()
         left_w.setLayout(left)
-        left_w.setFixedWidth(512)
+        left_w.setFixedWidth(620)
         left_w.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
 
         right = QVBoxLayout()
@@ -402,15 +402,13 @@ class DashboardTab(QWidget):
 
         for key in ACTUATOR_KEYS:
             lay.addWidget(self._build_actuator_row(key), 1)
-        lay.addStretch(1)      # satırlar azami yüksekliğe ulaşınca artan boşluk altta toplanır
         return card
 
     def _build_actuator_row(self, key: str) -> QFrame:
         kind = ACTUATOR_KINDS[key]
         row = QFrame()
         row.setObjectName("rowFrame")
-        row.setMinimumHeight(28)
-        row.setMaximumHeight(44)
+        row.setMinimumHeight(36)
         hl = QHBoxLayout(row)
         hl.setContentsMargins(0, 2, 0, 2)
         hl.setSpacing(10)
@@ -424,7 +422,7 @@ class DashboardTab(QWidget):
             onoff = QLabel("OFF")
             onoff.setObjectName("onoff")
             onoff.setProperty("on", False)
-            sw = ToggleSwitch(on_color="#22c55e")
+            sw = ToggleSwitch(on_color="#1B8A4C")
             sw.toggled.connect(lambda checked, k=key: self._on_actuator_toggle(k, checked))
             hl.addWidget(onoff)
             hl.addWidget(sw)
@@ -436,7 +434,7 @@ class DashboardTab(QWidget):
             spin.setDecimals(1)
             spin.setSuffix(" %")
             spin.setKeyboardTracking(False)
-            spin.setMinimumWidth(92)
+            spin.setMinimumWidth(108)
             spin.valueChanged.connect(lambda v, k=key: self._on_actuator_value(k, v))
             hl.addWidget(spin)
             entry.update(control=spin)

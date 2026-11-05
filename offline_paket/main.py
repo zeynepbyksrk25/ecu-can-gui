@@ -77,6 +77,12 @@ def main():
         Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
     )
     app = QApplication(sys.argv)
+    # Net yazı: tam hinting + tam sayı piksel boyutu (QSS'teki font-size ile uyumlu)
+    from PySide6.QtGui import QFont
+    base_font = app.font()
+    base_font.setHintingPreference(QFont.HintingPreference.PreferFullHinting)
+    base_font.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
+    app.setFont(base_font)
     # Tek örnek: iki kopya aynı audit/history/profil dosyalarına yazıp bozar.
     lock = QLockFile(data_path("openecu.lock"))
     lock.setStaleLockTime(15000)

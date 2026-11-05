@@ -26,8 +26,8 @@ from app.ui.dash_widgets import (
 
 WINDOWS = [("60 sn", 60.0), ("5 dk", 300.0), ("10 dk", 600.0), ("1 sa", 3600.0)]
 MAX_HISTORY_S = 3600.0
-PALETTE = [DK_CYAN, DK_ORANGE, DK_PURPLE, DK_GREEN, "#f472b6", "#facc15", "#60a5fa", "#fb7185"]
-PLOT_BG = "#0b1a2b"
+PALETTE = [DK_CYAN, DK_ORANGE, DK_PURPLE, DK_GREEN, "#D6336C", "#B58900", "#1F6FE0", "#C22A1D"]
+PLOT_BG = "#F7F9FB"
 
 
 class _RelAxis(pg.AxisItem):
@@ -213,10 +213,10 @@ class TrendPanel(QFrame):
         root.addWidget(self.plot, 1)
 
         # imleç çizgileri
-        self._cur_a = pg.InfiniteLine(angle=90, movable=True, pen=pg.mkPen("#e8f0f8", width=1.4),
-                                      label="A", labelOpts={"position": 0.06, "color": "#e8f0f8"})
-        self._cur_b = pg.InfiniteLine(angle=90, movable=True, pen=pg.mkPen("#8fa6bd", width=1.2, style=Qt.DashLine),
-                                      label="B", labelOpts={"position": 0.06, "color": "#8fa6bd"})
+        self._cur_a = pg.InfiniteLine(angle=90, movable=True, pen=pg.mkPen("#121A22", width=1.4),
+                                      label="A", labelOpts={"position": 0.06, "color": "#121A22"})
+        self._cur_b = pg.InfiniteLine(angle=90, movable=True, pen=pg.mkPen("#51616F", width=1.2, style=Qt.DashLine),
+                                      label="B", labelOpts={"position": 0.06, "color": "#51616F"})
         for ln in (self._cur_a, self._cur_b):
             ln.setZValue(50)
             ln.sigPositionChanged.connect(self._update_cursor_readout)
@@ -543,7 +543,7 @@ class TrendPanel(QFrame):
     def start_test(self):
         now = time.time()
         self._test_start = now
-        self.add_event("Test Başlangıcı", now, "#22c55e")
+        self.add_event("Test Başlangıcı", now, "#1B8A4C")
         self.btn_test_start.setEnabled(False)
         self.btn_test_end.setEnabled(True)
         self.test_label.setVisible(True)
@@ -554,7 +554,7 @@ class TrendPanel(QFrame):
             return
         now = time.time()
         dur = now - self._test_start
-        self.add_event("Test Bitişi", now, "#ef4444")
+        self.add_event("Test Bitişi", now, "#C22A1D")
         self._test_start = None
         self.btn_test_start.setEnabled(True)
         self.btn_test_end.setEnabled(False)

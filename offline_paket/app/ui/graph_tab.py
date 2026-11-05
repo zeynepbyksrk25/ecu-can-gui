@@ -29,7 +29,7 @@ from app.ui.dark_theme import style_plot  # noqa: E402
 POLL_INTERVAL_MS = 250
 MAX_POINTS = 800  # ~200 saniyelik pencere (250ms * 800)
 
-_PALETTE = ["#35c6f4", "#ff6b6b", "#4ade80", "#b48cff", "#f0b04a", "#2dd4bf"]
+_PALETTE = ["#0E6E8C", "#ff6b6b", "#4ade80", "#b48cff", "#f0b04a", "#2dd4bf"]
 
 
 class _GraphTile(QWidget):
@@ -74,7 +74,7 @@ class _GraphTile(QWidget):
         outer.addLayout(top_row)
 
         pg.setConfigOptions(antialias=True)
-        self.plot_widget = pg.PlotWidget(background="#0b1a2b")
+        self.plot_widget = pg.PlotWidget(background="#F7F9FB")
         style_plot(self.plot_widget)
         self.plot_widget.addLegend()
         self.plot_widget.showGrid(x=True, y=True, alpha=0.3)

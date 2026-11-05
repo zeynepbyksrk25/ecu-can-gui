@@ -5,8 +5,6 @@ tasarımdaki renk paletine göre: açık gri/mavi zemin, beyaz paneller,
 Tek bir QSS string'i olarak tutulur ve main.py içinde
 `app.setStyleSheet(APP_QSS)` ile TÜM uygulamaya (her sekmeye) uygulanır.
 
-Eski koyu tema (DARK_QSS) geri alma (rollback) ihtimaline karşı bu
-dosyada bırakılmıştır ama artık kullanılmaz / import edilmez.
 """
 
 # ---- Tasarım token'ları (mockup'taki CSS değişkenlerinin karşılığı) -------
@@ -87,7 +85,7 @@ QWidget {{
     background-color: {BG};
     color: {INK};
     font-family: {FONT_SANS};
-    font-size: 13px;
+    font-size: 14px;
 }}
 
 QTabWidget::pane {{
@@ -326,7 +324,7 @@ QLabel[tileValue="true"] {{
 
 QLabel[tileLabel="true"] {{
     color: {INK_2};
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 600;
 }}
 
@@ -337,7 +335,7 @@ QLabel[pill="ok"] {{
     border-radius: 8px;
     padding: 1px 8px;
     font-weight: 700;
-    font-size: 11px;
+    font-size: 12px;
 }}
 
 QLabel[pill="watch"] {{
@@ -346,7 +344,7 @@ QLabel[pill="watch"] {{
     border-radius: 8px;
     padding: 1px 8px;
     font-weight: 700;
-    font-size: 11px;
+    font-size: 12px;
 }}
 
 /* ---- Kompakt düğme (küçük, kenarlıklı; metin KESİLMEZ) -------------------- */
@@ -357,22 +355,22 @@ QPushButton[compact="true"] {{
 
 /* ---- Üst başlık şeridi + yatay gezinme (sidebar YOK) ---------------------- */
 QFrame#topHeaderNavy {{
-    background: #07101C;
+    background: #FFFFFF;
     border: none;
-    border-bottom: 1px solid #1F3853;
+    border-bottom: 1px solid #D6DEE6;
 }}
 
 QLabel#headerLogoBadge {{
-    background: #2F8CFF;
+    background: #1F6FE0;
     color: white;
     border-radius: 6px;
-    font-size: 13px;
+    font-size: 14px;
 }}
 
 QLabel#headerTitle {{
-    font-size: 13.5px;
+    font-size: 16px;
     font-weight: 700;
-    color: #FFFFFF;
+    color: #121A22;
     background: transparent;
 }}
 
@@ -382,139 +380,106 @@ QTabBar#topNav {{
 
 QTabBar#topNav::tab {{
     background: transparent;
-    color: #8FA6BD;
+    color: #51616F;
     padding: 0 8px;
     height: 38px;
     margin: 0 1px;
     border: none;
     border-bottom: 2px solid transparent;
-    font-size: 12.5px;
+    font-size: 14px;
 }}
 
 QTabBar#topNav::tab:selected {{
-    color: #FFFFFF;
-    background: rgba(53, 198, 244, 0.10);
-    border-bottom: 2px solid #35C6F4;
+    color: #064A60;
+    background: rgba(14, 110, 140, 0.10);
+    border-bottom: 2px solid #0E6E8C;
     font-weight: 600;
 }}
 
 QTabBar#topNav::tab:hover:!selected {{
-    color: #E8F0F8;
+    color: #121A22;
 }}
 
-/* ---- Komut şeridi (sekmelerin hemen altı): koyu --------------------------- */
+/* ---- Komut şeridi (sekmelerin hemen altı) --------------------------- */
 QFrame#actionStatusRow {{
-    background: #0A1626;
-    border-bottom: 1px solid #1F3853;
+    background: #FFFFFF;
+    border-bottom: 1px solid #D6DEE6;
 }}
 
 QFrame#actionStatusRow QPushButton {{
-    background: #12263D;
-    color: #E8F0F8;
-    border: 1px solid #2A4A6B;
+    background: #F4F7FA;
+    color: #121A22;
+    border: 1px solid #B7C4D0;
     border-radius: 8px;
     padding: 0 16px;
     font-weight: 600;
 }}
 
 QFrame#actionStatusRow QPushButton:hover {{
-    border-color: #35C6F4;
-    color: #FFFFFF;
+    border-color: #0E6E8C;
+    color: #0E6E8C;
 }}
 
 QFrame#actionStatusRow QPushButton:disabled {{
-    color: #5D7893;
-    border-color: #1F3853;
+    color: #7C8B98;
+    border-color: #D6DEE6;
 }}
 
 QFrame#actionStatusRow QPushButton[primary="true"] {{
-    background: #0F2C20;
-    border-color: #1D7F4B;
-    color: #8BF0B4;
+    background: #E6F4EC;
+    border-color: #6DBA8C;
+    color: #1B6B3E;
 }}
 
 QFrame#actionStatusRow QPushButton[danger="true"] {{
-    background: #3A1313;
-    border-color: #8C2B2B;
-    color: #FF9A9A;
+    background: #FBE9E7;
+    border-color: #E3A29B;
+    color: #C22A1D;
 }}
 
 QFrame#actionStatusRow QPushButton[danger="true"]:hover {{
-    background: #5A1B1B;
-    color: #FFFFFF;
+    background: #F6CFC9;
+    color: #A8241A;
 }}
 
 QLabel#ccpChip {{
-    background: #0A1828;
-    border: 1px solid #1F3853;
+    background: #FFFFFF;
+    border: 1px solid #D6DEE6;
     border-radius: 12px;
     padding: 3px 12px;
-    color: #8FA6BD;
-    font-size: 12px;
+    color: #51616F;
+    font-size: 13px;
     font-weight: 600;
 }}
 
-QLabel#ccpChip[state="online"] {{ background: #0E2A22; border-color: #1B6B45; color: #6EE7A1; }}
-QLabel#ccpChip[state="connecting"] {{ background: #2A210C; border-color: #8A6A1E; color: #FFCB6B; }}
-QLabel#ccpChip[state="lost"] {{ background: #3A1416; border-color: #7A2A2A; color: #FF9A9A; }}
+QLabel#ccpChip[state="online"] {{ background: #E6F4EC; border-color: #9AD1B2; color: #1B8A4C; }}
+QLabel#ccpChip[state="connecting"] {{ background: #FFF4DC; border-color: #D9A441; color: #9A6208; }}
+QLabel#ccpChip[state="lost"] {{ background: #FBE9E7; border-color: #E3A29B; color: #C22A1D; }}
 
 QLabel#headerReadout {{
-    color: #8FA6BD;
-    font-size: 12px;
+    color: #51616F;
+    font-size: 13px;
     font-weight: 600;
     background: transparent;
 }}
 
 QLabel#connPillOk {{
-    background: #0E2A22;
-    color: #6EE7A1;
-    border: 1px solid #1B6B45;
+    background: #E6F4EC;
+    color: #1B8A4C;
+    border: 1px solid #9AD1B2;
     border-radius: 12px;
     padding: 3px 12px;
     font-weight: 600;
-    font-size: 12px;
+    font-size: 13px;
 }}
 
 QLabel#connPillBad {{
-    background: #3A1416;
-    color: #FF9A9A;
-    border: 1px solid #7A2A2A;
+    background: #FBE9E7;
+    color: #C22A1D;
+    border: 1px solid #E3A29B;
     border-radius: 12px;
     padding: 3px 12px;
     font-weight: 600;
-    font-size: 12px;
-}}
-"""
-
-# ---------------------------------------------------------------------------
-# Eski koyu tema (rollback için saklanıyor, artık kullanılmıyor).
-# ---------------------------------------------------------------------------
-_DARK_BG_MAIN = "#12181f"
-_DARK_BG_PANEL = "#1a222c"
-_DARK_BG_PANEL_ALT = "#212b37"
-_DARK_BORDER = "#2c3a48"
-_DARK_ACCENT = "#00c2b8"
-_DARK_ACCENT_DIM = "#0d8f88"
-_DARK_TEXT = "#e6edf3"
-_DARK_TEXT_DIM = "#8ea0b0"
-_DARK_DANGER = "#e5484d"
-_DARK_DANGER_DIM = "#8f2f32"
-
-DARK_QSS = f"""
-QWidget {{
-    background-color: {_DARK_BG_MAIN};
-    color: {_DARK_TEXT};
     font-size: 13px;
 }}
-QTabWidget::pane {{ border: 1px solid {_DARK_BORDER}; background: {_DARK_BG_MAIN}; top: -1px; }}
-QTabBar::tab {{ background: {_DARK_BG_PANEL}; color: {_DARK_TEXT_DIM}; padding: 8px 16px;
-    border: 1px solid {_DARK_BORDER}; border-bottom: none; margin-right: 2px; }}
-QTabBar::tab:selected {{ background: {_DARK_BG_MAIN}; color: {_DARK_ACCENT};
-    border-bottom: 2px solid {_DARK_ACCENT}; font-weight: 600; }}
-QGroupBox {{ background: {_DARK_BG_PANEL}; border: 1px solid {_DARK_BORDER}; border-radius: 6px;
-    margin-top: 14px; padding: 10px; font-weight: 600; color: {_DARK_TEXT_DIM}; }}
-QPushButton {{ background: {_DARK_BG_PANEL_ALT}; color: {_DARK_TEXT}; border: 1px solid {_DARK_BORDER};
-    border-radius: 4px; padding: 6px 14px; }}
-QPushButton[danger="true"] {{ background: {_DARK_DANGER_DIM}; border-color: {_DARK_DANGER};
-    color: #ffd7d7; font-weight: 700; }}
 """

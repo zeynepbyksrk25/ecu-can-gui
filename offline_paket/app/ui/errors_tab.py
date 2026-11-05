@@ -61,7 +61,7 @@ class ErrorsTab(QWidget):
             self.table.setItem(row, 0, QTableWidgetItem(time.strftime("%H:%M:%S", time.localtime(e.timestamp))))
             self.table.setItem(row, 1, QTableWidgetItem(f"{e.user} / {e.role}"))
             cat_item = QTableWidgetItem(e.category)
-            cat_item.setForeground(QColor("#ff9a9a"))
+            cat_item.setForeground(QColor("#C22A1D"))
             self.table.setItem(row, 2, cat_item)
             self.table.setItem(row, 3, QTableWidgetItem(e.message))
         self.table.setColumnWidth(0, 80)

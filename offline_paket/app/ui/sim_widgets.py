@@ -44,22 +44,22 @@ class Sparkline(QWidget):
         poly = QPolygonF([QPointF(1 + w * i / n, 2 + h * (1 - (v - lo) / span)) for i, v in enumerate(self._pts)])
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
-        p.setPen(QPen(QColor("#5FA8D3"), 1.4))
+        p.setPen(QPen(QColor("#0E6E8C"), 1.4))
         p.drawPolyline(poly)
 
 
 class ColorCard(QFrame):
     """Koyu kart (A–E): rozet ve başlık, kartın vurgu rengini taşır."""
 
-    ACCENTS = {"A": "#5aa9ff", "B": "#4ade80", "C": "#f0c040", "D": "#ff9a52", "E": "#2dd4bf"}
+    ACCENTS = {"A": "#1F6FE0", "B": "#1B8A4C", "C": "#B9790F", "D": "#C2570F", "E": "#0E8C7C"}
 
     def __init__(self, card_id: str, parent=None):
         super().__init__(parent)
         title = CARD_STYLES[card_id][0]
-        ink = self.ACCENTS.get(card_id, "#35c6f4")
+        ink = self.ACCENTS.get(card_id, "#0E6E8C")
         self.setObjectName("colorCard")
         self.setStyleSheet(
-            "QFrame#colorCard { background:#0f2034; border:1px solid #1f3853; border-radius:12px; }"
+            "QFrame#colorCard { background:#FFFFFF; border:1px solid #D6DEE6; border-radius:12px; }"
             f"QLabel#cardTitle {{ color:{ink}; font-size:14px; font-weight:800; background:transparent; }}")
         self.outer = QVBoxLayout(self)
         self.outer.setContentsMargins(14, 10, 14, 12)
@@ -69,7 +69,7 @@ class ColorCard(QFrame):
         badge = QLabel(card_id)
         badge.setFixedSize(26, 26)
         badge.setAlignment(Qt.AlignCenter)
-        badge.setStyleSheet(f"background:{ink}; color:#08121f; border-radius:13px; font-weight:800; font-size:13px;")
+        badge.setStyleSheet(f"background:{ink}; color:#FFFFFF; border-radius:13px; font-weight:800; font-size:13px;")
         self.title_label = QLabel(title.split(". ", 1)[-1])
         self.title_label.setObjectName("cardTitle")
         head.addWidget(badge)
@@ -87,7 +87,7 @@ class DigitalBox(QFrame):
     unbind_requested = Signal(str)
     threshold_requested = Signal(str)
 
-    COLORS = {0: "#FFFFFF", 1: "#FFC93C", 2: "#FF5A4D"}
+    COLORS = {0: "#121A22", 1: "#B9790F", 2: "#C22A1D"}
 
     def __init__(self, key: str, label: str, unit: str, hint: str = "", parent=None):
         super().__init__(parent)
@@ -98,27 +98,27 @@ class DigitalBox(QFrame):
         self.setObjectName("digitalBox")
         self.setMinimumHeight(56)
         self.setMaximumHeight(72)
-        self.setStyleSheet("QFrame#digitalBox { background:#0a1626; border:1px solid #1a3049; border-radius:8px; }"
+        self.setStyleSheet("QFrame#digitalBox { background:#FFFFFF; border:1px solid #DDE5EC; border-radius:8px; }"
                            "QLabel { background:transparent; }")
         lay = QVBoxLayout(self)
         lay.setContentsMargins(10, 5, 10, 5)
         lay.setSpacing(0)
         top = QHBoxLayout()
         self.name_label = QLabel(label + (f"  ({hint})" if hint else ""))
-        self.name_label.setStyleSheet("color:#9FB3C4; font-size:11px; font-weight:600;")
+        self.name_label.setStyleSheet("color:#51616F; font-size:13px; font-weight:600;")
         self.name_label.setWordWrap(False)
         self.bound_label = QLabel("")
-        self.bound_label.setStyleSheet("color:#F2B84B; font-size:10px; font-weight:700;")
+        self.bound_label.setStyleSheet("color:#9A6208; font-size:12px; font-weight:700;")
         top.addWidget(self.name_label, 1)
         top.addWidget(self.bound_label)
         row = QHBoxLayout()
         self.value_label = QLabel("—")
         self.value_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        self.value_label.setStyleSheet("color:#FFFFFF; font-size:21px; font-weight:700; font-family:'IBM Plex Mono','DejaVu Sans Mono',monospace;")
+        self.value_label.setStyleSheet("color:#121A22; font-size:22px; font-weight:700; font-family:'IBM Plex Mono','DejaVu Sans Mono',monospace;")
         self.unit_label = QLabel(unit)
-        self.unit_label.setStyleSheet("color:#8FA3B3; font-size:11px;")
+        self.unit_label.setStyleSheet("color:#51616F; font-size:13px;")
         self.trend_label = QLabel("")
-        self.trend_label.setStyleSheet("color:#7FA6C4; font-size:12px;")
+        self.trend_label.setStyleSheet("color:#3F6C8F; font-size:13px;")
         self.spark = Sparkline()
         self.spark.setVisible(False)
         row.addWidget(self.value_label)
@@ -137,17 +137,17 @@ class DigitalBox(QFrame):
         self.setToolTip(f"{self._label}\nKaynak: {name}" if bound else
                         f"{self._label}\nBağlı sinyal yok — sağ tık: Sinyal bağla…")
 
-    BORDERS = {0: "none", 1: "2px solid #FFC93C", 2: "2px solid #FF5A4D"}
+    BORDERS = {0: "none", 1: "2px solid #D9A441", 2: "2px solid #C22A1D"}
     ICONS = {0: "", 1: "⚠ ", 2: "⛔ "}
 
     def set_value(self, value, level: int = 0, trend: int = 0, stale: bool = False):
         if stale:
             level = 0
-        self.setStyleSheet(f"QFrame#digitalBox {{ background:#0a1626; border-radius:8px; "
-                           f"border:{self.BORDERS.get(level, '1px solid #1a3049')}; }} QLabel {{ background:transparent; }}")
+        self.setStyleSheet(f"QFrame#digitalBox {{ background:#FFFFFF; border-radius:8px; "
+                           f"border:{self.BORDERS.get(level, '1px solid #DDE5EC')}; }} QLabel {{ background:transparent; }}")
         base = self._label + (f"  ({self._hint})" if self._hint else "")
         self.name_label.setText(self.ICONS.get(level, "") + base)
-        color = "#5F7283" if stale else self.COLORS.get(level, "#FFFFFF")
+        color = "#8A98A5" if stale else self.COLORS.get(level, "#FFFFFF")
         self.value_label.setText(fmt_value(value))
         self.value_label.setStyleSheet(
             f"color:{color}; font-size:21px; font-weight:700; "
