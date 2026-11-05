@@ -1,10 +1,11 @@
-PySide6>=6.6
-python-can>=4.3
-cantools>=39.4
-msgpack>=1.0
-pya2ldb>=1.0
-pyqtgraph>=0.13
-reportlab>=4.0
-pyinstaller>=6.0
-pywin32-ctypes>=0.2
-pefile>=2023.2.7
+# Doğrudan bağımlılıklar (SABİT). Geçişli bağımlılıklar + hash'ler: requirements.lock.txt
+PySide6==6.12.0
+cantools==45.1.2
+msgpack==1.2.4
+pefile==2024.8.26
+pya2ldb==1.0.355
+pyinstaller==6.22.3
+pyqtgraph==0.14.0
+python-can==4.6.1
+pywin32-ctypes==0.2.3
+reportlab==5.1.0

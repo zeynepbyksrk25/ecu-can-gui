@@ -1,0 +1,3 @@
+# Test bağımlılıkları (SABİT). Hash'li kapanış: requirements-dev.lock.txt
+pypdf==6.21.4
+pytest==9.2.0

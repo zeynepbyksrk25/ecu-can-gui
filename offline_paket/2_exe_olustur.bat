@@ -10,8 +10,13 @@ if not exist venv\Scripts\python.exe (
     pause
     exit /b 1
 )
+if not exist app\fonts\DejaVuSans.ttf (
+    echo [HATA] app\fonts\DejaVuSans.ttf yok; PDF raporunda Turkce karakterler bozulur.
+    pause
+    exit /b 1
+)
 
-echo [1/2] PyInstaller kurulu mu kontrol ediliyor...
+echo [1/3] PyInstaller kontrol ediliyor...
 venv\Scripts\pyinstaller.exe --version
 if errorlevel 1 (
     echo [HATA] PyInstaller calistirilamadi. 1_kurulum.bat'in basariyla
@@ -20,22 +25,39 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo [2/2] .exe olusturuluyor (bu birkac dakika surebilir)...
+echo [2/3] Testler calistiriliyor (kuruluysa)...
+venv\Scripts\python.exe -c "import pytest" >nul 2>nul
+if errorlevel 1 (
+    echo        pytest kurulu degil, testler atlandi.
+) else (
+    venv\Scripts\python.exe -m pytest tests -q
+    if errorlevel 1 (
+        echo.
+        echo [UYARI] Testler BASARISIZ. exe yine de olusturulacak ama bu surum
+        echo         gercek teste verilmemeli. Yukaridaki hatalari inceleyin.
+        pause
+    )
+)
+
+echo [3/3] .exe olusturuluyor (bu birkac dakika surebilir)...
 REM --collect-submodules can / cantools:
 REM   python-can, pcan gibi arayuzleri calisma anda (dinamik) yukler;
 REM   PyInstaller'in statik analizi bunu KACIRIR ve exe calistirildiginda
-REM   "No module named can.interfaces.pcan" hatasi verir. Bu iki bayrak
+REM   "No module named can.interfaces.pcan" hatasi verir. Bu bayraklar
 REM   olmadan exe INTERNETSIZ bilgisayarda PCAN-USB ile CALISMAZ
 REM   (bu proje icin gercek donanimla test edilip dogrulanmis bir hata).
 REM --collect-all pya2l:
 REM   pya2l, A2L dosyalarini SQLAlchemy uzerinden calisma aninda olusan
 REM   bir semaya yukler; guvenli tarafta kalmak icin tum alt modulleri
 REM   dahil ediyoruz.
+REM --add-data app\fonts: PDF raporu icin Turkce karakterli yazi tipi.
 venv\Scripts\pyinstaller.exe main.py ^
     --name ECU_CAN_Arayuzu ^
     --onefile ^
     --noconsole ^
+    --noconfirm ^
     --icon app_icon.ico ^
+    --add-data "app\fonts;app\fonts" ^
     --collect-submodules can ^
     --collect-submodules cantools ^
     --collect-all pya2l ^
@@ -50,6 +72,11 @@ if errorlevel 1 (
     echo        bu komuta "--collect-submodules X" veya "--hidden-import X"
     echo        ekleyip tekrar calistirin ^(can/cantools'ta da ayni sorun
     echo        yasanmis ve bu sekilde cozulmustu^).
+    pause
+    exit /b 1
+)
+if not exist dist\ECU_CAN_Arayuzu.exe (
+    echo [HATA] dist\ECU_CAN_Arayuzu.exe olusmadi.
     pause
     exit /b 1
 )

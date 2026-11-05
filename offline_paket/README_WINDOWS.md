@@ -3,7 +3,7 @@
 Bu klasör, internete **hiç bağlanmadan** Windows'ta çalışan tek bir `.exe`
 dosyası üretmeniz için gereken her şeyi içerir: uygulamanın kaynak kodu
 (`app/`, `main.py`) ve kurulum/derleme betikleri. Gerekli Python
-paketlerinin (`.whl`) toplam boyutu (~270 MB, özellikle PySide6) sohbet
+paketlerinin (`.whl`) toplam boyutu (~290 MB, özellikle PySide6) sohbet
 üzerinden gönderilemeyecek kadar büyük olduğu için, onları **Adım 0**'da
 kendiniz (tek komutla) indireceksiniz.
 
@@ -16,7 +16,8 @@ içinde:
 - Linux/macOS: `bash 0_wheels_indir.sh`
 - Windows: `0_wheels_indir.bat` dosyasına çift tıklayın
 
-Bu, Windows (Python 3.11, win_amd64) için gereken TÜM paketleri indirip
+Bu, Windows (Python 3.11, win_amd64) için gereken TÜM paketleri **tam sabit
+sürüm ve hash doğrulamasıyla** (`requirements.lock.txt`) indirip
 `wheels\` klasörüne koyar — **Windows'ta çalıştırmanıza gerek yoktur**,
 pip "başka bir platform için indirme" özelliğini destekler, bu yüzden
 Pardus'taki geliştirme makinenizde de çalıştırabilirsiniz.
@@ -79,9 +80,9 @@ Sürücü kurulduktan sonra adaptörü takıp Aygıt Yöneticisi'nde
 | Sekme | Ne işe yarar |
 |---|---|
 | **Ana Sayfa** | Annunciator lamba şeridi (RED STOP LAMP/MIL LAMP/vb.), Motor Komutları, 8 ibre göstergeli Motor Parametreleri (RPM/İtki/PLA/Tt5/FP/FT/Ps2/Tt2), Sensör Durumu ve Arıza Tablosu, gömülü canlı grafik, **Eyleyiciler** (manuel override anahtarları — MATLAB/Simulink ile donanım testi için). Aşağıdaki "Ayarlar" bölümüne bakın — bu sekmenin çalışması için DBC/A2L eşlemelerini bir kere girmeniz gerekir. |
-| **CAN Monitor** | Bağlantı (arayüz/kanal/baudrate — arayüz seçimi "▸ Gelişmiş ayarlar" arkasında, varsayılan PCAN), İzleme (gelen/giden CAN trafiği), Gönderim (manuel/periyodik mesaj + DBC yükleme — Ana Sayfa'daki motor komutları ve eyleyici override'ları da aynı DBC'yi kullanır), Log (CAN trafiğini CSV'ye kaydetme) — tek sekmede birleşik |
+| **CAN Monitor** | Bağlantı (arayüz/kanal/baudrate — arayüz seçimi "▸ Gelişmiş ayarlar" arkasında, varsayılan arayüz `virtual` — **gerçek test için `pcan` seçin**), İzleme (gelen/giden CAN trafiği), Gönderim (manuel/periyodik mesaj + DBC yükleme — Ana Sayfa'daki motor komutları ve eyleyici override'ları da aynı DBC'yi kullanır), Log (CAN trafiğini CSV'ye kaydetme) — tek sekmede birleşik |
 | A2L | A2L dosyası yükleyip Measurement/Characteristic nesnelerini gezme |
-| **Kalibrasyon** | İç sekmeler: **CCP** (canlı değer okuma, RAM'e geçici yazma, **Yönetici rolüyle flaşa kalıcı yazma**), **Harita Editörü** (1D/2D kalibrasyon tabloları, geri al/yinele, ısı haritası), **Geçmiş** (RAM ve FLAŞ yazımlarının eski/yeni değerleri, geri alma — FLAŞ kaydı uygulama kapansa bile kalıcıdır) |
+| **Kalibrasyon** | İç sekmeler (4): **CCP** (canlı değer okuma, RAM'e geçici yazma, **Yönetici rolüyle flaşa kalıcı yazma**), **Harita Editörü** (1D/2D kalibrasyon tabloları, geri al/yinele, ısı haritası), **Parametre Listesi** (adres/hex ile serbest satırlar, toplu yaz/oku), **Geçmiş** (RAM ve FLAŞ yazımlarının eski/yeni değerleri, geri alma — FLAŞ kaydı uygulama kapansa bile kalıcıdır) |
 | Grafik | Birden fazla bağımsız grafik paneli ekleyip her birinde ayrı sinyaller izleme; fareyle "sensör takibi" (crosshair) |
 | **Tanılama** | CCP bağlantı testi + ham DIAG_SERVICE isteği, CAN bağlantı sağlığı + tüm CAN/CCP/kalibrasyon hatalarının tek listesi — birleşik |
 | Test Oturumu | Oturum başlat/bitir, olay günlüğü, PDF test raporu |
@@ -97,8 +98,7 @@ Glow Plug, Başlatma Motoru) için bir anahtar/komut kutusu vardır. Anahtar
 MATLAB/Simulink modelindeki Switch bloğu okuyup o eyleyiciyi dışarıdan
 sürebilir. Anahtarı kapatınca "enable=0" gönderilir ve model kendi iç
 hesaplamasına döner. DBC mesaj/sinyal eşlemesi Ana Sayfa → Ayarlar'dan
-girilir (bkz. aşağıdaki bölüm). Detaylı donanım test senaryoları için
-projenizdeki `Gercek_Donanim_Test_Plani.md` dokümanına bakın.
+girilir (bkz. aşağıdaki bölüm).
 
 ### Simülasyon Girişleri (Ana Sayfa) ve Performans sayfası
 
@@ -202,7 +202,9 @@ haberleşmeyi test edebilirsiniz.
   göstergeler orantılı ölçeklenir.
 - **Kalıcı dosyalar** exe'nin yanındaki klasörde (yazılamazsa Belgelerim\OpenECU_M220_Veri):
   `audit_log.txt` (5 MB'ı aşınca `.1` yedeği), `calibration_history.json` (son 5000 yazım),
-  `profiles.json`, `dashboard_config.json`, `watchlist.json`; CAN kayıtları `can_loglari\`.
+  `profiles.json`, `dashboard_config.json`, `watchlist.json`, `kontrol_paneli.json`, `sim_interface.json`,
+  `workspace_layouts.json`, `openecu.log` (hata günlüğü); CAN kayıtları `can_loglari\`, tablo yazım yedekleri
+  `tablo_yedekleri\`. Her JSON için bir `.bak` yedeği tutulur; bozulan dosya `*.corrupt-<zaman>` olarak saklanır.
 - **Simge**: `app_icon.ico` (exe'ye `--icon` ile gömülür).
 - **Lookup (Harita Editörü)**: üstte grafik (seçili hücre kırmızı nokta, GİZLE düğmesi), gri eksen
   başlıklı değer tablosu, ONLINE/OFFLINE rozeti ve "Ayrıntıları göster" ile hücre başına
@@ -245,13 +247,15 @@ Sol menüde **Çalışma Alanı**. Tek ekranda istediğiniz pencereleri kurarsı
 - **DBC:** Aralık dışı değer artık sessizce kaybolmaz, anlaşılır hata verir. Girilmeyen sinyaller en küçük değerle değil DBC başlangıç değeri (yoksa 0, aralığa kırpılmış) ile gider. Fare tekerleği odakta olmayan sayı kutusu/kaydırıcıyı değiştirmez.
 - **CAN kaydı:** Aynı saniyede başlatılsa da dosya ezilmez, her 200 satırda diske işlenir, disk hatasında kayıt durur ve uyarı verilir.
 - **Günlük:** Beklenmeyen hatalar `openecu.log` dosyasına yazılır ve ekranda gösterilir. Aynı veri klasörünü iki program kopyası birlikte kullanamaz.
-- **Testler:** `python -m pytest tests -q` (geliştirme ortamında; `pytest`, `PySide6`, `pya2ldb`, `python-can` gerekir).
+- **Testler:** kurulumdan sonra `3_testleri_calistir.bat` (internetsiz, `venv` içinde `pytest`). `2_exe_olustur.bat` exe'den önce testleri de çalıştırır; başarısızsa uyarır.
+- **Sabit sürümler:** `requirements.lock.txt` tüm bağımlılıkları sürüm + sha256 ile sabitler (kurulum `--require-hashes` ile yapılır), böylece yeniden derleme farklı bir kütüphane sürümü getirmez. Sürüm güncellemek için lock dosyası yeniden üretilmeli ve testler çalıştırılmalıdır.
+- **PDF rapor:** Türkçe karakter için DejaVu Sans yazı tipi `app\fonts\` içinde pakete gömülüdür (yoksa Windows Arial denenir). Rapor yalnızca oturumun başlangıç–bitiş aralığındaki olayları içerir; oturum başlatılmadan rapor üretilmez.
 
 ## Sorun giderme: .bat dosyasına çift tıklayınca bir şey olmuyorsa
 - Dosyayı zip'ten **çıkarıp** klasör olarak açtıktan sonra çalıştırın (zip içinden çalışmaz).
 - Pencere hemen kapanıyorsa Başlat menüsünden "cmd" açıp klasöre gidin ve dosya adını yazıp Enter'a basın; hata ekranda kalır.
-- "Python bulunamadı" uyarısı çıkarsa python.org'dan Python 3.11 kurun (Microsoft Store kısayolu işe yaramaz).
-- .bat dosyasına çift tıklayınca **Not Defteri açılıyorsa** (dosya ilişkilendirmesi bozuk): aynı klasördeki **.cmd** kopyasına çift tıklayın (`0_wheels_indir.cmd`, `1_kurulum.cmd`, `2_exe_olustur.cmd`) — içerikleri aynıdır. Dosya adının sonunda gizli bir `.txt` olmadığını da kontrol edin (Gezgin → Görünüm → "Dosya adı uzantıları").
+- "Python 3.11 (64 bit) bulunamadı" uyarısı çıkarsa python.org'dan **Python 3.11 (64 bit)** kurun; başka sürümlerle (3.12/3.13…) kurulum bilinçli olarak durdurulur çünkü paketler cp311 içindir. Microsoft Store kısayolu işe yaramaz.
+- .bat dosyasına çift tıklayınca **Not Defteri açılıyorsa** (dosya ilişkilendirmesi bozuk): aynı klasördeki **.cmd** dosyasına çift tıklayın (`0_wheels_indir.cmd`, `1_kurulum.cmd`, `2_exe_olustur.cmd`, `3_testleri_calistir.cmd`) — bunlar aynı klasördeki `.bat` dosyasını çağıran küçük sarmalayıcılardır. Dosya adının sonunda gizli bir `.txt` olmadığını da kontrol edin (Gezgin → Görünüm → "Dosya adı uzantıları").
 
 ## Yenilikler (21 Ekim 2026)
 - Uygulama simgesi turbojet motoru oldu (`app_icon.ico`, kodla çizilir).
