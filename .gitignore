@@ -1,3 +1,23 @@
 __pycache__/
 *.pyc
 .pytest_cache/
+# Kurulum / derleme çıktıları
+offline_paket/venv/
+offline_paket/wheels/
+offline_paket/build/
+offline_paket/dist/
+*.spec
+# Çalışma zamanında üretilen kullanıcı verisi
+offline_paket/audit_log.txt
+offline_paket/openecu.log*
+offline_paket/openecu.lock*
+offline_paket/*.json.tmp
+offline_paket/calibration_history.json
+offline_paket/profiles.json
+offline_paket/watchlist.json
+offline_paket/dashboard_config.json
+offline_paket/kontrol_paneli.json
+offline_paket/sim_interface.json
+offline_paket/workspace_layouts.json
+offline_paket/tablo_yedekleri/
+offline_paket/can_loglari/

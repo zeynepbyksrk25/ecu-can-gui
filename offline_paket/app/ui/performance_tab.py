@@ -398,7 +398,7 @@ class PerformanceTab(QWidget):
         for key, st in self._state.items():
             v = st["v"]
             stale = (not live) or v is None or (now - st["t"] > STALE_S)
-            if v is not None and not self._paused:
+            if v is not None and not self._paused and not stale:   # bayat değer canlı çizgi gibi çizilmesin
                 st["hist"].append((now, v))
             while st["hist"] and now - st["hist"][0][0] > HIST_MAX_S:
                 st["hist"].popleft()

@@ -1,0 +1,55 @@
+import os
+import tempfile
+
+import pytest
+
+pytest.importorskip("PySide6")
+from PySide6.QtWidgets import QApplication
+
+
+@pytest.fixture(scope="module")
+def qapp():
+    return QApplication.instance() or QApplication([])
+
+
+def make_tab(qapp, tmp=None):
+    from app.ui.workspace_tab import WorkspaceLayoutStore, WorkspaceTab
+    d = tmp or tempfile.mkdtemp()
+    return WorkspaceTab(store=WorkspaceLayoutStore(os.path.join(d, "lay.json")))
+
+
+def test_floating_panel_refreshes_when_tab_hidden_and_roundtrips(qapp):
+    from app.ui.workspace_tab import _Float
+    w = make_tab(qapp)
+    w.show()
+    p = w._panels[0] if w._panels else w.add_panel("plot")
+    calls = []
+    orig = p.refresh
+    p.refresh = lambda span, frozen: (calls.append(1), orig(span, frozen))[1]
+    w._detach(p)
+    assert isinstance(w._subs[p], _Float)
+    w.hide()                                # başka sekme seçilmiş gibi
+    w._tick()
+    assert calls, "ayrılmış panel gizli sekmede de güncellenmeli"
+    st = w.to_state()
+    assert st["panels"][0].get("floating")
+    w.apply_state(st)
+    assert any(isinstance(x, _Float) for x in w._subs.values())
+    p2 = w._panels[0]
+    w._dock(p2, w._subs[p2])
+    assert "floating" not in w.to_state()["panels"][0]
+    w.shutdown()
+
+
+def test_visible_geometry_is_clamped_on_screen(qapp):
+    from app.ui.workspace_tab import WorkspaceTab
+    r = WorkspaceTab._visible_geometry([-5000, -5000, 99999, 99999])
+    from PySide6.QtGui import QGuiApplication
+    a = QGuiApplication.primaryScreen().availableGeometry()
+    assert a.contains(r)
+
+
+def test_shutdown_survives_errors(qapp):
+    w = make_tab(qapp)
+    w._autosave = lambda force=False: (_ for _ in ()).throw(RuntimeError("disk"))
+    w.shutdown()                            # istisna yutulur, çağıran devam eder

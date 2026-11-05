@@ -1,3 +1,5 @@
+import logging
+import os
 import queue
 import time
 from datetime import datetime
@@ -41,7 +43,7 @@ from app.ui.tanilama_tab import TanilamaTab
 from app.ui.user_tab import UserTab
 from app.ui.watch_tab import parse_value_text
 from app.user_roles import (
-    Role, can_override_actuator, can_run_diagnostics, can_write_calibration,
+    Role, can_manage_profiles, can_override_actuator, can_transmit_frames, can_run_diagnostics, can_write_calibration,
     can_write_flash,
 )
 
@@ -577,10 +579,25 @@ class MainWindow(QMainWindow):
             self._resume_ccp_after_reconnect = False
             self._auto_ccp_connect()
 
+    def _release_overrides_on_teardown(self, graceful: bool):
+        """Bağlantı kapanırken ECU'da AÇIK kalmış eyleyici override'larını (kilit açık) bırakmayı
+        dener (graceful) ve her durumda arayüzü 'bilinmiyor/kilitli'ye çeker. Bırakılamayanlar
+        HATA olarak loglanır ve kullanıcıya gösterilir."""
+        try:
+            unconfirmed = self.dashboard_tab.release_all_actuators(write=graceful)
+        except Exception:  # noqa: BLE001
+            logging.getLogger(__name__).exception("override bırakma hatası")
+            return
+        if unconfirmed:
+            names = ", ".join(unconfirmed)
+            self._log_event("HATA", f"Bağlantı kapandı; ECU'da şu override'lar AÇIK kalmış olabilir: {names}")
+            self.statusBar().showMessage(f"UYARI: override açık kalmış olabilir: {names}", 15000)
+
     def _teardown_connection(self, graceful: bool = True):
         """CAN bağlantısına bağlı her şeyi kapatır. graceful=False: adaptör
         gitmiş olduğu için CCP DISCONNECT gibi bus'a yazan adımlar ATLANIR
         (aksi halde zaman aşımlarında arayüz bloklanırdı)."""
+        self._release_overrides_on_teardown(graceful)   # CCP/CAN hâlâ açıkken: override'ları bırakmayı dene
         if self.ccp_session.state != IDLE:
             if graceful:
                 self._on_ccp_disconnect()
@@ -736,12 +753,18 @@ class MainWindow(QMainWindow):
         self._after_connected(interface, channel, bitrate, reconnected=True)
 
     # ---- Alım (Receive) -----------------------------------------------
+    RX_DRAIN_MAX_FRAMES = 400     # tek tick'te işlenecek en çok kare
+    RX_DRAIN_MAX_SECONDS = 0.015  # ... ve en çok bu kadar süre (UI donmasın)
+
     def _drain_rx_queue(self):
-        while True:
+        deadline = time.monotonic() + self.RX_DRAIN_MAX_SECONDS
+        n = 0
+        while n < self.RX_DRAIN_MAX_FRAMES and time.monotonic() < deadline:
             try:
                 msg = self.connection.rx_queue.get_nowait()
             except queue.Empty:
                 break
+            n += 1
             self.monitor_tab.add_message(msg, direction="RX")
             self.control_panel_tab.on_can_frame(msg.arbitration_id, bytes(msg.data))
             self.performance_tab.on_can_frame(msg.arbitration_id, bytes(msg.data))
@@ -762,6 +785,12 @@ class MainWindow(QMainWindow):
                               msg.is_extended_id, direction=direction, name=name)
         self._logged_count += 1
         self.log_tab.set_count(self._logged_count)
+        if self.can_logger.error and not self.can_logger.is_active:
+            self.log_tab.set_active(False, "")
+            err = self.can_logger.error
+            self.can_logger.error = None
+            self._log_event("HATA", f"CAN kaydı yazma hatasıyla DURDU: {err}")
+            QMessageBox.warning(self, "CAN kaydı durdu", f"Yazma hatası: {err}")
 
     def _startup_auto_connect(self):
         """"Açılışta otomatik bağlan" seçiliyse sessizce bağlanır; hata iletişim kutusu açmaz."""
@@ -779,33 +808,60 @@ class MainWindow(QMainWindow):
         self._after_connected(interface, channel, bitrate)
 
     # ---- Gönderim -------------------------------------------------------
+    @staticmethod
+    def _frame_text(can_id: int, data: bytes, extended: bool) -> str:
+        return f"ID=0x{can_id:X}{' (ext)' if extended else ''} DLC={len(data)} DATA={data.hex(' ').upper()}"
+
     def _on_manual_send(self, can_id: int, data: bytes, extended: bool):
+        if not can_transmit_frames(self.current_role):
+            QMessageBox.warning(self, "Yetki yok",
+                                "CAN çerçevesi göndermek için Mühendis veya Yönetici rolü gerekir "
+                                "(Kullanıcı / Profil sekmesinden rol seçin).")
+            return
         try:
             self.connection.send(can_id, data, extended)
         except Exception as exc:
             QMessageBox.critical(self, "Gönderim hatası", str(exc))
+            self._log_event("HATA", f"Manuel gönderim başarısız: {exc}")
             return
+        self._log_event("GÖNDERİM", "Manuel çerçeve gönderildi: " + self._frame_text(can_id, data, extended))
         sent_msg = can.Message(arbitration_id=can_id, data=data, is_extended_id=extended,
                                 timestamp=time.time())
         self.monitor_tab.add_message(sent_msg, direction="TX")
 
     def _on_periodic_start(self, row_key: str, can_id: int, data: bytes,
                             extended: bool, period_ms: int):
+        if not can_transmit_frames(self.current_role):
+            self.transmit_tab.mark_start_failed(row_key)
+            QMessageBox.warning(self, "Yetki yok",
+                                "Periyodik gönderim için Mühendis veya Yönetici rolü gerekir "
+                                "(Kullanıcı / Profil sekmesinden rol seçin).")
+            return
         if self.periodic_manager is None:
+            self.transmit_tab.mark_start_failed(row_key)
             QMessageBox.warning(self, "Bağlantı yok", "Önce CAN hattına bağlanın.")
             return
         try:
             self.periodic_manager.start(row_key, can_id, data, extended, period_ms)
         except Exception as exc:
+            self.transmit_tab.mark_start_failed(row_key)
             QMessageBox.critical(self, "Periyodik gönderim hatası", str(exc))
+            self._log_event("HATA", f"Periyodik gönderim başlatılamadı: {exc}")
             return
+        self._log_event("GÖNDERİM", f"Periyodik gönderim BAŞLADI [{period_ms} ms]: "
+                                    + self._frame_text(can_id, data, extended))
         sent_msg = can.Message(arbitration_id=can_id, data=data, is_extended_id=extended,
                                 timestamp=time.time())
         self.monitor_tab.add_message(sent_msg, direction="TX")
 
     def _on_periodic_stop(self, row_key: str):
         if self.periodic_manager is not None:
-            self.periodic_manager.stop(row_key)
+            try:
+                self.periodic_manager.stop(row_key)
+            except Exception as exc:  # noqa: BLE001
+                self._log_event("HATA", f"Periyodik gönderim durdurulamadı: {exc}")
+                return
+            self._log_event("GÖNDERİM", "Periyodik gönderim durduruldu")
 
     # ---- CCP (kalibrasyon) ------------------------------------------------
     def _on_ccp_connect(self, cro_id: int, dto_id: int, station_address: int):
@@ -967,13 +1023,14 @@ class MainWindow(QMainWindow):
             old_phys = None
 
         try:
-            raw_value = ccp_codec.physical_to_raw(getattr(obj, "compu_method", None), phys_value)
-            raw_bytes = ccp_codec.encode_value(obj.datatype, raw_value, getattr(obj, "byte_order", None))
+            # Doğrulama (sonlu, A2L min/max, READ_ONLY) + güvenli dönüşüm; yazma
+            # sonrası geri okuma ile doğrulanır.
+            raw_bytes = ccp_codec.encode_for_write(obj, phys_value)
             ext = getattr(obj, "address_extension", 0) or 0
             if persistent:
-                self.ccp_client.write_flash_memory(address, raw_bytes, ext)
+                self.ccp_client.write_flash_memory(address, raw_bytes, ext, verify=True)
             else:
-                self.ccp_client.write_memory(address, raw_bytes, ext)
+                self.ccp_client.write_memory(address, raw_bytes, ext, verify=True)
         except (ccp_protocol.CCPError, ccp_protocol.CCPTimeoutError,
                 ccp_codec.UnknownDatatypeError, ValueError) as exc:
             kind = "FLAŞ" if persistent else "RAM"
@@ -1037,6 +1094,24 @@ class MainWindow(QMainWindow):
                     changed += 1
         return changed
 
+    def _save_table_backup(self, characteristic, old_grid) -> str:
+        """Tablo yazımından önceki ECU içeriğini data_dir()/tablo_yedekleri
+        altına JSON olarak yazar (geri dönüş için). Başarısızsa '' döner."""
+        import json
+        import re
+        import time as _time
+        try:
+            folder = os.path.join(data_path("tablo_yedekleri"))
+            os.makedirs(folder, exist_ok=True)
+            safe = re.sub(r"[^A-Za-z0-9_.-]", "_", characteristic.name)
+            fname = f"{safe}_{_time.strftime('%Y%m%d_%H%M%S')}.json"
+            with open(os.path.join(folder, fname), "w", encoding="utf-8") as f:
+                json.dump({"name": characteristic.name, "address": characteristic.address,
+                           "unit": characteristic.unit, "grid": old_grid}, f, ensure_ascii=False)
+            return fname
+        except (OSError, TypeError, ValueError):
+            return ""
+
     def _write_map_doc(self, doc) -> bool:
         """Tek bir tablo dokümanını ECU RAM'ine yazar. ONAY SORULMAZ
         (kullanıcı isteği); rol kontrolü ve geçmiş kaydı yine yapılır."""
@@ -1046,13 +1121,16 @@ class MainWindow(QMainWindow):
             return False
         try:
             grid = doc.current_grid()
-            old_grid = getattr(doc, "_original_grid", None)
-            ccp_mapio.write_grid(self.ccp_client, characteristic, grid)
+            # write_grid: önce doğrular, ECU'daki mevcut içeriği anlık görüntü
+            # alır, yazar, geri okuyup doğrular; hata olursa eski içeriği geri
+            # yazar. Yazmadan ÖNCEKİ gerçek ECU içeriğini döndürür.
+            old_grid = ccp_mapio.write_grid(self.ccp_client, characteristic, grid)
         except (ccp_protocol.CCPError, ccp_protocol.CCPTimeoutError,
-                ccp_codec.UnknownDatatypeError, ValueError) as exc:
+                ccp_codec.UnknownDatatypeError, ValueError, RuntimeError) as exc:
             doc.set_write_result(False, f"Yazma hatası: {exc}")
             self._log_event("HATA", f"{characteristic.name} tablo yazma hatası: {exc}")
             return False
+        backup = self._save_table_backup(characteristic, old_grid)
         rows, cols = len(grid), len(grid[0]) if grid else 0
         changed = self._count_changed_cells(old_grid, grid)
         doc.set_write_result(True, f"Yazıldı (RAM, geçici): {characteristic.name} — {changed} hücre değişti")
@@ -1063,7 +1141,9 @@ class MainWindow(QMainWindow):
         self.calibration_history.add(
             self.current_user, self.current_role.value,
             f"{characteristic.name} [tablo {rows}×{cols}]", None, 0.0, characteristic.unit or "",
-            persistent=False, detail=f"{rows}×{cols} tablo yazıldı, {changed} hücre değişti",
+            persistent=False,
+            detail=f"{rows}×{cols} tablo yazıldı, {changed} hücre değişti"
+                   + (f"; önceki içerik yedeği: {backup}" if backup else ""),
         )
         self.history_tab.refresh()
         return True
@@ -1184,8 +1264,8 @@ class MainWindow(QMainWindow):
                 continue
             old_phys = self._read_phys_best_effort(e)
             try:
-                raw_value = ccp_codec.physical_to_raw(e.compu_method, phys)
-                raw_bytes = ccp_codec.encode_value(e.datatype, raw_value, e.byte_order)
+                # doğrulama (sonlu, tür aralığı, A2L min/max, READ_ONLY) + güvenli dönüşüm
+                raw_bytes = ccp_codec.encode_for_write(e, phys)
                 self.ccp_client.write_memory(e.address, raw_bytes, e.address_extension or 0)
             except ccp_protocol.CCPTimeoutError as exc:
                 problems.append(f"{e.name}: {str(exc) or 'ECU cevap vermedi'}")
@@ -1300,6 +1380,9 @@ class MainWindow(QMainWindow):
         if obj is None:
             QMessageBox.warning(self, "Nesne bulunamadı", "Bu Characteristic artık yüklü A2L'de yok.")
             return
+        if getattr(obj, "address", None) is None:
+            QMessageBox.warning(self, "Adres yok", "Bu nesnenin ECU adresi A2L'de tanımlı değil; geri yazılamaz.")
+            return
 
         kind_label = "FLAŞ (kalıcı)" if entry.persistent else "RAM (geçici)"
         # Onay yalnızca KALICI (flaş) geri alma için sorulur; RAM geri alma
@@ -1315,13 +1398,12 @@ class MainWindow(QMainWindow):
                 return
 
         try:
-            raw_value = ccp_codec.physical_to_raw(obj.compu_method, entry.old_value)
-            raw_bytes = ccp_codec.encode_value(obj.datatype, raw_value, obj.byte_order)
+            raw_bytes = ccp_codec.encode_for_write(obj, entry.old_value)
             ext = obj.address_extension or 0
             if entry.persistent:
-                self.ccp_client.write_flash_memory(obj.address, raw_bytes, ext)
+                self.ccp_client.write_flash_memory(obj.address, raw_bytes, ext, verify=True)
             else:
-                self.ccp_client.write_memory(obj.address, raw_bytes, ext)
+                self.ccp_client.write_memory(obj.address, raw_bytes, ext, verify=True)
         except (ccp_protocol.CCPError, ccp_protocol.CCPTimeoutError,
                 ccp_codec.UnknownDatatypeError, ValueError) as exc:
             QMessageBox.critical(self, "Geri yazma hatası", str(exc))
@@ -1393,7 +1475,8 @@ class MainWindow(QMainWindow):
                 raise ValueError(f"A2L'de '{binding.a2l_name}' bulunamadı")
             if info.address is None:
                 raise ValueError(f"'{binding.a2l_name}' için ECU adresi yok")
-            cpanel.ccp_write_value(self.ccp_client, info, value)
+            # 0 = kapat/güvenli yön: A2L alt sınırı kapatmayı engellemesin (yine de sonlu/tür kontrolü var)
+            cpanel.ccp_write_value(self.ccp_client, info, value, enforce_limits=(float(value) != 0.0))
         except Exception as exc:
             QMessageBox.critical(self, f"{label} yazılamadı", str(exc))
             self._log_event("HATA", f"{label} A2L yazılamadı: {exc}")
@@ -1421,7 +1504,10 @@ class MainWindow(QMainWindow):
         self._send_motor_command("ACİL DURDURMA", self.dashboard_tab.config.estop)
 
     def _on_dashboard_config_saved(self, cfg):
-        self.dashboard_config_store.save(cfg)
+        if not self.dashboard_config_store.save(cfg):
+            self._log_event("HATA", "Eşleşmeler DİSKE YAZILAMADI (bellekte geçerli, yeniden açınca kaybolur).")
+            QMessageBox.warning(self, "Ayarlar kaydedilemedi",
+                                "Eşleşmeler diske yazılamadı; program kapanınca kaybolacak.")
         self._rebuild_dash_can_map()
         self._log_event("AYAR", "Eşleşmeler (CAN/A2L) kaydedildi.")
 
@@ -1475,7 +1561,7 @@ class MainWindow(QMainWindow):
         self.workspace_tab.set_a2l_measurements(summary.readable() if summary is not None else [])
 
     def _on_workspace_tick(self, names: list):
-        """Çalışma Alanı'nda seçili A2L ölçümlerini CCP ile okuyup hub'a yazar."""
+        """Çalışma Alanı'nda seçili A2L ölçümlerini CCP ile (arka planda) okuyup hub'a yazar."""
         if self.ccp_client is None:
             return
         summary = self.a2l_tab.db.summary
@@ -1756,13 +1842,11 @@ class MainWindow(QMainWindow):
         if self.ccp_client is None:
             panel._set_status("CCP bağlı değil: override kapatılamadı.", False)
             return
-        if not can_override_actuator(self.current_role):
-            panel._set_status("Yetki yok: Mühendis veya Yönetici rolü gerekir.", False)
-            return
+        # Override'ları KAPATMAK güvenlik eylemidir: hiçbir rol kısıtına takılmamalı.
         bad = 0
         for info in infos:
             try:
-                cpanel.ccp_write_value(self.ccp_client, info, 0)
+                cpanel.ccp_write_value(self.ccp_client, info, 0, enforce_limits=False)
             except Exception:
                 bad += 1
         self._log_event("KONTROL PANELİ", f"Tüm override'lar kapatıldı ({len(infos) - bad}/{len(infos)})")
@@ -1794,6 +1878,16 @@ class MainWindow(QMainWindow):
         self._log_event("KULLANICI", f"Rol uygulandı: {user_name} ({role_value})")
 
     def _on_profile_save(self, name: str):
+        if not can_manage_profiles(self.current_role):
+            QMessageBox.warning(self, "Yetki yok", "Profil kaydetmek için Mühendis veya Yönetici rolü gerekir.")
+            return
+        if self.profile_store.get(name) is not None:
+            ans = QMessageBox.question(
+                self, "Profil üzerine yazılsın mı?",
+                f"'{name}' profili zaten var; mevcut ayarlarla üzerine yazılacak.",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if ans != QMessageBox.Yes:
+                return
         profile = ConfigProfile(
             name=name,
             interface=self.connection_tab.current_interface(),
@@ -1804,7 +1898,11 @@ class MainWindow(QMainWindow):
             station_address=self.ccp_tab.station_edit.text().strip(),
             a2l_path=self.a2l_tab.db.path or "",
         )
-        self.profile_store.upsert(profile)
+        try:
+            self.profile_store.upsert(profile)
+        except OSError as exc:
+            QMessageBox.warning(self, "Profil kaydedilemedi", str(exc))
+            return
         self.user_tab.set_profiles(self.profile_store.names())
         self._log_event("PROFIL", f"Profil kaydedildi: {name}")
 
@@ -1834,13 +1932,25 @@ class MainWindow(QMainWindow):
             self.a2l_tab.a2l_loaded.emit()
 
     def _on_profile_delete(self, name: str):
+        if not can_manage_profiles(self.current_role):
+            QMessageBox.warning(self, "Yetki yok", "Profil silmek için Mühendis veya Yönetici rolü gerekir.")
+            return
+        ans = QMessageBox.question(self, "Profil silinsin mi?", f"'{name}' profili silinecek.",
+                                   QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if ans != QMessageBox.Yes:
+            return
         self.profile_store.delete(name)
         self.user_tab.set_profiles(self.profile_store.names())
         self._log_event("PROFIL", f"Profil silindi: {name}")
 
     # ---- Log --------------------------------------------------------------
     def _on_log_start(self, directory: str):
-        path = self.can_logger.start(directory)
+        try:
+            path = self.can_logger.start(directory)
+        except OSError as exc:
+            QMessageBox.warning(self, "Kayıt başlatılamadı", f"Klasöre yazılamıyor: {exc}")
+            self._log_event("HATA", f"CAN kaydı başlatılamadı: {exc}")
+            return
         self._logged_count = 0
         self.log_tab.set_active(True, path)
         self.log_tab.set_count(0)
@@ -1850,7 +1960,10 @@ class MainWindow(QMainWindow):
         self.log_tab.set_active(False)
 
     def closeEvent(self, event):
-        self.workspace_tab.shutdown()
+        try:
+            self.workspace_tab.shutdown()
+        except Exception:  # noqa: BLE001
+            logging.getLogger(__name__).exception("workspace shutdown hatası")
         self._on_disconnect()
         self.can_logger.stop()
         super().closeEvent(event)

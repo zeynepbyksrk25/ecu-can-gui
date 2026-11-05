@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox, QFrame, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QSlider, QVBoxLayout, QWidget,
 )
 
+from app.ui.noscroll import no_wheel
 from app.sim_interface import INPUT_BY_KEY, INPUT_DEFS, SimConfig, auto_match, list_sources
 from app.ui.dash_widgets import DK_CYAN, DK_MUT, IconLabel, ToggleSwitch
 
@@ -127,7 +128,7 @@ class SimInputsPanel(QWidget):
         return lab
 
     def _spin(self, d) -> QDoubleSpinBox:
-        spin = QDoubleSpinBox()
+        spin = no_wheel(QDoubleSpinBox())
         spin.setRange(d.minimum, d.maximum)
         spin.setDecimals(DECIMALS.get(d.key, 2))
         spin.setSingleStep(1.0 if d.kind == "slider" else 0.1)
@@ -192,7 +193,7 @@ class SimInputsPanel(QWidget):
         else:
             spin = self._spin(d)
             spin.setMinimumWidth(92)
-            sl = QSlider(Qt.Horizontal)
+            sl = no_wheel(QSlider(Qt.Horizontal))
             sl.setRange(int(d.minimum * 10), int(d.maximum * 10))
             sl.sliderReleased.connect(lambda k=d.key: self._emit_one(k))
             sl.valueChanged.connect(lambda v, k=d.key: self._slider_moved(k, v))

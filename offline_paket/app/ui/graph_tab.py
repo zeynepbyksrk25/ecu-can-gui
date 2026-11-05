@@ -282,7 +282,8 @@ class GraphTab(QWidget):
     def _on_clear(self):
         for tile in self._tiles:
             tile.clear()
-        self._start_time = None
+        # Zamanlayıcı çalışıyorsa örnekleme kesilmesin: zaman 0'dan yeniden başlar.
+        self._start_time = time.time() if self.timer.isActive() else None
         self.status_label.setText("Temizlendi.")
 
     def _on_tick(self):

@@ -21,9 +21,13 @@ cd "$(dirname "$0")"
 echo "Windows (Python 3.11, win_amd64) için paketler indiriliyor..."
 python3 -m pip download \
   --python-version 3.11 --implementation cp --abi cp311 --platform win_amd64 \
-  --only-binary=:all: \
+  --only-binary=:all: --require-hashes \
   -d wheels \
-  -r requirements_build.txt
+  -r requirements.lock.txt
+
+python3 -m pip download \
+  --python-version 3.11 --implementation cp --abi cp311 --platform win_amd64 \
+  --only-binary=:all: --require-hashes -d wheels -r requirements-dev.lock.txt || echo "UYARI: test paketleri indirilemedi (exe etkilenmez)."
 
 echo ""
 echo "Tamamlandı. wheels/ klasörü artık Windows'a taşınmaya hazır."

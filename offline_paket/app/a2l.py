@@ -49,6 +49,7 @@ class CharacteristicInfo:
     byte_order: str | None = None
     compu_method: object | None = None  # pya2l CompuMethod nesnesi ya da None
     axes: list = field(default_factory=list)  # AxisInfo listesi (SCALAR için boş)
+    index_mode: str | None = None             # RECORD_LAYOUT FNC_VALUES indexMode: ROW_DIR/COLUMN_DIR/ALTERNATE_*
     char_type: str = ""                       # A2L CHARACTERISTIC tipi: VALUE/CURVE/MAP/VAL_BLK/ASCII/CUBOID...
     dims: tuple | None = None                 # ARRAY için boyutlar: (N,) = 1xN dizi, (R, C) = 2B blok
 
@@ -58,6 +59,7 @@ class A2LSummary:
     path: str
     project_name: str
     module_name: str
+    default_byte_order: str | None = None   # MOD_COMMON BYTE_ORDER (nesnede yoksa bu geçerli)
     measurements: list = field(default_factory=list)
     characteristics: list = field(default_factory=list)
 
@@ -175,21 +177,37 @@ class A2LDatabase:
         (varsa) ValueError olarak fırlatır — çağıran taraf bunu yakalayıp
         kullanıcıya gösterir (GUI-A2L-003: actionable error information)."""
         try:
-            self._session = import_a2l(
+            session = import_a2l(
                 path, in_memory=True, progress_bar=False, loglevel="ERROR"
             )
         except Exception as exc:
-            self._session = None
+            # Başarısız yükleme önceki (geçerli) A2L'i bozmaz.
             raise ValueError(f"A2L dosyası parse edilemedi: {exc}")
 
+        old = self._session
+        self._session = session
         self.path = path
-        self.summary = self._build_summary(path)
+        try:
+            self.summary = self._build_summary(path)
+        except Exception as exc:
+            self._session = old
+            raise ValueError(f"A2L içeriği okunamadı: {exc}")
+        if old is not None:
+            try:
+                old.close()
+            except Exception:
+                pass
         return self.summary
 
     def _build_summary(self, path: str) -> A2LSummary:
         session = self._session
         project = session.query(model.Project).first()
         module = session.query(model.Module).first()
+        default_bo = None
+        try:
+            default_bo = insp.ModCommon.get(session).byteOrder
+        except Exception:
+            default_bo = None
 
         default_bo = _default_byte_order(session)
         measurements = []
@@ -224,8 +242,10 @@ class A2LDatabase:
                 if dims is not None:
                     kind = "ARRAY"
             datatype = ""
+            index_mode = None
             try:
                 datatype = c.record_layout.fncValues.data_type or ""
+                index_mode = c.record_layout.fncValues.indexMode
             except AttributeError:
                 pass
             characteristics.append(CharacteristicInfo(
@@ -243,6 +263,7 @@ class A2LDatabase:
                 byte_order=getattr(c, "byteOrder", None) or default_bo,
                 compu_method=compu,
                 axes=_build_axes(c),
+                index_mode=index_mode,
                 char_type=char_type,
                 dims=dims,
             ))
@@ -251,6 +272,7 @@ class A2LDatabase:
             path=path,
             project_name=project.name if project else "",
             module_name=module.name if module else "",
+            default_byte_order=default_bo,
             measurements=measurements,
             characteristics=characteristics,
         )

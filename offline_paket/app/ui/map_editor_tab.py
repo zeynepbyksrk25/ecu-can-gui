@@ -17,6 +17,8 @@ import math
 
 import pyqtgraph as pg
 
+from app.ccp.mapio import grid_shape as _grid_shape
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
@@ -703,7 +705,25 @@ class MapEditorTab(QWidget):
         box.setMinimumWidth(180)
         return box
 
+    def _reconcile_open_documents(self):
+        """Yeni A2L yüklenince açık tabloları yeni nesnelerle eşleştirir.
+        Nesne yoksa ya da adres/veri tipi/boyut değiştiyse sekme KAPATILIR:
+        aksi halde 'ECU'ya Yaz' önceki revizyonun adresine yazardı."""
+        summary = getattr(self.a2l_db, "summary", None) if self.a2l_db is not None else None
+        fresh = {c.name: c for c in summary.characteristics} if summary else {}
+        for doc in list(self.documents()):
+            old = doc.characteristic
+            new = fresh.get(old.name)
+            same = (new is not None and new.address == old.address and new.datatype == old.datatype
+                    and new.byte_order == old.byte_order and doc._shape() == _grid_shape(new)
+                    and getattr(new, "index_mode", None) == getattr(old, "index_mode", None))
+            if same:
+                doc.characteristic = new
+            else:
+                self._on_tab_close(self.tabs.indexOf(doc))
+
     def refresh_objects(self):
+        self._reconcile_open_documents()
         self.tree.clear()
         if self.a2l_db is None or self.a2l_db.summary is None:
             return

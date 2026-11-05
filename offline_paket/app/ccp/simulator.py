@@ -41,6 +41,12 @@ class CCPSlaveSimulator:
         # Test edebilmek için istenirse belirli komutları reddetmeyi
         # simüle etmeye yarayan hook (örn. ACCESS_DENIED senaryosu).
         self.force_error_on: dict[int, int] = {}  # command_code -> return_code
+        # Test hook: komut ÇALIŞTIRILIR ama ilk N cevap (DTO) hatta gönderilmez
+        # (kayıp DTO senaryosu: master timeout olur ve yeniden dener).
+        self.unified_memory = False       # True: flaşa yazılan adresler UPLOAD ile de okunur (geri okuma doğrulaması)
+        self.drop_dto_count: dict[int, int] = {}
+        self.executed: list[int] = []     # çalıştırılan komut kodları (test için)
+        self._current_cmd: int | None = None
 
         # Güç döngüsü simülasyonu: kapalıyken hiçbir komuta cevap verilmez; açılışta CCP oturumu
         # unutulur. strict_session=True iken CONNECT'ten önceki komutlar ACCESS_DENIED alır
@@ -73,9 +79,17 @@ class CCPSlaveSimulator:
             self.memory[address + i] = b
 
     def read_memory_bytes(self, address: int, length: int) -> bytes:
-        return bytes(self.memory.get(address + i, 0) for i in range(length))
+        # Flaşa yazılmış adresler (PROGRAM) okumada RAM'in önüne geçer: gerçek
+        # ECU'da bellek tek adres uzayıdır; geri okuma doğrulaması için gerekli.
+        if not self.unified_memory:
+            return bytes(self.memory.get(address + i, 0) for i in range(length))
+        return bytes(self.flash[address + i] if (address + i) in self.flash
+                     else self.memory.get(address + i, 0) for i in range(length))
 
     def _reply(self, return_code: int, ctr: int, data: bytes = b""):
+        if self._current_cmd is not None and self.drop_dto_count.get(self._current_cmd, 0) > 0:
+            self.drop_dto_count[self._current_cmd] -= 1
+            return
         payload = bytes([ccp.PID_COMMAND_RETURN, return_code, ctr]) + data
         payload = payload + b"\x00" * (8 - len(payload))
         self.bus.send(can.Message(arbitration_id=self.dto_id, data=payload, is_extended_id=False))
@@ -91,6 +105,8 @@ class CCPSlaveSimulator:
             _t.sleep(self.response_delay_s)
         cmd = msg.data[0]
         ctr = msg.data[1] if len(msg.data) > 1 else 0
+        self._current_cmd = cmd
+        self.executed.append(cmd)
         if self.strict_session and not self._connected and cmd not in (ccp.CONNECT, ccp.GET_CCP_VERSION):
             self._reply(ccp.RC_ACCESS_DENIED, ctr)
             return

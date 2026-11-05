@@ -16,6 +16,8 @@ eşleşmesi vardır; ikisinin kaynağı (CAN/A2L) birbirinden bağımsız seçil
 
 import json
 import os
+
+from app.persist import atomic_write_json, load_json
 from dataclasses import asdict, dataclass, field
 
 DEFAULT_PATH = "dashboard_config.json"
@@ -235,17 +237,13 @@ class DashboardConfigStore:
         self.path = path
 
     def load(self) -> DashboardConfig:
-        if not os.path.exists(self.path):
+        raw = load_json(self.path, None, dict)
+        if raw is None:
             return DashboardConfig()
         try:
-            with open(self.path, "r", encoding="utf-8") as f:
-                return config_from_dict(json.load(f))
-        except (OSError, ValueError, TypeError):
+            return config_from_dict(raw)
+        except (ValueError, TypeError, AttributeError):
             return DashboardConfig()
 
-    def save(self, cfg: DashboardConfig):
-        try:
-            with open(self.path, "w", encoding="utf-8") as f:
-                json.dump(asdict(cfg), f, ensure_ascii=False, indent=2)
-        except OSError:
-            pass
+    def save(self, cfg: DashboardConfig) -> bool:
+        return atomic_write_json(self.path, asdict(cfg))

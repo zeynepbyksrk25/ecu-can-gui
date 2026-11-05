@@ -8,6 +8,8 @@ import json
 import os
 from dataclasses import asdict, dataclass
 
+from app.persist import atomic_write_json, load_json
+
 
 @dataclass
 class ConfigProfile:
@@ -29,18 +31,17 @@ class ProfileStore:
 
     def load(self):
         self.profiles = []
-        if not os.path.exists(self.path):
-            return
-        try:
-            with open(self.path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            self.profiles = [ConfigProfile(**p) for p in data]
-        except (OSError, ValueError, TypeError):
-            self.profiles = []
+        data = load_json(self.path, [], list)
+        fields = set(ConfigProfile.__dataclass_fields__)
+        for p in data:              # bilinmeyen anahtar/bozuk tek profil diğerlerini düşürmesin
+            try:
+                self.profiles.append(ConfigProfile(**{k: v for k, v in p.items() if k in fields}))
+            except (AttributeError, TypeError):
+                continue
 
     def save(self):
-        with open(self.path, "w", encoding="utf-8") as f:
-            json.dump([asdict(p) for p in self.profiles], f, ensure_ascii=False, indent=2)
+        if not atomic_write_json(self.path, [asdict(p) for p in self.profiles]):
+            raise OSError(f"Profil dosyası yazılamadı: {self.path}")
 
     def upsert(self, profile: ConfigProfile):
         self.profiles = [p for p in self.profiles if p.name != profile.name]

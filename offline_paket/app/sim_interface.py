@@ -8,6 +8,8 @@ birim, aralık ve otomatik eşleşme takma adları tutulur.
 """
 import json
 import os
+
+from app.persist import atomic_write_json, load_json
 import re
 from dataclasses import dataclass, field
 
@@ -176,34 +178,39 @@ class SimConfig:
         self._load()
 
     def _load(self):
-        if not self.path or not os.path.exists(self.path):
+        raw = load_json(self.path, None, dict) if self.path else None
+        if raw is None:
             return
-        try:
-            with open(self.path, "r", encoding="utf-8") as f:
-                raw = json.load(f)
-        except (OSError, ValueError):
-            return
-        self.input_map = dict(raw.get("input_map", {}))
-        self.input_values = {k: float(v) for k, v in raw.get("input_values", {}).items()}
-        self.perf_map = dict(raw.get("perf_map", {}))
-        self.ranges = dict(raw.get("ranges", {}))
-        self.thresholds = dict(raw.get("thresholds", {}))
+
+        def as_dict(key):
+            v = raw.get(key, {})
+            return dict(v) if isinstance(v, dict) else {}
+        self.input_map = as_dict("input_map")
+        self.input_values = {}
+        for k, v in as_dict("input_values").items():
+            try:
+                self.input_values[str(k)] = float(v)
+            except (TypeError, ValueError):
+                pass
+        self.perf_map = as_dict("perf_map")
+        self.ranges = as_dict("ranges")
+        self.thresholds = as_dict("thresholds")
         g = raw.get("graphs")
-        if isinstance(g, list) and g:
+        if isinstance(g, list) and g and all(isinstance(x, dict) and isinstance(x.get("keys"), list) for x in g):
             self.graphs = g
-        self.window_s = int(raw.get("window_s", 60))
+        try:
+            self.window_s = max(1, int(raw.get("window_s", 60)))
+        except (TypeError, ValueError):
+            self.window_s = 60
 
     def save(self):
         if not self.path:
             return
-        try:
-            with open(self.path, "w", encoding="utf-8") as f:
-                json.dump({"input_map": self.input_map, "input_values": self.input_values,
-                           "perf_map": self.perf_map, "ranges": self.ranges,
-                           "thresholds": self.thresholds, "graphs": self.graphs,
-                           "window_s": self.window_s}, f, ensure_ascii=False, indent=2)
-        except OSError:
-            pass
+        return atomic_write_json(self.path, {
+            "input_map": self.input_map, "input_values": self.input_values,
+            "perf_map": self.perf_map, "ranges": self.ranges,
+            "thresholds": self.thresholds, "graphs": self.graphs,
+            "window_s": self.window_s})
 
 
 def threshold_level(cfg: dict | None, value: float | None) -> int:

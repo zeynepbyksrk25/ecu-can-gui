@@ -14,6 +14,7 @@ Gerçek CCP okuması / CAN gönderimi burada YAPILMAZ; MainWindow'a sinyal veril
 from __future__ import annotations
 
 import json
+import logging
 import os
 
 from PySide6.QtCore import QPoint, QRect, Qt, QTimer, Signal
@@ -25,6 +26,7 @@ from PySide6.QtWidgets import (
     QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
+from app.persist import atomic_write_json, load_json
 from app.signal_hub import OP_LABELS, SignalHub, kind_of, label_of
 from app.ui.workspace_panels import ControlPanel, GaugePanel, PlotPanel, TablePanel
 
@@ -38,6 +40,10 @@ GROUPS = [("a2l", "A2L ölçümleri"), ("dbc", "DBC sinyalleri"), ("gauge", "Gö
 LAST = "_son"
 
 
+log = logging.getLogger(__name__)
+STATE_VERSION = 1
+
+
 class WorkspaceLayoutStore:
     """{"layouts": {isim: durum}, "last": durum} — JSON, hatada sessizce boş döner."""
 
@@ -45,24 +51,18 @@ class WorkspaceLayoutStore:
         self.path = path
 
     def _read(self) -> dict:
-        try:
-            with open(self.path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            if isinstance(data, dict):
-                data.setdefault("layouts", {})
-                return data
-        except (OSError, ValueError):
-            pass
-        return {"layouts": {}}
+        data = load_json(self.path, None, dict)
+        if data is None:
+            return {"layouts": {}}
+        if not isinstance(data.get("layouts"), dict):
+            data["layouts"] = {}
+        data["layouts"] = {str(k): v for k, v in data["layouts"].items() if isinstance(v, dict)}
+        if not isinstance(data.get("last"), dict):
+            data.pop("last", None)
+        return data
 
-    def _write(self, data: dict):
-        try:
-            tmp = self.path + ".tmp"
-            with open(tmp, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=1)
-            os.replace(tmp, self.path)
-        except OSError:
-            pass
+    def _write(self, data: dict) -> bool:
+        return atomic_write_json(self.path, data, indent=1)
 
     def names(self) -> list:
         return sorted(self._read()["layouts"])
@@ -136,8 +136,10 @@ class _Float(QWidget):
     closed = Signal(object)
     dock_requested = Signal(object)
 
-    def __init__(self, panel, title: str):
-        super().__init__(None, Qt.Window)
+    def __init__(self, panel, title: str, owner=None):
+        # owner verilirse pencere ana pencerenin "sahip olduğu" üst düzey pencere
+        # olur: ana pencerenin arkasında kaybolmaz, birlikte küçülür/kapanır.
+        super().__init__(owner, Qt.Window)
         self.panel = panel
         self.mdi_geom = None            # geri yerleştirirken kullanılacak MDI konumu
         self.setWindowTitle(title)
@@ -429,7 +431,11 @@ class WorkspaceTab(QWidget):
 
         last = self.store.last() if self.store else None
         if last:
-            self.apply_state(last)
+            try:
+                self.apply_state(last)
+            except Exception:  # noqa: BLE001 - bozuk kayıt açılışı engellemesin
+                log.exception("son yerleşim yüklenemedi; boş grafikle başlanıyor")
+                self._reset_to_default()
         else:
             self.add_panel("plot")
 
@@ -466,11 +472,20 @@ class WorkspaceTab(QWidget):
                 self.hub.push(f"dbc:{name}.{s}", decoded[s])
 
     def shutdown(self):
-        self._autosave(force=True)
+        try:
+            self._autosave(force=True)
+        except Exception:  # noqa: BLE001
+            logging.getLogger(__name__).exception("workspace son kayıt hatası")
         for sub in list(self._subs.values()):
             if isinstance(sub, _Float):
-                sub.closed.disconnect()
-                sub.close()
+                try:
+                    sub.closed.disconnect()
+                except (RuntimeError, TypeError):
+                    pass
+                try:
+                    sub.close()
+                except RuntimeError:
+                    pass
 
     # ====================================================================
     # Zamanlayıcı
@@ -489,9 +504,15 @@ class WorkspaceTab(QWidget):
             names = sorted(s.split(":", 1)[1] for s in self.hub.sources_needed() if kind_of(s) == "a2l")
             if names:
                 self.read_requested.emit(names)
-        if self.isVisible():
-            span = self._span()
-            for p in self._panels:
+        tab_visible = self.isVisible()
+        span = self._span()
+        for p in self._panels:
+            holder = self._subs.get(p)
+            # Ayrılmış paneller ayrı pencerede görünür kaldığı sürece (başka sekme
+            # seçili olsa bile) canlı güncellenmeye devam eder.
+            floating_visible = (isinstance(holder, _Float) and holder.isVisible()
+                                and not holder.isMinimized())
+            if tab_visible or floating_visible:
                 p.refresh(span, self.frozen)
 
     # ====================================================================
@@ -549,13 +570,17 @@ class WorkspaceTab(QWidget):
 
     @staticmethod
     def _visible_geometry(geom):
-        """Kayıtlı ekran konumu artık geçerli bir ekranda değilse birincil ekrana al."""
+        """Kayıtlı konumu geçerli bir ekrana sığdırır: ekran yoksa (ör. ikinci
+        monitör takılı değil) birincil ekrana alır; pencere ekrandan büyükse
+        küçültür ve tamamen görünür olacak şekilde kaydırır."""
         x, y, w, h = [int(v) for v in geom]
-        if QGuiApplication.screenAt(QPoint(x + 20, y + 20)) is None:
-            scr = QGuiApplication.primaryScreen()
-            if scr is not None:
-                a = scr.availableGeometry()
-                x, y = a.x() + 60, a.y() + 60
+        scr = QGuiApplication.screenAt(QPoint(x + 20, y + 20)) or QGuiApplication.primaryScreen()
+        if scr is None:
+            return QRect(x, y, w, h)
+        a = scr.availableGeometry()
+        w, h = max(240, min(w, a.width())), max(160, min(h, a.height()))
+        x = min(max(x, a.x()), a.x() + a.width() - w)
+        y = min(max(y, a.y()), a.y() + a.height() - h)
         return QRect(x, y, w, h)
 
     def _detach(self, panel, geometry=None):
@@ -564,7 +589,7 @@ class WorkspaceTab(QWidget):
             return
         mdi_geom = sub.geometry()
         title = sub.windowTitle()
-        fl = _Float(panel, title)
+        fl = _Float(panel, title, owner=self.window())
         fl.mdi_geom = mdi_geom
         panel.setParent(fl)               # panel MDI alt penceresiyle birlikte silinmesin
         fl.layout().addWidget(panel, 1)
@@ -612,6 +637,10 @@ class WorkspaceTab(QWidget):
         self._counter = {k: 0 for k in PANEL_TYPES}
 
     def active_panel(self):
+        # Ayrı pencerelerden biri etkinse (odak onda) hedef o panel olur.
+        for p, holder in self._subs.items():
+            if isinstance(holder, _Float) and holder.isActiveWindow() and p in self._panels:
+                return p
         sub = self.mdi.activeSubWindow()
         w = sub.widget() if sub is not None else None
         return w if w in self._panels else None
@@ -859,27 +888,71 @@ class WorkspaceTab(QWidget):
                 fg = sub.geometry()
                 d["floating"] = [fg.x(), fg.y(), fg.width(), fg.height()]
             panels.append(d)
-        return {"version": 1, "span": self.span_combo.currentIndex(),
+        return {"version": STATE_VERSION, "span": self.span_combo.currentIndex(),
                 "derived": self.hub.derived, "panels": panels}
 
+    def _reset_to_default(self):
+        self._loading = True
+        try:
+            self.clear_panels()
+            self.add_panel("plot")
+        finally:
+            self._loading = False
+        self._rebuild_browser()
+        self._on_changed()
+
+    @staticmethod
+    def _int_or(value, default: int) -> int:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+
     def apply_state(self, state: dict):
+        """Kayıtlı yerleşimi uygular. Bozuk/uyumsuz parçalar atlanır (panel
+        başına izolasyon); hiçbir panel kurulamazsa tek boş grafik açılır.
+        Döner: atlanan panel sayısı."""
+        if not isinstance(state, dict):
+            raise ValueError("yerleşim kaydı geçersiz (sözlük değil)")
+        ver = self._int_or(state.get("version"), 1)
+        if ver > STATE_VERSION:
+            log.warning("yerleşim sürümü %s bu programdan yeni (%s); uyumlu kısımlar yüklenecek", ver, STATE_VERSION)
+        skipped = 0
         self._loading = True
         try:
             self.clear_panels()
             for sid in list(self.hub.derived):
                 self.hub.remove_derived(sid)
             self.hub.set_active([])
-            for sid, spec in (state.get("derived") or {}).items():
-                self.hub.derived[sid] = dict(spec)
-            self.span_combo.setCurrentIndex(int(state.get("span", 1)))
-            for pd in state.get("panels", []):
-                if pd.get("kind") in PANEL_TYPES:
-                    self.add_panel(pd["kind"], pd.get("state"), pd.get("geometry"), pd.get("title"),
-                                   floating_geometry=pd.get("floating"))
-            if not state.get("panels"):
+            derived = state.get("derived")
+            for sid, spec in (derived.items() if isinstance(derived, dict) else []):
+                if isinstance(spec, dict) and spec.get("kind"):
+                    self.hub.derived[str(sid)] = dict(spec)
+                else:
+                    skipped += 1
+            self.span_combo.setCurrentIndex(
+                min(max(self._int_or(state.get("span"), 1), 0), self.span_combo.count() - 1))
+            panels = state.get("panels")
+            for pd in (panels if isinstance(panels, list) else []):
+                try:
+                    if not isinstance(pd, dict) or pd.get("kind") not in PANEL_TYPES:
+                        raise ValueError("bilinmeyen panel")
+                    geom = pd.get("geometry")
+                    geom = geom if (isinstance(geom, (list, tuple)) and len(geom) == 4) else None
+                    fl = pd.get("floating")
+                    fl = fl if (isinstance(fl, (list, tuple)) and len(fl) == 4) else None
+                    st = pd.get("state")
+                    self.add_panel(pd["kind"], st if isinstance(st, dict) else None, geom,
+                                   str(pd["title"]) if pd.get("title") else None, floating_geometry=fl)
+                except Exception:  # noqa: BLE001
+                    skipped += 1
+                    log.exception("yerleşimdeki bir panel yüklenemedi, atlandı")
+            if not self._panels:
                 self.add_panel("plot")
         finally:
             self._loading = False
+        if skipped:
+            log.warning("yerleşim yüklenirken %d parça atlandı", skipped)
         for sid in list(self.hub.derived):
             self.hub.recompute(sid)
         self._rebuild_browser()
@@ -913,7 +986,12 @@ class WorkspaceTab(QWidget):
             return
         state = self.store.get(self.layout_combo.currentText())
         if state:
-            self.apply_state(state)
+            try:
+                self.apply_state(state)
+            except Exception as exc:  # noqa: BLE001
+                log.exception("yerleşim yüklenemedi")
+                QMessageBox.warning(self, "Yerleşim yüklenemedi", f"Kayıt geçersiz: {exc}")
+                self._reset_to_default()
 
     def _on_delete_layout(self):
         if self.store is None or self.layout_combo.currentIndex() <= 0:

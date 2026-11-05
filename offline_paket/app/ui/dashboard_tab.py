@@ -538,6 +538,31 @@ class DashboardTab(QWidget):
             return
         self._write(self.config.actuator_map(key).value, value, f"{ACTUATOR_SHORT[key]} komutu")
 
+    def release_all_actuators(self, write: bool = True) -> list:
+        """Bağlantı kapanırken: kilidi AÇIK her eyleyicinin anahtarını (_sw) kapatmayı dener
+        (write=True), sonra arayüzü kilitli/bilinmiyor duruma çeker ve yeni açma için onayı
+        yeniden ister. Döner: ECU'da kapatıldığı DOĞRULANAMAYAN eyleyicilerin adları."""
+        unconfirmed = []
+        for key in ACTUATOR_KEYS:
+            if not self._act_open.get(key):
+                continue
+            label = ACTUATOR_SHORT[key]
+            closed = False
+            if write and self.writer is not None:
+                try:
+                    closed = self._write(self.config.actuator_map(key).sw, 0.0, f"{label} anahtarı")
+                except Exception:  # noqa: BLE001
+                    closed = False
+            if not closed:
+                unconfirmed.append(label)
+            self._act_open[key] = False
+            e = self._act_rows[key]
+            e["lock"].set_open(False)
+            self._style_actuator_row(key)
+            self.set_actuator_feedback(key, "Bilinmiyor (bağlantı kapandı)" if not closed else "Kapalı")
+        self._override_confirmed_session = False
+        return unconfirmed
+
     def set_actuator_feedback(self, key: str, text: str):
         e = self._act_rows.get(key)
         if e is not None:

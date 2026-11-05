@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
     QTableWidgetItem, QVBoxLayout, QWidget, QStyledItemDelegate, QAbstractItemDelegate,
 )
 
+from app.persist import atomic_write_json, load_json
 from app.ccp import codec
 
 POLL_INTERVAL_MS = 250          # canlı okuma: önbellekten (bloklamaz), bkz. app/ccp/worker.py
@@ -788,7 +789,8 @@ class WatchTab(QWidget):
                 self._entries[i] = self._unresolved(e.name, e.kind)
                 continue
             fresh = self._entry_from_a2l(e.kind, obj)
-            fresh.pending_text = e.pending_text if not fresh.read_only else None
+            same_target = (fresh.address == e.address and fresh.datatype == e.datatype)
+            fresh.pending_text = e.pending_text if (not fresh.read_only and same_target) else None
             self._entries[i] = fresh
         self._rebuild_table()
 
@@ -825,24 +827,15 @@ class WatchTab(QWidget):
     def _save(self):
         if not self._storage_path:
             return
-        tmp = self._storage_path + ".tmp"
-        try:
-            folder = os.path.dirname(self._storage_path)
-            if folder:
-                os.makedirs(folder, exist_ok=True)
-            with open(tmp, "w", encoding="utf-8") as fh:
-                json.dump(self._serialize(), fh, ensure_ascii=False, indent=2)
-            os.replace(tmp, self._storage_path)
-        except OSError as exc:
-            self._set_status(f"Liste kaydedilemedi: {exc}", False)
+        if not atomic_write_json(self._storage_path, self._serialize()):
+            self._set_status("Liste kaydedilemedi (dosya yazılamadı); ayrıntı openecu.log içinde.", False)
 
     def _load(self):
-        try:
-            with open(self._storage_path, "r", encoding="utf-8") as fh:
-                data = json.load(fh)
-            items = data["entries"]
-        except (OSError, ValueError, KeyError, TypeError) as exc:
-            self._set_status(f"Parametre listesi okunamadı: {exc}", False)
+        data = load_json(self._storage_path, None, dict)
+        items = data.get("entries") if data else None
+        if not isinstance(items, list):
+            if data is not None:
+                self._set_status("Parametre listesi okunamadı (biçim geçersiz); dosya .corrupt olarak saklandı.", False)
             return
         entries: list[WatchEntry] = []
         seen = set()

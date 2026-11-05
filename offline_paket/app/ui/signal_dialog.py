@@ -10,6 +10,9 @@ COLUMNS = [
     "Values", "Attributes", "Değer",
 ]
 
+from app.ui.noscroll import no_wheel
+from app.dbc import signal_default, signal_limits
+
 
 def _signal_mode(signal) -> str:
     if getattr(signal, "is_multiplexer", False):
@@ -85,14 +88,14 @@ class SignalInputDialog(QDialog):
                 item.setFlags(item.flags() & ~Qt.ItemIsEditable)
                 self.table.setItem(row, col, item)
 
-            spin = QDoubleSpinBox()
-            minimum = signal.minimum if signal.minimum is not None else -1_000_000.0
-            maximum = signal.maximum if signal.maximum is not None else 1_000_000.0
+            spin = no_wheel(QDoubleSpinBox())
+            minimum, maximum = signal_limits(signal)
             spin.setRange(minimum, maximum)
             spin.setDecimals(4)
             step = signal.scale if signal.scale else 1.0
             spin.setSingleStep(step if step > 0 else 1.0)
-            spin.setValue(existing_values.get(signal.name, minimum))
+            # Varsayılan: önceki giriş, yoksa DBC başlangıç değeri/0 (aralığa kırpılmış).
+            spin.setValue(existing_values.get(signal.name, signal_default(signal)))
             self.table.setCellWidget(row, len(COLUMNS) - 1, spin)
             self._spin_boxes[signal.name] = spin
 
