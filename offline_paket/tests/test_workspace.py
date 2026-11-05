@@ -53,3 +53,17 @@ def test_shutdown_survives_errors(qapp):
     w = make_tab(qapp)
     w._autosave = lambda force=False: (_ for _ in ()).throw(RuntimeError("disk"))
     w.shutdown()                            # istisna yutulur, çağıran devam eder
+
+
+def test_floating_window_is_independent_toplevel(qapp):
+    from PySide6.QtCore import Qt
+    from app.ui.workspace_tab import _Float
+    w = make_tab(qapp)
+    w.show()
+    p = w._panels[0] if w._panels else w.add_panel("plot")
+    w._detach(p)
+    fl = w._subs[p]
+    assert isinstance(fl, _Float)
+    assert fl.parent() is None, "ayrılan pencere ana pencereye bağlı olmamalı"
+    assert fl.windowFlags() & Qt.Window
+    w.shutdown()
