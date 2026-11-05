@@ -24,14 +24,14 @@ UI_MS = 500
 STALE_S = 3.0
 HIST_MAX_S = 600
 
-GRAPH_COLORS = ["#35c6f4", "#ff9a52", "#4ade80", "#b48cff", "#f0c040", "#2dd4bf",
+GRAPH_COLORS = ["#0E6E8C", "#ff9a52", "#4ade80", "#b48cff", "#f0c040", "#2dd4bf",
                 "#ff6b9d", "#a3e635", "#9fb3c4"]
 
 
 class PerfGauge(GaugeWidget):
-    ZONES = [(0.0, 1.0, "#35c6f4")]
+    ZONES = [(0.0, 1.0, "#0E6E8C")]
     C_ARC, C_TICK, C_NEEDLE, C_SCALE, C_PILL, C_VALUE, C_UNIT, C_LABEL = (
-        "#1a3049", "#4d6a86", "#e8f0f8", "#8fa6bd", "#0a1626", "#ffffff", "#8fa6bd", "#cfe0f1")
+        "#DDE5EC", "#9AA8B5", "#121A22", "#51616F", "#FFFFFF", "#ffffff", "#51616F", "#243442")
     bind_requested = Signal(str)
     unbind_requested = Signal(str)
     range_requested = Signal(str)
@@ -62,12 +62,12 @@ class _GraphBox(QFrame):
         self.index = index
         self.spec = spec
         self.setObjectName("graphBox")
-        self.setStyleSheet("QFrame#graphBox { background:#0f2034; border:1px solid #1f3853; border-radius:10px; }")
+        self.setStyleSheet("QFrame#graphBox { background:#FFFFFF; border:1px solid #D6DEE6; border-radius:10px; }")
         lay = QVBoxLayout(self)
         lay.setContentsMargins(8, 6, 8, 8)
         head = QHBoxLayout()
         self.title = QLabel(spec["title"])
-        self.title.setStyleSheet("font-weight:700; color:#cfe0f1; background:transparent;")
+        self.title.setStyleSheet("font-weight:700; color:#243442; background:transparent;")
         self.norm = QCheckBox("Normalize")
         self.norm.setChecked(bool(spec.get("normalize")))
         self.norm.toggled.connect(lambda v: on_norm(index, v))
@@ -78,7 +78,7 @@ class _GraphBox(QFrame):
         head.addWidget(self.norm)
         head.addWidget(btn)
         lay.addLayout(head)
-        self.plot = pg.PlotWidget(background="#0b1a2b")
+        self.plot = pg.PlotWidget(background="#F7F9FB")
         style_plot(self.plot)
         self.plot.setMinimumHeight(190)
         self.plot.showGrid(x=True, y=True, alpha=0.25)
@@ -145,8 +145,8 @@ class PerformanceTab(QWidget):
             b = QPushButton(label)
             b.setCheckable(True)
             b.setFixedHeight(28)
-            b.setStyleSheet("QPushButton { border:1px solid #1f3853; background:#0f2034; color:#cfe0f1; padding:0 14px; font-weight:600; }"
-                            "QPushButton:checked { background:#35c6f4; color:#08121f; border-color:#35c6f4; }")
+            b.setStyleSheet("QPushButton { border:1px solid #D6DEE6; background:#FFFFFF; color:#243442; padding:0 14px; font-weight:600; }"
+                            "QPushButton:checked { background:#0E6E8C; color:#FFFFFF; border-color:#0E6E8C; }")
             self._win_group.addButton(b)
             self._win_buttons[sec] = b
             wl.addWidget(b)

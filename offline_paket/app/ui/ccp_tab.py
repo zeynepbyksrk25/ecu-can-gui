@@ -256,7 +256,7 @@ class CCPTab(QWidget):
         for hidden in (self.read_button, self.poll_checkbox):
             hidden.setVisible(False)
         self.live_hint = QLabel("● Canlı: seçili değer sürekli okunur")
-        self.live_hint.setStyleSheet("color: #8fa6bd;")
+        self.live_hint.setStyleSheet("color: #51616F;")
         read_row = QHBoxLayout()
         read_row.addWidget(self.live_hint)
         read_row.addStretch()

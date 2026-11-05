@@ -264,7 +264,7 @@ class MainWindow(QMainWindow):
         scroll.setObjectName("pageScroll")
         if page in self._dark_pages:
             from app.ui.dark_theme import dark_scroll_page
-            scroll.setStyleSheet("QScrollArea#pageScroll { background: #08121f; border: none; }")
+            scroll.setStyleSheet("QScrollArea#pageScroll { background: #EEF2F6; border: none; }")
             scroll.setWidget(dark_scroll_page(page))
             scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
             scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
@@ -422,7 +422,7 @@ class MainWindow(QMainWindow):
         return row
 
     def _update_role_label(self):
-        self.header_role_label.setText(f"Rol: <b style='color:#fff'>{self.current_role.value}</b>")
+        self.header_role_label.setText(f"Rol: <b style='color:#121A22'>{self.current_role.value}</b>")
 
     def _update_clock(self):
         now_text = datetime.now().strftime("%d.%m.%Y  %H:%M:%S")

@@ -94,14 +94,14 @@ def _apply_mdi_palette():
     from PySide6.QtWidgets import QApplication
     pal = QPalette()
     for grp in (QPalette.Active, QPalette.Inactive, QPalette.Disabled):
-        pal.setColor(grp, QPalette.Highlight, QColor("#1b4a73"))
-        pal.setColor(grp, QPalette.HighlightedText, QColor("#ffffff"))
-        pal.setColor(grp, QPalette.Window, QColor("#16304d"))
-        pal.setColor(grp, QPalette.Button, QColor("#16304d"))
-        pal.setColor(grp, QPalette.WindowText, QColor("#cfe0f1"))
-        pal.setColor(grp, QPalette.ButtonText, QColor("#cfe0f1"))
-        pal.setColor(grp, QPalette.Text, QColor("#cfe0f1"))
-        pal.setColor(grp, QPalette.Base, QColor("#0f2034"))
+        pal.setColor(grp, QPalette.Highlight, QColor("#CFE5EE"))
+        pal.setColor(grp, QPalette.HighlightedText, QColor("#121A22"))
+        pal.setColor(grp, QPalette.Window, QColor("#E3EAF0"))
+        pal.setColor(grp, QPalette.Button, QColor("#E3EAF0"))
+        pal.setColor(grp, QPalette.WindowText, QColor("#243442"))
+        pal.setColor(grp, QPalette.ButtonText, QColor("#243442"))
+        pal.setColor(grp, QPalette.Text, QColor("#243442"))
+        pal.setColor(grp, QPalette.Base, QColor("#FFFFFF"))
     QApplication.setPalette(pal, "QMdiSubWindow")
 
 
@@ -118,11 +118,11 @@ class _Sub(QMdiSubWindow):
         from PySide6.QtGui import QPalette
         pal = self.palette()
         for grp in (QPalette.Active, QPalette.Inactive):
-            pal.setColor(grp, QPalette.Highlight, QColor("#1b4a73"))
-            pal.setColor(grp, QPalette.HighlightedText, QColor("#ffffff"))
-            pal.setColor(grp, QPalette.Window, QColor("#2a4a6b"))
-            pal.setColor(grp, QPalette.WindowText, QColor("#ffffff"))
-            pal.setColor(grp, QPalette.Text, QColor("#ffffff"))
+            pal.setColor(grp, QPalette.Highlight, QColor("#CFE5EE"))
+            pal.setColor(grp, QPalette.HighlightedText, QColor("#121A22"))
+            pal.setColor(grp, QPalette.Window, QColor("#B7C4D0"))
+            pal.setColor(grp, QPalette.WindowText, QColor("#121A22"))
+            pal.setColor(grp, QPalette.Text, QColor("#121A22"))
         self.setPalette(pal)
         super().showEvent(ev)
 
@@ -148,7 +148,7 @@ class _Float(QWidget):
         self.setAttribute(Qt.WA_DeleteOnClose, True)
         from app.ui.dark_theme import dark_qss
         self.setObjectName("floatBody")
-        self.setStyleSheet("QWidget#floatBody { background:#08121f; }" + dark_qss("floatBody"))
+        self.setStyleSheet("QWidget#floatBody { background:#EEF2F6; }" + dark_qss("floatBody"))
         btn = QPushButton("⤓  Çalışma alanına geri yerleştir")
         btn.clicked.connect(lambda: self.dock_requested.emit(self))
         lay = QVBoxLayout(self)
@@ -401,7 +401,7 @@ class WorkspaceTab(QWidget):
         _apply_mdi_palette()
         self.mdi = QMdiArea()
         self.mdi.setViewMode(QMdiArea.SubWindowView)
-        self.mdi.setBackground(QColor("#08121f"))
+        self.mdi.setBackground(QColor("#EEF2F6"))
         split = QSplitter(Qt.Horizontal)
         split.addWidget(left)
         split.addWidget(self.mdi)

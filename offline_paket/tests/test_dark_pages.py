@@ -37,12 +37,12 @@ def test_message_box_inside_dark_body_is_readable_not_transparent(qapp):
     qapp.processEvents()
     img = box.grab().toImage()
     bg = img.pixelColor(4, 4)
-    assert bg.alpha() == 255 and luminance(bg) < 70          # koyu kart zemini (şeffaf/açık değil)
+    assert bg.alpha() == 255 and luminance(bg) > 200         # açık kart zemini (şeffaf değil)
     lbl = next(l for l in box.findChildren(QLabel) if "Okunabilir" in l.text())
     r = lbl.geometry()
     light = [luminance(img.pixelColor(x, y)) for x in range(r.left(), r.right(), 2)
              for y in range(r.top(), r.bottom(), 2)]
-    assert max(light) > 170                                  # açık renkli yazı koyu zeminde seçilebiliyor
+    assert min(light) < 120                                  # koyu yazı açık zeminde seçilebiliyor
     box.close()
     body.close()
 
@@ -122,6 +122,6 @@ def test_detached_workspace_panel_is_dark():
     f = _Float(panel.__class__(ws.hub), "t") if panel is None else None
     if f is None:
         f = _Float(ws.mdi.subWindowList()[0].widget(), "t")
-    assert f.objectName() == "floatBody" and "#08121f" in f.styleSheet()
+    assert f.objectName() == "floatBody" and "#EEF2F6" in f.styleSheet()
     f.deleteLater()
     w.close()

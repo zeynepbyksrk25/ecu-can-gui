@@ -1,4 +1,4 @@
-"""Koyu tema (Ana Sayfa / CAN Monitor): tek bir iç "gövde" widget'ına KAPSAMLI uygulanan
+"""Sayfa teması (açık palet; modül adı geriye uyumluluk için "dark_theme" kaldı) (Ana Sayfa / CAN Monitor): tek bir iç "gövde" widget'ına KAPSAMLI uygulanan
 QSS. QMessageBox/QDialog gibi üst düzey pencereler bu widget'ın çocuğu olmadığı için
 etkilenmez (açık tema ile okunur kalır). Kullanım:
 
@@ -6,142 +6,142 @@ etkilenmez (açık tema ile okunur kalır). Kullanım:
 """
 
 _BASE = """
-DashboardTab { background: #08121f; }
+DashboardTab { background: #EEF2F6; }
 DashboardTab QWidget { background: transparent; }
-DashboardTab QLabel { background: transparent; color: #e8f0f8; }
+DashboardTab QLabel { background: transparent; color: #121A22; }
 DashboardTab QFrame#card, DashboardTab QFrame#trendCard {
-    background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #12263d, stop:1 #0f2034);
-    border: 1px solid #1f3853; border-radius: 10px; }
-DashboardTab QFrame#rowFrame { background: transparent; border: none; border-bottom: 1px solid #1a3149; }
-DashboardTab QFrame#vsep { background: #1f3853; border: none; }
-DashboardTab QLabel#cardTitle { color: #cfe0f1; font-size: 12px; font-weight: 700; letter-spacing: 1px; }
-DashboardTab QLabel#rowName { color: #e8f0f8; font-size: 12.5px; font-weight: 600; }
-DashboardTab QLabel#rowName:disabled { color: #5d7893; }
-DashboardTab QLabel#mutedSmall { color: #8fa6bd; font-size: 11px; }
-DashboardTab QLabel#okSmall { color: #6ee7a1; font-size: 11px; }
-DashboardTab QLabel#errSmall { color: #ff9a9a; font-size: 11px; }
-DashboardTab QLabel#warnSmall, DashboardTab QLabel#warnDot { color: #ffcb6b; font-size: 11px; font-weight: 700; }
-DashboardTab QLabel#colHead { color: #5d7893; font-size: 11px; font-weight: 700; letter-spacing: 1px; }
-DashboardTab QLabel#onoff { color: #8fa6bd; font-size: 11px; font-weight: 700; }
-DashboardTab QLabel#onoff[on="true"] { color: #6ee7a1; }
-DashboardTab QLabel#legendItem { color: #cfe0f1; font-size: 12px; }
-DashboardTab QLabel#chipGreen { background: #0e2a22; color: #6ee7a1; border: 1px solid #1b6b45;
-    border-radius: 10px; padding: 1px 9px; font-size: 11px; font-weight: 600; }
-DashboardTab QLabel#chipBad { background: #3a1416; color: #ff9a9a; border: 1px solid #7a2a2a;
-    border-radius: 10px; padding: 1px 9px; font-size: 11px; font-weight: 700; }
-DashboardTab QLabel#trendReadout { background: rgba(10,24,40,235); border: 1px solid #2a4a6b;
-    border-radius: 7px; padding: 5px 8px; font-size: 11px; }
-DashboardTab QDoubleSpinBox#valueSpin { background: #0a1828; border: 1px solid #2a4a6b; border-radius: 6px;
-    padding: 1px 16px 1px 8px; color: #ffffff; font-size: 13px; font-weight: 700; min-height: 20px; }
-DashboardTab QDoubleSpinBox#valueSpin:disabled { color: #9fb4c9; border-color: #1f3853; }
-DashboardTab QDoubleSpinBox#valueSpin:focus { border-color: #35c6f4; }
+    background: #FFFFFF;
+    border: 1px solid #C9D3DC; border-radius: 10px; }
+DashboardTab QFrame#rowFrame { background: transparent; border: none; border-bottom: 1px solid #E3E9EF; }
+DashboardTab QFrame#vsep { background: #D6DEE6; border: none; }
+DashboardTab QLabel#cardTitle { color: #243442; font-size: 13px; font-weight: 700; letter-spacing: 1px; }
+DashboardTab QLabel#rowName { color: #121A22; font-size: 14px; font-weight: 600; }
+DashboardTab QLabel#rowName:disabled { color: #7C8B98; }
+DashboardTab QLabel#mutedSmall { color: #51616F; font-size: 12px; }
+DashboardTab QLabel#okSmall { color: #1B8A4C; font-size: 12px; }
+DashboardTab QLabel#errSmall { color: #C22A1D; font-size: 12px; }
+DashboardTab QLabel#warnSmall, DashboardTab QLabel#warnDot { color: #9A6208; font-size: 12px; font-weight: 700; }
+DashboardTab QLabel#colHead { color: #7C8B98; font-size: 12px; font-weight: 700; letter-spacing: 1px; }
+DashboardTab QLabel#onoff { color: #51616F; font-size: 12px; font-weight: 700; }
+DashboardTab QLabel#onoff[on="true"] { color: #1B8A4C; }
+DashboardTab QLabel#legendItem { color: #243442; font-size: 13px; }
+DashboardTab QLabel#chipGreen { background: #E6F4EC; color: #1B8A4C; border: 1px solid #9AD1B2;
+    border-radius: 10px; padding: 1px 9px; font-size: 12px; font-weight: 600; }
+DashboardTab QLabel#chipBad { background: #FBE9E7; color: #C22A1D; border: 1px solid #E3A29B;
+    border-radius: 10px; padding: 1px 9px; font-size: 12px; font-weight: 700; }
+DashboardTab QLabel#trendReadout { background: rgba(10,24,40,235); border: 1px solid #B7C4D0;
+    border-radius: 7px; padding: 5px 8px; font-size: 12px; }
+DashboardTab QDoubleSpinBox#valueSpin { background: #FFFFFF; border: 1px solid #B7C4D0; border-radius: 6px;
+    padding: 1px 16px 1px 8px; color: #121A22; font-size: 14px; font-weight: 700; min-height: 20px; }
+DashboardTab QDoubleSpinBox#valueSpin:disabled { color: #8A98A5; border-color: #D6DEE6; }
+DashboardTab QDoubleSpinBox#valueSpin:focus { border-color: #0E6E8C; }
 DashboardTab QDoubleSpinBox#flightSpin { background: transparent; border: none; border-radius: 6px;
-    padding: 1px 12px 1px 2px; color: #ffffff; font-size: 13.5px; font-weight: 700; }
+    padding: 1px 12px 1px 2px; color: #121A22; font-size: 15px; font-weight: 700; }
 DashboardTab QDoubleSpinBox#flightSpin::up-button, DashboardTab QDoubleSpinBox#flightSpin::down-button { width: 12px; }
-DashboardTab QDoubleSpinBox#flightSpin:disabled { color: #9fb4c9; }
-DashboardTab QDoubleSpinBox#flightSpin:focus { background: #0a1828; border: 1px solid #35c6f4; }
-DashboardTab QPushButton { background: #12263d; border: 1px solid #2a4a6b; border-radius: 8px; color: #e8f0f8;
+DashboardTab QDoubleSpinBox#flightSpin:disabled { color: #8A98A5; }
+DashboardTab QDoubleSpinBox#flightSpin:focus { background: #FFFFFF; border: 1px solid #0E6E8C; }
+DashboardTab QPushButton { background: #F4F7FA; border: 1px solid #B7C4D0; border-radius: 8px; color: #121A22;
     padding: 6px 14px; font-weight: 600; }
-DashboardTab QPushButton:hover { border-color: #35c6f4; color: #ffffff; }
-DashboardTab QPushButton:disabled { color: #5d7893; border-color: #1f3853; }
-DashboardTab QPushButton[compact="true"] { padding: 3px 10px; min-height: 20px; border-radius: 7px; font-size: 12px; }
-DashboardTab QPushButton[tone="go"] { border-color: #1d7f4b; color: #8bf0b4; background: #0f2c20; }
-DashboardTab QPushButton[seg="true"] { border-radius: 0; padding: 3px 8px; min-height: 20px; font-size: 12px;
-    color: #8fa6bd; background: #0a1828; border-left: none; }
-DashboardTab QPushButton[seg="true"]:checked { background: #2f8cff; color: #ffffff; }
-DashboardTab QSlider::groove:horizontal { height: 4px; background: #25405d; border-radius: 2px; }
-DashboardTab QSlider::sub-page:horizontal { background: #2f8cff; border-radius: 2px; }
+DashboardTab QPushButton:hover { border-color: #0E6E8C; color: #121A22; }
+DashboardTab QPushButton:disabled { color: #7C8B98; border-color: #D6DEE6; }
+DashboardTab QPushButton[compact="true"] { padding: 3px 10px; min-height: 20px; border-radius: 7px; font-size: 13px; }
+DashboardTab QPushButton[tone="go"] { border-color: #6DBA8C; color: #1B6B3E; background: #E6F4EC; }
+DashboardTab QPushButton[seg="true"] { border-radius: 0; padding: 3px 8px; min-height: 20px; font-size: 13px;
+    color: #51616F; background: #FFFFFF; border-left: none; }
+DashboardTab QPushButton[seg="true"]:checked { background: #1F6FE0; color: #ffffff; }
+DashboardTab QSlider::groove:horizontal { height: 4px; background: #D0DAE3; border-radius: 2px; }
+DashboardTab QSlider::sub-page:horizontal { background: #1F6FE0; border-radius: 2px; }
 DashboardTab QSlider::handle:horizontal { background: #ffffff; width: 14px; height: 14px; margin: -6px 0;
     border-radius: 7px; }
-DashboardTab QFrame#gaugeCard { background: #0b1a2b; border: 1px solid #1b3550; border-radius: 9px; }
-DashboardTab QFrame#gaugeCard[state="manual"] { border-color: #8a6a1e; }
-DashboardTab QFrame#gaugeCard[state="fault"] { border: 1px solid #ef4444; background: #1a1018; }
-DashboardTab QLabel#gaugeTitle { font-weight: 700; font-size: 12.5px; color: #cfe0f1; }
-DashboardTab QLabel#gaugeStatus { color: #ffcb6b; font-size: 10.5px; }
+DashboardTab QFrame#gaugeCard { background: #F7F9FB; border: 1px solid #D6DEE6; border-radius: 9px; }
+DashboardTab QFrame#gaugeCard[state="manual"] { border-color: #D9A441; }
+DashboardTab QFrame#gaugeCard[state="fault"] { border: 1px solid #C22A1D; background: #FDECEA; }
+DashboardTab QLabel#gaugeTitle { font-weight: 700; font-size: 14px; color: #243442; }
+DashboardTab QLabel#gaugeStatus { color: #9A6208; font-size: 12px; }
 """
 
 _EXTRA = """
-DashboardTab QAbstractItemView { background: #0f2034; color: #e8f0f8; selection-background-color: #2f8cff;
-    selection-color: #ffffff; border: 1px solid #2a4a6b; outline: none; }
-DashboardTab QComboBox { background: #0a1828; border: 1px solid #2a4a6b; border-radius: 6px; color: #e8f0f8;
+DashboardTab QAbstractItemView { background: #FFFFFF; color: #121A22; selection-background-color: #1F6FE0;
+    selection-color: #ffffff; border: 1px solid #B7C4D0; outline: none; }
+DashboardTab QComboBox { background: #FFFFFF; border: 1px solid #B7C4D0; border-radius: 6px; color: #121A22;
     padding: 2px 8px; min-height: 22px; }
-DashboardTab QComboBox:disabled { color: #5d7893; border-color: #1f3853; }
-DashboardTab QComboBox QAbstractItemView { background: #0f2034; color: #e8f0f8; selection-background-color: #2f8cff;
-    border: 1px solid #2a4a6b; }
-DashboardTab QLineEdit { background: #0a1828; border: 1px solid #2a4a6b; border-radius: 6px; color: #e8f0f8;
-    padding: 2px 8px; min-height: 22px; selection-background-color: #2f8cff; }
-DashboardTab QLineEdit:focus { border-color: #35c6f4; }
-DashboardTab QLineEdit:disabled { color: #5d7893; }
-DashboardTab QCheckBox { color: #cfe0f1; spacing: 6px; }
-DashboardTab QCheckBox::indicator { width: 15px; height: 15px; border: 1px solid #2a4a6b; border-radius: 4px;
-    background: #0a1828; }
-DashboardTab QCheckBox::indicator:checked { background: #2f8cff; border-color: #2f8cff; }
-DashboardTab QSpinBox, DashboardTab QDoubleSpinBox { background: #0a1828; border: 1px solid #2a4a6b;
-    border-radius: 6px; color: #ffffff; padding: 1px 16px 1px 8px; min-height: 20px; }
-DashboardTab QSpinBox:disabled, DashboardTab QDoubleSpinBox:disabled { color: #9fb4c9; border-color: #1f3853; }
-DashboardTab QTableView, DashboardTab QTableWidget { background: #0b1a2b; alternate-background-color: #0e2034;
-    color: #e8f0f8; gridline-color: #16304a; border: 1px solid #1b3550; border-radius: 8px;
-    selection-background-color: #1d4f7f; selection-color: #ffffff; }
+DashboardTab QComboBox:disabled { color: #7C8B98; border-color: #D6DEE6; }
+DashboardTab QComboBox QAbstractItemView { background: #FFFFFF; color: #121A22; selection-background-color: #1F6FE0;
+    border: 1px solid #B7C4D0; }
+DashboardTab QLineEdit { background: #FFFFFF; border: 1px solid #B7C4D0; border-radius: 6px; color: #121A22;
+    padding: 2px 8px; min-height: 22px; selection-background-color: #1F6FE0; }
+DashboardTab QLineEdit:focus { border-color: #0E6E8C; }
+DashboardTab QLineEdit:disabled { color: #7C8B98; }
+DashboardTab QCheckBox { color: #243442; spacing: 6px; }
+DashboardTab QCheckBox::indicator { width: 15px; height: 15px; border: 1px solid #B7C4D0; border-radius: 4px;
+    background: #FFFFFF; }
+DashboardTab QCheckBox::indicator:checked { background: #1F6FE0; border-color: #1F6FE0; }
+DashboardTab QSpinBox, DashboardTab QDoubleSpinBox { background: #FFFFFF; border: 1px solid #B7C4D0;
+    border-radius: 6px; color: #121A22; padding: 1px 16px 1px 8px; min-height: 20px; }
+DashboardTab QSpinBox:disabled, DashboardTab QDoubleSpinBox:disabled { color: #8A98A5; border-color: #D6DEE6; }
+DashboardTab QTableView, DashboardTab QTableWidget { background: #F7F9FB; alternate-background-color: #F1F5F8;
+    color: #121A22; gridline-color: #E3E9EF; border: 1px solid #D6DEE6; border-radius: 8px;
+    selection-background-color: #CFE5EE; selection-color: #121A22; }
 DashboardTab QTableView::item, DashboardTab QTableWidget::item { padding: 2px 6px; border: none; }
 DashboardTab QHeaderView { background: transparent; }
-DashboardTab QHeaderView::section { background: #12263d; color: #8fa6bd; border: none; border-bottom: 1px solid #1f3853;
-    border-right: 1px solid #16304a; padding: 4px 8px; font-size: 11px; font-weight: 700; }
+DashboardTab QHeaderView::section { background: #F4F7FA; color: #51616F; border: none; border-bottom: 1px solid #D6DEE6;
+    border-right: 1px solid #E3E9EF; padding: 4px 8px; font-size: 12px; font-weight: 700; }
 DashboardTab QTabWidget::pane { border: none; background: transparent; top: 0px; }
-DashboardTab QTabBar::tab { background: transparent; color: #8fa6bd; padding: 5px 14px; border: none;
+DashboardTab QTabBar::tab { background: transparent; color: #51616F; padding: 5px 14px; border: none;
     border-bottom: 2px solid transparent; font-weight: 600; }
-DashboardTab QTabBar::tab:selected { color: #ffffff; border-bottom: 2px solid #35c6f4; }
-DashboardTab QTabBar::tab:hover:!selected { color: #e8f0f8; }
-DashboardTab QListWidget { background: #0b1a2b; color: #e8f0f8; border: 1px solid #1b3550; border-radius: 8px; }
-DashboardTab QListWidget::item:selected { background: #1d4f7f; }
+DashboardTab QTabBar::tab:selected { color: #121A22; border-bottom: 2px solid #0E6E8C; }
+DashboardTab QTabBar::tab:hover:!selected { color: #121A22; }
+DashboardTab QListWidget { background: #F7F9FB; color: #121A22; border: 1px solid #D6DEE6; border-radius: 8px; }
+DashboardTab QListWidget::item:selected { background: #CFE5EE; }
 DashboardTab QScrollBar:vertical { background: transparent; width: 10px; margin: 0; }
-DashboardTab QScrollBar::handle:vertical { background: #2a4a6b; border-radius: 5px; min-height: 24px; }
+DashboardTab QScrollBar::handle:vertical { background: #B7C4D0; border-radius: 5px; min-height: 24px; }
 DashboardTab QScrollBar:horizontal { background: transparent; height: 10px; margin: 0; }
-DashboardTab QScrollBar::handle:horizontal { background: #2a4a6b; border-radius: 5px; min-width: 24px; }
+DashboardTab QScrollBar::handle:horizontal { background: #B7C4D0; border-radius: 5px; min-width: 24px; }
 DashboardTab QScrollBar::add-line, DashboardTab QScrollBar::sub-line { width: 0; height: 0; }
 DashboardTab QSplitter::handle { background: transparent; }
-DashboardTab QFrame#stripBar { background: #0f2034; border: 1px solid #1f3853; border-radius: 10px; }
-DashboardTab QLabel#statusDot[state="ok"] { color: #22c55e; font-size: 14px; }
-DashboardTab QLabel#statusDot[state="warn"] { color: #f59e0b; font-size: 14px; }
-DashboardTab QLabel#statusDot[state="bad"] { color: #ef4444; font-size: 14px; }
-DashboardTab QLabel#statChip { background: #0a1828; border: 1px solid #1f3853; border-radius: 10px; padding: 2px 10px;
-    color: #cfe0f1; font-size: 11.5px; }
-DashboardTab QLabel#chipDim { background: #0a1828; border: 1px solid #1f3853; border-radius: 10px; padding: 2px 10px;
-    color: #8fa6bd; font-size: 11.5px; }
-DashboardTab QPushButton[tone="rec"] { border-color: #8c2b2b; color: #ff9a9a; background: #3a1313; }
-DashboardTab QPushButton[tone="rec"]:checked { background: #7a1f1f; color: #ffffff; }
-DashboardTab QDialog, DashboardTab QMessageBox { background: #0f2034; }
-DashboardTab QDialog QLabel, DashboardTab QMessageBox QLabel { color: #e8f0f8; background: transparent; }
-DashboardTab QMenu { background: #0f2034; color: #e8f0f8; border: 1px solid #2a4a6b; padding: 4px; }
+DashboardTab QFrame#stripBar { background: #FFFFFF; border: 1px solid #D6DEE6; border-radius: 10px; }
+DashboardTab QLabel#statusDot[state="ok"] { color: #1B8A4C; font-size: 14px; }
+DashboardTab QLabel#statusDot[state="warn"] { color: #B9790F; font-size: 14px; }
+DashboardTab QLabel#statusDot[state="bad"] { color: #C22A1D; font-size: 14px; }
+DashboardTab QLabel#statChip { background: #FFFFFF; border: 1px solid #D6DEE6; border-radius: 10px; padding: 2px 10px;
+    color: #243442; font-size: 13px; }
+DashboardTab QLabel#chipDim { background: #FFFFFF; border: 1px solid #D6DEE6; border-radius: 10px; padding: 2px 10px;
+    color: #51616F; font-size: 13px; }
+DashboardTab QPushButton[tone="rec"] { border-color: #E3A29B; color: #C22A1D; background: #FBE9E7; }
+DashboardTab QPushButton[tone="rec"]:checked { background: #C22A1D; color: #ffffff; }
+DashboardTab QDialog, DashboardTab QMessageBox { background: #FFFFFF; }
+DashboardTab QDialog QLabel, DashboardTab QMessageBox QLabel { color: #121A22; background: transparent; }
+DashboardTab QMenu { background: #FFFFFF; color: #121A22; border: 1px solid #B7C4D0; padding: 4px; }
 DashboardTab QMenu::item { padding: 5px 18px; border-radius: 4px; }
-DashboardTab QMenu::item:selected { background: #1d4f7f; color: #ffffff; }
-DashboardTab QMenu::separator { height: 1px; background: #1f3853; margin: 4px 6px; }
-DashboardTab QTreeView, DashboardTab QTreeWidget { background: #0b1a2b; alternate-background-color: #0e2034;
-    color: #e8f0f8; border: 1px solid #1b3550; border-radius: 8px; outline: none; }
+DashboardTab QMenu::item:selected { background: #CFE5EE; color: #121A22; }
+DashboardTab QMenu::separator { height: 1px; background: #D6DEE6; margin: 4px 6px; }
+DashboardTab QTreeView, DashboardTab QTreeWidget { background: #F7F9FB; alternate-background-color: #F1F5F8;
+    color: #121A22; border: 1px solid #D6DEE6; border-radius: 8px; outline: none; }
 DashboardTab QTreeView::item { padding: 3px 2px; }
-DashboardTab QTreeView::item:hover { background: #12304d; }
-DashboardTab QTreeView::item:selected { background: #1d4f7f; color: #ffffff; }
-DashboardTab QTextEdit, DashboardTab QPlainTextEdit { background: #0a1828; color: #e8f0f8; border: 1px solid #2a4a6b;
-    border-radius: 6px; selection-background-color: #2f8cff; }
-DashboardTab QProgressBar { background: #0a1828; border: 1px solid #2a4a6b; border-radius: 6px; text-align: center;
-    color: #e8f0f8; min-height: 14px; }
-DashboardTab QProgressBar::chunk { background: #2f8cff; border-radius: 5px; }
-DashboardTab QRadioButton { color: #cfe0f1; spacing: 6px; }
-DashboardTab QListView::indicator, DashboardTab QTreeView::indicator { width: 14px; height: 14px; border: 1px solid #2a4a6b; border-radius: 3px; background: #0a1828; }
-DashboardTab QListView::indicator:checked, DashboardTab QTreeView::indicator:checked { background: #2f8cff; border-color: #2f8cff; }
-DashboardTab QRadioButton::indicator { width: 14px; height: 14px; border: 1px solid #2a4a6b; border-radius: 8px; background: #0a1828; }
-DashboardTab QRadioButton::indicator:checked { background: #2f8cff; border-color: #2f8cff; }
-DashboardTab QLabel#pageTitle { font-size: 15px; font-weight: 700; color: #ffffff; }
-DashboardTab QLabel#kvKey { color: #8fa6bd; font-size: 11.5px; font-weight: 600; }
-DashboardTab QLabel#kvVal { color: #e8f0f8; font-size: 13px; font-weight: 600; }
-DashboardTab QLabel#chipBlue { background: #0f2540; color: #8cc4ff; border: 1px solid #1f4a7a; border-radius: 10px;
-    padding: 2px 10px; font-size: 11.5px; font-weight: 600; }
+DashboardTab QTreeView::item:hover { background: #E8F1F5; }
+DashboardTab QTreeView::item:selected { background: #CFE5EE; color: #121A22; }
+DashboardTab QTextEdit, DashboardTab QPlainTextEdit { background: #FFFFFF; color: #121A22; border: 1px solid #B7C4D0;
+    border-radius: 6px; selection-background-color: #1F6FE0; }
+DashboardTab QProgressBar { background: #FFFFFF; border: 1px solid #B7C4D0; border-radius: 6px; text-align: center;
+    color: #121A22; min-height: 14px; }
+DashboardTab QProgressBar::chunk { background: #1F6FE0; border-radius: 5px; }
+DashboardTab QRadioButton { color: #243442; spacing: 6px; }
+DashboardTab QListView::indicator, DashboardTab QTreeView::indicator { width: 14px; height: 14px; border: 1px solid #B7C4D0; border-radius: 3px; background: #FFFFFF; }
+DashboardTab QListView::indicator:checked, DashboardTab QTreeView::indicator:checked { background: #1F6FE0; border-color: #1F6FE0; }
+DashboardTab QRadioButton::indicator { width: 14px; height: 14px; border: 1px solid #B7C4D0; border-radius: 8px; background: #FFFFFF; }
+DashboardTab QRadioButton::indicator:checked { background: #1F6FE0; border-color: #1F6FE0; }
+DashboardTab QLabel#pageTitle { font-size: 16px; font-weight: 700; color: #121A22; }
+DashboardTab QLabel#kvKey { color: #51616F; font-size: 13px; font-weight: 600; }
+DashboardTab QLabel#kvVal { color: #121A22; font-size: 14px; font-weight: 600; }
+DashboardTab QLabel#chipBlue { background: #E3EEFB; color: #1F5FB5; border: 1px solid #A9C8EE; border-radius: 10px;
+    padding: 2px 10px; font-size: 13px; font-weight: 600; }
 DashboardTab QTabBar { background: transparent; border: none; }
 DashboardTab QTabWidget::tab-bar { left: 0px; }
-DashboardTab QTabBar::close-button { background: #274360; border-radius: 3px; margin: 2px; subcontrol-position: right; }
+DashboardTab QTabBar::close-button { background: #CBD5DE; border-radius: 3px; margin: 2px; subcontrol-position: right; }
 DashboardTab QTabBar::close-button:hover { background: #c0392b; }
-DashboardTab QGroupBox { background: transparent; border: 1px solid #1f3853; border-radius: 8px; margin-top: 10px;
-    padding: 8px; color: #8fa6bd; font-weight: 700; }
-DashboardTab QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 6px; color: #cfe0f1; }
+DashboardTab QGroupBox { background: transparent; border: 1px solid #D6DEE6; border-radius: 8px; margin-top: 10px;
+    padding: 8px; color: #51616F; font-weight: 700; }
+DashboardTab QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 6px; color: #243442; }
 """
 
 
@@ -150,15 +150,15 @@ def dark_qss(root_id: str = "dashBody") -> str:
     return q.replace("DashboardTab {", f"QWidget#{root_id} {{").replace("DashboardTab ", f"QWidget#{root_id} ")
 
 
-def style_plot(plot_widget, bg: str = "#0b1a2b"):
+def style_plot(plot_widget, bg: str = "#FFFFFF"):
     """pyqtgraph grafiğini koyu temaya uydurur (zemin, eksen, ızgara, etiket renkleri)."""
     import pyqtgraph as pg
     plot_widget.setBackground(bg)
     pi = plot_widget.getPlotItem()
     for name in ("left", "bottom", "right", "top"):
         ax = pi.getAxis(name)
-        ax.setTextPen(pg.mkPen("#8fa6bd"))
-        ax.setPen(pg.mkPen("#2a4a6b"))
+        ax.setTextPen(pg.mkPen("#51616F"))
+        ax.setPen(pg.mkPen("#B7C4D0"))
     pi.showGrid(x=True, y=True, alpha=0.18)
 
 
