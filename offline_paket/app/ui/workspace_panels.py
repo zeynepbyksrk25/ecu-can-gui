@@ -464,12 +464,21 @@ class PlotPanel(PanelBase):
         return st
 
     def from_state(self, state: dict):
-        self.styles = {k: dict(v) for k, v in state.get("styles", {}).items()}
-        self.signals_ids = list(state.get("signals", []))
+        raw_styles = state.get("styles", {})
+        self.styles = {str(k): dict(v) for k, v in (raw_styles.items() if isinstance(raw_styles, dict) else [])
+                       if isinstance(v, dict)}
+        sigs = state.get("signals", [])
+        self.signals_ids = [str(x) for x in sigs] if isinstance(sigs, list) else []
         for i, sid in enumerate(self.signals_ids):
-            self.styles.setdefault(sid, {"color": PALETTE[i % len(PALETTE)], "width": 2.0, "visible": True})
+            # eksik anahtarlar (color/width/visible) varsayılanla tamamlanır
+            base = {"color": PALETTE[i % len(PALETTE)], "width": 2.0, "visible": True}
+            base.update({k: v for k, v in self.styles.get(sid, {}).items() if k in base and v is not None})
+            self.styles[sid] = base
         self.mode_combo.blockSignals(True)
-        self.mode_combo.setCurrentIndex(int(state.get("mode", 0)))
+        try:
+            self.mode_combo.setCurrentIndex(max(0, min(int(state.get("mode", 0)), self.mode_combo.count() - 1)))
+        except (TypeError, ValueError):
+            self.mode_combo.setCurrentIndex(0)
         self.mode_combo.blockSignals(False)
         self.norm_check.blockSignals(True)
         self.norm_check.setChecked(bool(state.get("normalize", False)))

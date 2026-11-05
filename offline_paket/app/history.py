@@ -13,6 +13,7 @@ isteğe bağlı olarak diske (JSON) kalıcı yazılır ve açılışta geri okun
 import json
 import os
 import time
+from app.persist import atomic_write_json, load_json
 from dataclasses import asdict, dataclass
 
 
@@ -36,15 +37,20 @@ class CalibrationHistory:
     def __init__(self, file_path: str | None = None):
         self.file_path = file_path
         self.entries: list[HistoryEntry] = []
-        if self.file_path and os.path.exists(self.file_path):
-            try:
-                with open(self.file_path, "r", encoding="utf-8") as f:
-                    raw = json.load(f)
-                fields = set(HistoryEntry.__dataclass_fields__)
-                self.entries = [HistoryEntry(**{k: v for k, v in e.items() if k in fields})
-                                for e in raw][-MAX_ENTRIES:]
-            except (OSError, ValueError, TypeError):
-                self.entries = []  # bozuk/okunamayan dosya sessizce yok sayılır
+        self.save_failed = False
+        if self.file_path:
+            raw = load_json(self.file_path, [], list)
+            fields = set(HistoryEntry.__dataclass_fields__)
+            required = {"timestamp", "user", "role", "object_name", "new_value", "unit", "old_value"}
+            entries = []
+            for e in raw:           # tek bozuk kayıt tüm geçmişi düşürmesin
+                try:
+                    d = {k: v for k, v in e.items() if k in fields}
+                    if required <= set(d):
+                        entries.append(HistoryEntry(**d))
+                except (AttributeError, TypeError):
+                    continue
+            self.entries = entries[-MAX_ENTRIES:]
 
     def add(self, user: str, role: str, object_name: str,
             old_value: float | None, new_value: float, unit: str,
@@ -60,11 +66,8 @@ class CalibrationHistory:
     def _save(self):
         if not self.file_path:
             return
-        try:
-            with open(self.file_path, "w", encoding="utf-8") as f:
-                json.dump([asdict(e) for e in self.entries], f, ensure_ascii=False, indent=2)
-        except OSError:
-            pass  # diske kalıcı yazma başarısız olsa da uygulama içi geçmiş çalışmaya devam eder
+        # Atomik yazma; başarısızlık görünür (save_failed) ve loglanır.
+        self.save_failed = not atomic_write_json(self.file_path, [asdict(e) for e in self.entries])
 
     def export_json(self, path: str):
         with open(path, "w", encoding="utf-8") as f:

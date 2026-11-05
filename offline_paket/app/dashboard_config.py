@@ -19,6 +19,8 @@ tutulur — yeni bir kod değişikliği gerekmez.
 
 import json
 import os
+
+from app.persist import atomic_write_json, load_json
 from dataclasses import asdict, dataclass, field
 
 DEFAULT_PATH = "dashboard_config.json"
@@ -158,29 +160,36 @@ class DashboardConfigStore:
         self.path = path
 
     def load(self) -> DashboardConfig:
-        if not os.path.exists(self.path):
+        raw = load_json(self.path, None, dict)
+        if raw is None:
             return DashboardConfig()
         try:
-            with open(self.path, "r", encoding="utf-8") as f:
-                raw = json.load(f)
             cfg = DashboardConfig()
             for k in ("measurement_itki", "measurement_pla", "measurement_tt2",
                       "measurement_tt5", "measurement_fp", "measurement_ft",
                       "measurement_rpm", "measurement_ps2",
                       "measurement_batarya", "measurement_ortam_basinc",
                       "measurement_atm_sicaklik", "measurement_tt0"):
-                setattr(cfg, k, raw.get(k, ""))
+                v = raw.get(k, "")
+                setattr(cfg, k, v if isinstance(v, str) else "")
             for k in ("motor_start", "motor_stop", "estop"):
                 sub = raw.get(k, {})
+                sub = sub if isinstance(sub, dict) else {}
+                try:
+                    value = float(sub.get("value", 1.0))
+                except (TypeError, ValueError):
+                    value = 1.0
                 setattr(cfg, k, MotorCommand(
-                    message=sub.get("message", ""),
-                    signal=sub.get("signal", ""),
-                    value=sub.get("value", 1.0),
+                    message=str(sub.get("message", "")),
+                    signal=str(sub.get("signal", "")),
+                    value=value,
                 ))
             actuators = {}
             raw_actuators = raw.get("actuators", {})
+            raw_actuators = raw_actuators if isinstance(raw_actuators, dict) else {}
             for key in ACTUATOR_KEYS:
                 sub = raw_actuators.get(key, {})
+                sub = sub if isinstance(sub, dict) else {}
                 actuators[key] = ActuatorCommand(
                     message=sub.get("message", ""),
                     enable_signal=sub.get("enable_signal", ""),
@@ -194,12 +203,8 @@ class DashboardConfigStore:
             if isinstance(sigs, list):
                 cfg.graph_signals = [s for s in sigs if isinstance(s, str) and s]
             return cfg
-        except (OSError, ValueError, TypeError):
+        except (ValueError, TypeError, AttributeError):
             return DashboardConfig()
 
-    def save(self, cfg: DashboardConfig):
-        try:
-            with open(self.path, "w", encoding="utf-8") as f:
-                json.dump(asdict(cfg), f, ensure_ascii=False, indent=2)
-        except OSError:
-            pass
+    def save(self, cfg: DashboardConfig) -> bool:
+        return atomic_write_json(self.path, asdict(cfg))

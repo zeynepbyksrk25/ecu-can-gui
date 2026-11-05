@@ -22,6 +22,7 @@ CSV / eşleme hazırlamaz. Bu modül:
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import time
@@ -30,6 +31,9 @@ from dataclasses import dataclass, field
 from PySide6.QtCore import QObject, QTimer, Signal
 
 from app.ccp import codec as ccp_codec
+from app.persist import atomic_write_json, load_json
+
+log = logging.getLogger(__name__)
 
 ROLE_AIRCRAFT_IN = "AIRCRAFT_IN"
 ROLE_SENSOR_OVR = "SENSOR_OVR"
@@ -264,21 +268,26 @@ class ControlPanelConfig:
             self._load()
 
     def _load(self):
+        raw = load_json(self.path, None, dict)
+        if raw is None:
+            return
         try:
-            with open(self.path, "r", encoding="utf-8") as f:
-                raw = json.load(f)
-        except (OSError, ValueError):
-            return
-        if not isinstance(raw, dict):
-            return
+            self._apply_raw(raw)
+        except (TypeError, ValueError, AttributeError):
+            log.exception("kontrol_paneli.json içeriği geçersiz; varsayılanlar kullanıldı")
+
+    def _apply_raw(self, raw: dict):
         self.pinned = [str(k) for k in raw.get("pinned", []) if isinstance(k, str)]
-        self.views = {str(n): [str(k) for k in ks] for n, ks in raw.get("views", {}).items()
+        views = raw.get("views", {})
+        self.views = {str(n): [str(k) for k in ks] for n, ks in (views.items() if isinstance(views, dict) else [])
                       if isinstance(ks, list)}
         self.current_view = str(raw.get("current_view", ""))
-        self.role_overrides = {str(k): str(v) for k, v in raw.get("role_overrides", {}).items()
+        ro = raw.get("role_overrides", {})
+        self.role_overrides = {str(k): str(v) for k, v in (ro.items() if isinstance(ro, dict) else [])
                                if v in ALL_ROLES}
         self.cycle_overrides = {}
-        for k, v in raw.get("cycle_overrides", {}).items():
+        co = raw.get("cycle_overrides", {})
+        for k, v in (co.items() if isinstance(co, dict) else []):
             try:
                 self.cycle_overrides[str(k)] = max(1, int(v))
             except (TypeError, ValueError):
@@ -286,7 +295,8 @@ class ControlPanelConfig:
         nodes = raw.get("input_nodes")
         if isinstance(nodes, list) and nodes:
             self.input_nodes = [str(n) for n in nodes]
-        self.scenarios = {str(n): v for n, v in raw.get("scenarios", {}).items() if isinstance(v, dict)}
+        sc = raw.get("scenarios", {})
+        self.scenarios = {str(n): v for n, v in (sc.items() if isinstance(sc, dict) else []) if isinstance(v, dict)}
         self.collapsed = [str(r) for r in raw.get("collapsed", [ROLE_INTERNAL])]
         self.compact = bool(raw.get("compact", False))
 
@@ -299,16 +309,7 @@ class ControlPanelConfig:
             "input_nodes": self.input_nodes, "scenarios": self.scenarios,
             "collapsed": self.collapsed, "compact": self.compact,
         }
-        tmp = self.path + ".tmp"
-        try:
-            folder = os.path.dirname(self.path)
-            if folder:
-                os.makedirs(folder, exist_ok=True)
-            with open(tmp, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-            os.replace(tmp, self.path)
-        except OSError:
-            pass
+        atomic_write_json(self.path, data)
 
 
 # ---- CCP yardımcıları -----------------------------------------------------

@@ -1431,8 +1431,12 @@ class MainWindow(QMainWindow):
         self._send_dbc_command("ACİL STOP", self.dashboard_tab.config.estop)
 
     def _on_dashboard_config_saved(self, cfg):
-        self.dashboard_config_store.save(cfg)
-        self._log_event("AYAR", "Ana Sayfa ayarları (DBC/A2L eşlemeleri) kaydedildi.")
+        if self.dashboard_config_store.save(cfg):
+            self._log_event("AYAR", "Ana Sayfa ayarları (DBC/A2L eşlemeleri) kaydedildi.")
+        else:
+            self._log_event("HATA", "Ana Sayfa ayarları DİSKE YAZILAMADI (bellekte geçerli, yeniden açınca kaybolur).")
+            QMessageBox.warning(self, "Ayarlar kaydedilemedi",
+                                "Ana Sayfa ayarları diske yazılamadı; program kapanınca kaybolacak.")
 
     def _sync_workspace_a2l(self):
         summary = self.a2l_tab.db.summary
@@ -1798,7 +1802,11 @@ class MainWindow(QMainWindow):
             station_address=self.ccp_tab.station_edit.text().strip(),
             a2l_path=self.a2l_tab.db.path or "",
         )
-        self.profile_store.upsert(profile)
+        try:
+            self.profile_store.upsert(profile)
+        except OSError as exc:
+            QMessageBox.warning(self, "Profil kaydedilemedi", str(exc))
+            return
         self.user_tab.set_profiles(self.profile_store.names())
         self._log_event("PROFIL", f"Profil kaydedildi: {name}")
 

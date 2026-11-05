@@ -239,6 +239,8 @@ Sol menüde **Çalışma Alanı**. Tek ekranda istediğiniz pencereleri kurarsı
 - **ECU susarsa:** CCP okumaları arka planda yapılır; ECU yanıt vermezse arayüz donmaz ve CAN'a giden periyodik giriş çerçeveleri durmaz. Okumalar birkaç saniye duraklatılır, durum çubuğunda belirtilir.
 - **Override'lar:** Bağlantı kapanırken ECU'da açık kalan eyleyici override'ları bırakılmaya çalışılır; bırakılamazsa HATA olarak loglanır ve arayüz "Bilinmiyor" gösterir. "Tüm override'ları kapat" hiçbir rol gerektirmez.
 - **Rol yükseltme** onay ister; profil kaydetme/silme rol gerektirir ve üzerine yazma/silme onaylanır. (Roller kimlik doğrulama değil, kaza önleme amaçlıdır.)
+- **Kayıt dayanıklılığı:** Tüm ayar/geçmiş/yerleşim dosyaları atomik yazılır (önce geçici dosya, sonra yer değiştirme) ve her kayıtta bir `.bak` yedeği tutulur. Bozuk bir dosya açılışı engellemez: `*.corrupt-<zaman>` adıyla **saklanır** (sonraki kayıt onu ezmez), son iyi yedek (`.bak`) kullanılır. Tek bozuk kayıt/profil/panel atlanır, geri kalanı yüklenir. Yazılamayan kayıtlar loglanır ve ilgili ekranda uyarı verilir.
+- **Denetim günlüğü:** Satır sonu/sekme içeren metinlerle sahte kayıt oluşturulamaz; yazma hatası sayılır ve loglanır.
 - **Günlük:** Beklenmeyen hatalar `openecu.log` dosyasına yazılır ve ekranda gösterilir. Aynı veri klasörünü iki program kopyası birlikte kullanamaz.
 - **Testler:** `python -m pytest tests -q` (geliştirme ortamında; `pytest`, `PySide6`, `pya2ldb`, `python-can` gerekir).
 
