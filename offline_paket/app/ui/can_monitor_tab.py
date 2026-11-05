@@ -1,22 +1,19 @@
-"""CAN Monitor sekmesi: eskiden ayrı olan Bağlantı, İzleme, Gönderim ve
-Log sekmelerinin BİRLEŞTİRİLMİŞ hali. İçerideki widget'lar (ConnectionTab,
-MonitorTab, TransmitTab, LogTab) hiç değiştirilmeden, olduğu gibi yeniden
-kullanılır — burada sadece dışarıdan görünen yerleşim değişir. MainWindow
-hâlâ bu iç widget'ların sinyallerine (örn. `can_monitor_tab.connection.
-connect_requested`) bağlanır; CAN/DBC mantığının kendisi taşınmamıştır.
+"""CAN Monitor sayfası (Ana Sayfa ile aynı koyu tasarım): üstte bağlantı şeridi, altta iki kart:
+**İzleme** (sol; başlığında DBC yükle + kayıt) ve **Gönderim** (sağ; Manuel / Periyodik sekmeleri).
 
-Yerleşim: üstte "Bağlantı" grubu (arayüz/backend seçimi varsayılan olarak
-"▸ Gelişmiş ayarlar" açılır-kapanır bölmesinin ARKASINA gizlenir — kanal/
-baudrate/bağlan-kes/sağlık her zaman görünür kalır), ortada iki sütunlu
-"İzleme" / "Gönderim" bölmesi, altta "Log" bölümü.
+İç widget'lar (ConnectionTab, MonitorTab, TransmitTab, LogTab) MainWindow'un bağlandığı
+sinyalleri/özellikleri taşımaya devam eder; burada yalnızca dışarıdan görünen yerleşim ve stil vardır.
 """
+import os
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QGroupBox, QPushButton, QSplitter, QVBoxLayout, QWidget,
+    QFrame, QHBoxLayout, QLabel, QPushButton, QSplitter, QVBoxLayout, QWidget,
 )
 
 from app.ui.connection_tab import ConnectionTab
+from app.ui.dark_theme import dark_qss
+from app.ui.dash_widgets import DK_CYAN, IconLabel
 from app.ui.log_tab import LogTab
 from app.ui.monitor_tab import MonitorTab
 from app.ui.transmit_tab import TransmitTab
@@ -25,56 +22,83 @@ from app.ui.transmit_tab import TransmitTab
 class CanMonitorTab(QWidget):
     def __init__(self):
         super().__init__()
-
-        # ---- İç widget'lar (değiştirilmeden yeniden kullanılıyor) ----
         self.connection = ConnectionTab()
         self.monitor = MonitorTab()
         self.transmit = TransmitTab()
         self.log = LogTab()
 
+        # Koyu stil yalnızca bu iç gövdeye uygulanır (QMessageBox/QDialog açık temada kalır).
+        body = QWidget()
+        body.setObjectName("canBody")
+        body.setStyleSheet(dark_qss("canBody"))
         outer = QVBoxLayout(self)
-        outer.addWidget(self._build_connection_section())
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(body)
+
+        lay = QVBoxLayout(body)
+        lay.setContentsMargins(14, 8, 14, 8)
+        lay.setSpacing(10)
+
+        strip = QFrame()
+        strip.setObjectName("stripBar")
+        sl = QHBoxLayout(strip)
+        sl.setContentsMargins(14, 8, 14, 8)
+        sl.addWidget(self.connection)
+        lay.addWidget(strip)
 
         split = QSplitter(Qt.Horizontal)
-        split.addWidget(self._wrap("İzleme", self.monitor))
-        split.addWidget(self._wrap("Gönderim", self.transmit))
-        split.setStretchFactor(0, 1)
-        split.setStretchFactor(1, 1)
-        outer.addWidget(split, stretch=1)
+        split.addWidget(self._monitor_card())
+        split.addWidget(self._transmit_card())
+        split.setStretchFactor(0, 7)
+        split.setStretchFactor(1, 4)
+        split.setSizes([800, 480])
+        split.setChildrenCollapsible(False)
+        lay.addWidget(split, 1)
 
-        outer.addWidget(self._wrap("Log", self.log))
+        self.transmit.dbc_loaded.connect(self._update_dbc_chip)
 
+    # ---- kartlar ----------------------------------------------------------------
     @staticmethod
-    def _wrap(title: str, widget: QWidget) -> QGroupBox:
-        box = QGroupBox(title)
-        layout = QVBoxLayout()
-        layout.setContentsMargins(0, 4, 0, 0)
-        layout.addWidget(widget)
-        box.setLayout(layout)
-        return box
+    def _card(title: str, icon: str) -> tuple:
+        card = QFrame()
+        card.setObjectName("card")
+        cl = QVBoxLayout(card)
+        cl.setContentsMargins(14, 10, 14, 10)
+        cl.setSpacing(8)
+        head = QHBoxLayout()
+        head.setSpacing(8)
+        head.addWidget(IconLabel(icon, DK_CYAN, 18))
+        t = QLabel(title)
+        t.setObjectName("cardTitle")
+        head.addWidget(t)
+        head.addStretch(1)
+        cl.addLayout(head)
+        return card, cl, head
 
-    def _build_connection_section(self) -> QGroupBox:
-        box = QGroupBox("Bağlantı")
-        layout = QVBoxLayout()
+    def _monitor_card(self) -> QFrame:
+        card, cl, head = self._card("İZLEME", "trend")
+        self.dbc_button = QPushButton("DBC Yükle…")
+        self.dbc_button.setProperty("compact", True)
+        self.dbc_button.setToolTip("Mesaj adları ve sinyal değerleri için DBC dosyası yükle")
+        self.dbc_button.clicked.connect(self.transmit.load_dbc_dialog)
+        self.dbc_chip = QLabel("DBC yok")
+        self.dbc_chip.setObjectName("chipDim")
+        head.addWidget(self.dbc_button)
+        head.addWidget(self.dbc_chip)
+        head.addSpacing(10)
+        head.addWidget(self.log)
+        cl.addWidget(self.monitor, 1)
+        return card
 
-        # Kanal/baudrate/bağlan-kes/sağlık her zaman görünür; yalnızca
-        # arayüz/backend (pcan/virtual/udp_multicast) seçimi, varsayılan
-        # backend'i değiştirmek NADİREN gerektiği için "Gelişmiş ayarlar"ın
-        # arkasına gizlenir (bkz. ConnectionTab.set_interface_row_visible).
-        self.connection.set_interface_row_visible(False)
+    def _transmit_card(self) -> QFrame:
+        card, cl, _head = self._card("GÖNDERİM", "spark")
+        cl.addWidget(self.transmit, 1)
+        return card
 
-        self.advanced_toggle = QPushButton("▸ Gelişmiş ayarlar (arayüz/backend)")
-        self.advanced_toggle.setCheckable(True)
-        self.advanced_toggle.setFlat(True)
-        self.advanced_toggle.toggled.connect(self._on_advanced_toggled)
-
-        layout.addWidget(self.advanced_toggle)
-        layout.addWidget(self.connection)
-        box.setLayout(layout)
-        return box
-
-    def _on_advanced_toggled(self, checked: bool):
-        self.connection.set_interface_row_visible(checked)
-        self.advanced_toggle.setText(
-            "▾ Gelişmiş ayarlar (arayüz/backend)" if checked else "▸ Gelişmiş ayarlar (arayüz/backend)"
-        )
+    def _update_dbc_chip(self):
+        dbc = self.transmit.dbc
+        if dbc.is_loaded:
+            self.dbc_chip.setText(f"{os.path.basename(dbc.path or '')} · {len(dbc.message_names())} mesaj")
+            self.dbc_chip.setToolTip(dbc.path or "")
+        else:
+            self.dbc_chip.setText("DBC yok")

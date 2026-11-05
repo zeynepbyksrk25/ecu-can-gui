@@ -12,8 +12,8 @@ from dataclasses import asdict, dataclass
 @dataclass
 class ConfigProfile:
     name: str
-    interface: str = "virtual"
-    channel: str = "test"
+    interface: str = "pcan"
+    channel: str = "PCAN_USBBUS1"
     bitrate: int = 500_000
     cro_id: str = "6F9"
     dto_id: str = "6F8"

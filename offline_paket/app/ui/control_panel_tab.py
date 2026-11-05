@@ -34,15 +34,15 @@ from app.control_panel import (
     SignalDef,
 )
 
-C_PEND_ROW = QColor("#fffbea")
-C_PEND_CELL = QColor("#fff3c4")
-C_FAULT_ROW = QColor("#fdf1ef")
-C_CHANGED_ROW = QColor("#f4f9fc")
-C_OK = QColor("#1B8A4C")
-C_WARN = QColor("#B9790F")
-C_BAD = QColor("#C22A1D")
-C_MUTED = QColor("#6a7c8b")
-C_PRIMARY = "#0f6b8a"
+C_PEND_ROW = QColor("#3d3410")
+C_PEND_CELL = QColor("#4d3f0e")
+C_FAULT_ROW = QColor("#3a1620")
+C_CHANGED_ROW = QColor("#12304a")
+C_OK = QColor("#4ade80")
+C_WARN = QColor("#f0b04a")
+C_BAD = QColor("#ff6b6b")
+C_MUTED = QColor("#8fa6bd")
+C_PRIMARY = "#35c6f4"
 
 ROLE_CHOICES = Qt.UserRole + 2
 ROLE_SPARK = Qt.UserRole + 1
@@ -191,15 +191,15 @@ class _Section(QWidget):
         self.button.setChecked(True)
         self.button.setArrowType(Qt.DownArrow)
         self.button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        self.button.setStyleSheet("QToolButton{border:0;font-weight:700;color:#1c3347;text-align:left;}")
+        self.button.setStyleSheet("QToolButton{border:0;font-weight:700;color:#cfe0f1;text-align:left;}")
         self.button.toggled.connect(self._on_toggle)
         self.title = ROLE_TITLES[role]
         self.subtitle = QLabel("")
-        self.subtitle.setStyleSheet("color:#5b6d7d;")
+        self.subtitle.setStyleSheet("color:#8fa6bd;")
         self.empty_label = QLabel("Henüz sinyal yok — “+ Sinyal kataloğu”ndan ekleyin.")
-        self.empty_label.setStyleSheet("color:#6a7c8b;padding:10px 14px;")
+        self.empty_label.setStyleSheet("color:#8fa6bd;padding:10px 14px;")
         head = QWidget()
-        head.setStyleSheet("background:#e3eaf1;")
+        head.setStyleSheet("background:#16304d;")
         hl = QHBoxLayout(head)
         hl.setContentsMargins(10, 4, 10, 4)
         hl.addWidget(self.button)
@@ -214,7 +214,7 @@ class _Section(QWidget):
 
     def set_summary(self, count: int, extra: str):
         self.button.setText(f"{self.title}  ·  {count}")
-        self.subtitle.setText(SECTION_SUBTITLES[self.role] + (f"  ·  {extra}" if extra else ""))
+        self.subtitle.setText(extra or "")
         self.empty_label.setVisible(count == 0 and self.button.isChecked())
 
     def _on_toggle(self, on: bool):
@@ -242,7 +242,7 @@ class CatalogPanel(QWidget):
         title = QLabel("Sinyal kataloğu")
         title.setStyleSheet("font-size:15px;font-weight:700;")
         self.counts_label = QLabel("")
-        self.counts_label.setStyleSheet("color:#6a7c8b;")
+        self.counts_label.setStyleSheet("color:#8fa6bd;")
         close = QPushButton("✕")
         close.setFixedWidth(30)
         close.clicked.connect(self.closed.emit)
@@ -265,8 +265,8 @@ class CatalogPanel(QWidget):
                            ("ovr", "Override çiftleri"), ("new", "Yeni"), ("free", "Panelde olmayanlar")):
             b = QPushButton(label)
             b.setCheckable(True)
-            b.setStyleSheet("QPushButton{padding:3px 8px;border:1px solid #c5d0da;border-radius:11px;background:#fff;}"
-                            "QPushButton:checked{background:#0f6b8a;color:#fff;border-color:#0f6b8a;}")
+            b.setStyleSheet("QPushButton{padding:3px 8px;border:1px solid #1f3853;border-radius:11px;background:#0f2034;color:#cfe0f1;}"
+                            "QPushButton:checked{background:#35c6f4;color:#08121f;border-color:#35c6f4;}")
             self._filter_group.addButton(b)
             self._chip_keys[b] = key
             chips.addWidget(b)
@@ -289,8 +289,8 @@ class CatalogPanel(QWidget):
         clear = QPushButton("Seçimi temizle")
         clear.clicked.connect(self.clear_selection)
         self.add_button = QPushButton("Panele ekle (0)")
-        self.add_button.setStyleSheet("QPushButton{background:#0f6b8a;color:#fff;font-weight:700;padding:6px 14px;border-radius:6px;}"
-                                      "QPushButton:disabled{background:#9fb0c0;}")
+        self.add_button.setStyleSheet("QPushButton{background:#35c6f4;color:#08121f;font-weight:700;padding:6px 14px;border-radius:6px;}"
+                                      "QPushButton:disabled{background:#3b5068;}")
         self.add_button.setEnabled(False)
         self.add_button.clicked.connect(self._emit_add)
         bottom = QHBoxLayout()
@@ -333,8 +333,8 @@ class CatalogPanel(QWidget):
                 it.setFont(0, f)
                 it.setFlags(it.flags() | Qt.ItemIsUserCheckable | Qt.ItemIsAutoTristate)
                 it.setCheckState(0, Qt.Unchecked)
-                it.setBackground(0, QColor("#eef2f6"))
-                it.setBackground(1, QColor("#eef2f6"))
+                it.setBackground(0, QColor("#12304a"))
+                it.setBackground(1, QColor("#12304a"))
                 self.tree.addTopLevelItem(it)
                 tops[label] = it
             return tops[label]
@@ -498,11 +498,11 @@ class DiffDialog(QDialog):
                    "Çalışma listeniz ve görünümleriniz isme göre korunur.")
         lay.addWidget(t)
         cards = QHBoxLayout()
-        for n, text, color in ((len(diff.added), "yeni sinyal", "#1B8A4C"),
-                               (len(diff.changed), "aralık/birim/adres değişti", "#B9790F"),
-                               (len(diff.removed), "artık yok", "#C22A1D")):
+        for n, text, color in ((len(diff.added), "yeni sinyal", "#4ade80"),
+                               (len(diff.changed), "aralık/birim/adres değişti", "#f0b04a"),
+                               (len(diff.removed), "artık yok", "#ff6b6b")):
             lbl = QLabel(f"<span style='font-size:22px;font-weight:700;color:{color}'>{n}</span><br>{text}")
-            lbl.setStyleSheet("background:#f4f7fa;border-radius:8px;padding:10px;")
+            lbl.setStyleSheet("background:#0f2034;border-radius:8px;padding:10px;")
             cards.addWidget(lbl, 1)
         lay.addLayout(cards)
         table = QTableWidget(0, 3)
@@ -522,10 +522,6 @@ class DiffDialog(QDialog):
                 table.setItem(r, c, it)
         table.setMinimumHeight(180)
         lay.addWidget(table)
-        note = QLabel("Bulunamayan sinyaller panelde kırmızı “bulunamadı” olarak kalır; siz kaldırana kadar silinmez.")
-        note.setStyleSheet("color:#5b6d7d;")
-        note.setWordWrap(True)
-        lay.addWidget(note)
         ok = QPushButton("Tamam")
         ok.clicked.connect(self.accept)
         row = QHBoxLayout()
@@ -592,8 +588,8 @@ class ControlPanelTab(QWidget):
         # --- araç çubuğu ---
         self.catalog_button = QPushButton("+ Sinyal kataloğu")
         self.catalog_button.setCheckable(True)
-        self.catalog_button.setStyleSheet("QPushButton{border:1px solid #0f6b8a;color:#0f6b8a;background:#fff;font-weight:700;padding:6px 12px;border-radius:6px;}"
-                                          "QPushButton:checked{background:#0f6b8a;color:#fff;}")
+        self.catalog_button.setStyleSheet("QPushButton{border:1px solid #35c6f4;color:#35c6f4;background:#0f2034;font-weight:700;padding:6px 12px;border-radius:6px;}"
+                                          "QPushButton:checked{background:#35c6f4;color:#08121f;}")
         self.catalog_button.toggled.connect(self._toggle_catalog)
 
         self.view_combo = QComboBox()
@@ -610,13 +606,13 @@ class ControlPanelTab(QWidget):
         self.search.textChanged.connect(self._apply_filters)
 
         self.apply_button = QPushButton("Uygula (0)")
-        self.apply_button.setStyleSheet("QPushButton{background:#0f6b8a;color:#fff;font-weight:700;padding:7px 18px;border-radius:6px;}"
-                                        "QPushButton:disabled{background:#9fb0c0;}")
+        self.apply_button.setStyleSheet("QPushButton{background:#35c6f4;color:#08121f;font-weight:700;padding:7px 18px;border-radius:6px;}"
+                                        "QPushButton:disabled{background:#3b5068;}")
         self.apply_button.clicked.connect(self._on_apply_clicked)
         self.revert_button = QPushButton("Bekleyenleri geri al")
         self.revert_button.clicked.connect(self.revert_pending)
         self.kill_button = QPushButton("Tüm override'ları kapat")
-        self.kill_button.setStyleSheet("QPushButton{border:1px solid #c22a1d;color:#a8231a;background:#fff;font-weight:700;padding:6px 12px;border-radius:6px;}")
+        self.kill_button.setStyleSheet("QPushButton{border:1px solid #ff6b6b;color:#ff8a8a;background:#3a1620;font-weight:700;padding:6px 12px;border-radius:6px;}")
         self.kill_button.clicked.connect(self._on_kill_clicked)
 
         bar = QHBoxLayout()
@@ -636,8 +632,8 @@ class ControlPanelTab(QWidget):
         self._role_group.setExclusive(True)
         self._state_chips: dict[str, QPushButton] = {}
         self._role_chips: dict[str, QPushButton] = {}
-        chip_css = ("QPushButton{padding:3px 10px;border:1px solid #c5d0da;border-radius:12px;background:#fff;color:#3d4f5f;font-weight:600;}"
-                    "QPushButton:checked{background:#0f6b8a;color:#fff;border-color:#0f6b8a;}")
+        chip_css = ("QPushButton{padding:3px 10px;border:1px solid #1f3853;border-radius:12px;background:#0f2034;color:#cfe0f1;font-weight:600;}"
+                    "QPushButton:checked{background:#35c6f4;color:#08121f;border-color:#35c6f4;}")
         chips = QHBoxLayout()
         chips.setSpacing(6)
         for key, label in (("all", "Tümü"), (ROLE_AIRCRAFT_IN, "Uçak girişleri"),
@@ -674,12 +670,12 @@ class ControlPanelTab(QWidget):
         self.ovr_label = QLabel("")
         self.tx_toggle = QPushButton("Gönderimi durdur")
         self.tx_toggle.setFlat(True)
-        self.tx_toggle.setStyleSheet("QPushButton{color:#0f6b8a;font-weight:700;text-decoration:underline;border:0;}")
+        self.tx_toggle.setStyleSheet("QPushButton{color:#35c6f4;font-weight:700;text-decoration:underline;border:0;}")
         self.tx_toggle.clicked.connect(self._on_tx_toggle)
         self.files_label = QLabel("")
         self.reload_button = QPushButton("Yeniden yükle")
         self.reload_button.setFlat(True)
-        self.reload_button.setStyleSheet("QPushButton{color:#0f6b8a;font-weight:700;text-decoration:underline;border:0;}")
+        self.reload_button.setStyleSheet("QPushButton{color:#35c6f4;font-weight:700;text-decoration:underline;border:0;}")
         self.reload_button.clicked.connect(self.reload_requested.emit)
         self.reload_button.setVisible(False)
         strip = QHBoxLayout()
@@ -690,7 +686,7 @@ class ControlPanelTab(QWidget):
         strip.addStretch()
 
         self.banner = QLabel("")
-        self.banner.setStyleSheet("background:#fdf1ef;color:#a8231a;font-weight:700;padding:6px 10px;border-radius:6px;")
+        self.banner.setStyleSheet("background:#3a1620;color:#ff8a8a;font-weight:700;padding:6px 10px;border-radius:6px;")
         self.banner.setVisible(False)
         self.status_label = QLabel("")
         self.status_label.setWordWrap(True)
@@ -734,10 +730,10 @@ class ControlPanelTab(QWidget):
         srow.addWidget(b_del)
         right = QVBoxLayout()
         for title, w in (("Bekleyen değişiklikler", self.pending_list),):
-            lab = QLabel(f"<b>{title}</b><br><span style='color:#6a7c8b'>Uygula'ya basınca hepsi birlikte gider</span>")
+            lab = QLabel(f"<b>{title}</b>")
             right.addWidget(lab)
             right.addWidget(w)
-        self.effects_title.setText("<b>Son uygulamanın etkisi</b><br><span style='color:#6a7c8b'>yalnız değişen çıkışlar</span>")
+        self.effects_title.setText("<b>Son uygulamanın etkisi</b>")
         right.addWidget(self.effects_title)
         right.addWidget(self.effects_list)
         right.addWidget(QLabel("<b>Senaryo</b>"))
@@ -823,7 +819,7 @@ class ControlPanelTab(QWidget):
     def _set_files_changed(self, on: bool, which: str = ""):
         self.reload_button.setVisible(on)
         self.files_label.setText(f"{which} dosyası değişti" if on else "")
-        self.files_label.setStyleSheet("color:#b9790f;font-weight:700;" if on else "")
+        self.files_label.setStyleSheet("color:#f0b04a;font-weight:700;" if on else "")
         self._files_changed_text = which if on else ""
 
     def _set_role_override(self, key: str, role: str):
@@ -990,10 +986,10 @@ class ControlPanelTab(QWidget):
                     vi.setText(text)
                 pend_row = st["pending"] is not None
                 oor = self._out_of_range(s, v)
-                vi.setForeground(C_BAD if oor else QColor("#14202c"))
+                vi.setForeground(C_BAD if oor else QColor("#e8f0f8"))
                 vi.setToolTip(f"Aralık dışı ({s.range_text()})" if oor else
                               (f"önce {self._format_value(s, st['applied'])}" if pend_row and st["applied"] is not None else ""))
-                vi.setBackground(C_PEND_CELL if pend_row else QColor("white"))
+                vi.setBackground(C_PEND_CELL if pend_row else QColor("#0b1a2b"))
                 running = s.message in self._tx_running
                 if self._lost:
                     gtxt, gcol = "durdu", C_BAD
@@ -1028,8 +1024,8 @@ class ControlPanelTab(QWidget):
                 text = _fmt_num(shown) if shown is not None else "—"
                 if vi.text() != text and not self._is_editing(t, r, 3):
                     vi.setText(text)
-                vi.setBackground(C_PEND_CELL if st["pending"] is not None else QColor("white"))
-                vi.setForeground(QColor("#14202c") if en_eff else C_MUTED)
+                vi.setBackground(C_PEND_CELL if st["pending"] is not None else QColor("#0b1a2b"))
+                vi.setForeground(QColor("#e8f0f8") if en_eff else C_MUTED)
                 seen = st["seen"]
                 t.item(r, 4).setText(_fmt_num(seen) if seen is not None else "—")
                 pend_row = st["pending"] is not None or st["en_pending"] is not None
@@ -1042,7 +1038,7 @@ class ControlPanelTab(QWidget):
                 f = vi.font()
                 f.setBold(True)
                 vi.setFont(f)
-                vi.setForeground(C_BAD if (fault or s.missing) else (C_OK if (s.is_fault_like and live is not None) else QColor("#14202c")))
+                vi.setForeground(C_BAD if (fault or s.missing) else (C_OK if (s.is_fault_like and live is not None) else QColor("#e8f0f8")))
                 prev = self._snapshot.get(key)
                 t.item(r, 3).setText(self._format_value(s, prev) if (key in self._snapshot) else "—")
                 dtxt, dcol = "—", C_MUTED
@@ -1065,7 +1061,7 @@ class ControlPanelTab(QWidget):
                     vi.setToolTip(st["error"])
             # satır arka planı + nokta
             row_bg = (C_PEND_ROW if pend_row else C_FAULT_ROW if fault_row else
-                      C_CHANGED_ROW if changed_row else QColor("white"))
+                      C_CHANGED_ROW if changed_row else QColor("#0b1a2b"))
             for c in range(t.columnCount()):
                 it = t.item(r, c)
                 if it is None:
@@ -1473,7 +1469,7 @@ class ControlPanelTab(QWidget):
         self.apply_button.setText(f"Uygula ({n})")
         self.apply_button.setEnabled(n > 0 and self._can_allowed)
         self.revert_button.setEnabled(n > 0)
-        self.pending_label.setText(f"<b style='color:#b9790f'>{n} bekleyen değişiklik</b>" if n else "Bekleyen değişiklik yok")
+        self.pending_label.setText(f"<b style='color:#f0b04a'>{n} bekleyen değişiklik</b>" if n else "Bekleyen değişiklik yok")
         n_ovr = sum(1 for k in self._rows if self._sig(k).role == ROLE_SENSOR_OVR and self._st(k)["en"])
         self.ovr_label.setText(f"Override aktif: <b>{n_ovr}</b>")
         self.tx_label.setText(f"Periyodik gönderim: <b>{len(self._tx_running)}</b> mesaj")
@@ -1511,7 +1507,7 @@ class ControlPanelTab(QWidget):
 
     def _set_status(self, text: str, ok: bool):
         self.status_label.setText(text)
-        self.status_label.setStyleSheet("color:#1b8a4c;" if ok else "color:#b00020;")
+        self.status_label.setStyleSheet("color:#4ade80;" if ok else "color:#ff6b6b;")
 
     # ======================= Dış durumlar =======================
     def set_connection_state(self, can: bool, ccp: bool, lost: bool = False):

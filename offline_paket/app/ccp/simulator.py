@@ -42,6 +42,24 @@ class CCPSlaveSimulator:
         # simüle etmeye yarayan hook (örn. ACCESS_DENIED senaryosu).
         self.force_error_on: dict[int, int] = {}  # command_code -> return_code
 
+        # Güç döngüsü simülasyonu: kapalıyken hiçbir komuta cevap verilmez; açılışta CCP oturumu
+        # unutulur. strict_session=True iken CONNECT'ten önceki komutlar ACCESS_DENIED alır
+        # (gerçek ECU davranışı).
+        self.online = True
+        self.strict_session = False
+        self.response_delay_s = 0.0
+        self.requests_seen = 0
+
+    def power_off(self):
+        """ECU gücü kesildi: komutlara cevap yok."""
+        self.online = False
+
+    def power_on(self):
+        """ECU güç geldi: bellek korunur ama CCP oturumu unutulur (yeniden CONNECT gerekir)."""
+        self._connected = False
+        self._mta_address = 0
+        self.online = True
+
     def start(self):
         self._notifier = can.Notifier(self.bus, [self._listener], timeout=0.1)
 
@@ -65,8 +83,17 @@ class CCPSlaveSimulator:
     def _on_message(self, msg: can.Message):
         if msg.arbitration_id != self.cro_id or not msg.data:
             return
+        if not self.online:
+            return
+        self.requests_seen += 1
+        if self.response_delay_s:
+            import time as _t
+            _t.sleep(self.response_delay_s)
         cmd = msg.data[0]
         ctr = msg.data[1] if len(msg.data) > 1 else 0
+        if self.strict_session and not self._connected and cmd not in (ccp.CONNECT, ccp.GET_CCP_VERSION):
+            self._reply(ccp.RC_ACCESS_DENIED, ctr)
+            return
 
         if cmd in self.force_error_on:
             self._reply(self.force_error_on[cmd], ctr)

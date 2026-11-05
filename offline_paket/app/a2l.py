@@ -61,6 +61,24 @@ class A2LSummary:
     measurements: list = field(default_factory=list)
     characteristics: list = field(default_factory=list)
 
+    # ---- okunabilir tek değerli nesneler (grafik / trend / çalışma alanı / performans) ----
+    def tunable_scalars(self) -> list:
+        """Ayarlanabilir (kalibrasyon) tek değerli parametreler: skaler CHARACTERISTIC (VALUE).
+        Adresi ve veri tipi çözülebilenler; clbc_* gibi parametreler buradadır."""
+        return [c for c in self.characteristics
+                if c.kind == "SCALAR" and c.address is not None and c.datatype
+                and (c.char_type in ("", "VALUE"))]
+
+    def readable(self) -> list:
+        """Sürekli okunup çizilebilen tüm nesneler: ölçümler + ayarlanabilir skaler parametreler."""
+        return list(self.measurements) + self.tunable_scalars()
+
+    def readable_by_name(self) -> dict:
+        """ad -> nesne; aynı ad ikisinde de varsa ölçüm önceliklidir."""
+        out = {c.name: c for c in self.tunable_scalars()}
+        out.update({m.name: m for m in self.measurements})
+        return out
+
 
 def _fix_axis_values(ad) -> list | None:
     """FIX_AXIS eksenlerinin nokta değerleri A2L içinde (ECU'ya gitmeden)
@@ -123,6 +141,17 @@ def _array_dims(c) -> tuple | None:
     return tuple(dims)
 
 
+def _default_byte_order(session) -> str | None:
+    """MOD_COMMON > BYTE_ORDER ("MSB_FIRST" = big-endian, "MSB_LAST" = little-endian).
+    Tek tek MEASUREMENT/CHARACTERISTIC'te BYTE_ORDER yoksa bu değer geçerlidir."""
+    try:
+        mc = session.query(model.ModCommon).first()
+        bo = getattr(mc, "byte_order", None) if mc is not None else None
+        return getattr(bo, "byteOrder", None) or None
+    except Exception:
+        return None
+
+
 def _compu(compu_method):
     """pya2l, COMPU_METHOD yoksa "NO_COMPU_METHOD" string'i döndürür; bu
     yardımcı onu CCP tarafında kullanışlı olacak şekilde None'a çevirir."""
@@ -162,6 +191,7 @@ class A2LDatabase:
         project = session.query(model.Project).first()
         module = session.query(model.Module).first()
 
+        default_bo = _default_byte_order(session)
         measurements = []
         for row in session.query(model.Measurement).all():
             m = insp.Measurement.get(session, row.name)
@@ -176,7 +206,7 @@ class A2LDatabase:
                 maximum=m.upperLimit,
                 address=getattr(m, "ecuAddress", None),
                 address_extension=getattr(m, "ecuAddressExtension", 0) or 0,
-                byte_order=getattr(m, "byteOrder", None),
+                byte_order=getattr(m, "byteOrder", None) or default_bo,
                 compu_method=compu,
             ))
 
@@ -210,7 +240,7 @@ class A2LDatabase:
                 read_only=bool(c.readOnly),
                 num_axes=num_axes,
                 address_extension=getattr(c, "ecuAddressExtension", 0) or 0,
-                byte_order=getattr(c, "byteOrder", None),
+                byte_order=getattr(c, "byteOrder", None) or default_bo,
                 compu_method=compu,
                 axes=_build_axes(c),
                 char_type=char_type,

@@ -1,63 +1,43 @@
-"""Ana Sayfa (Dashboard) sekmesi — "kokpit" düzeni (kullanıcının onayladığı
-mockup'a göre): üstte ince bir "annunciator" (ikaz lambası) şeridi, altında
-3 sütun:
+"""Ana Sayfa (Dashboard) — sidebar'sız, kaydırmasız, tek ekran (16" laptop) düzeni.
 
-  A) Motor Komutları + Ortam Koşulları (dar sütun)
-  B) Motor Parametreleri (8 ibre/gösterge) + Sensör Durumu/Arıza Tablosu
-     (geniş/esnek sütun)
-  C) Canlı Grafik + Eyleyiciler (manuel override kontrolleri) (dar sütun)
+Sol sütun : Uçuş Koşulları + Motor Kontrol (``SimInputsPanel``) + Eyleyiciler
+Sağ sütun : Motor Parametreleri (8 gösterge = 8 sensör) + Canlı Trendler
 
-Her şey TEK ekranda, dikey kaydırma OLMADAN sığacak şekilde kompakttır
-(kullanıcının önceki tasarımın "çok uzun" olduğu yönündeki açık isteği).
+Sensörlerin ve eyleyicilerin her biri için iki değişken vardır: değer ve anahtar
+(``_sw``). Anahtar 0 iken değer arayüzden DEĞİŞTİRİLEMEZ; kilit düğmesiyle anahtar
+1 yapılınca (rol + onay kontrolünden sonra) değer yazılabilir. Hem değer hem
+anahtar CAN (DBC) ya da A2L (CCP) kaynağından seçilir (bkz. app/dashboard_config.py,
+app/ui/mapping_dialog.py).
 
-Bu widget, önceki sürümdeki TÜM plumbing'i korur:
-  - DashboardConfig / DashboardConfigStore (app/dashboard_config.py)
-  - "Ayarlar" öz-hizmet DBC/A2L eşleme paneli
-  - tick/update mekanizması (tick sinyali -> MainWindow -> CCP okuma ->
-    set_measurement_value()/set_ambient_value() geri çağrısı)
-  - MainWindow'un zaten bağlandığı sinyaller: motor_start_requested,
-    motor_stop_requested, estop_requested, config_saved, tick.
-
-YENİ eklenenler: GaugeWidget (yarım daire ibre), annunciator lambaları,
-Sensör Durumu tablosu (placeholder durum mantığıyla,
-get_sensor_status() üzerinden) ve Eyleyiciler panelindeki gerçek manuel
-override kontrolleri (bkz. aşağıdaki ActuatorRow / actuator_command
-sinyali — gerçek CAN gönderimini yine MainWindow yapar).
-
-Bu widget de, diğer sekmeler gibi, gerçek CAN gönderimini / CCP okumasını
-YAPMAZ — sinyal olarak dışarı bildirir, MainWindow gerçek işlemi yapar.
+Bu widget gerçek CAN/CCP işlemini kendisi yapmaz: ``writer`` geri çağrısı
+(MainWindow) ve sinyaller aracılığıyla dışarı bildirir.
 """
 
-import math
 import time
-from datetime import datetime
 
-from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QFont, QPainter, QPen
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
-    QBoxLayout, QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QFrame, QGraphicsDropShadowEffect,
-    QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox,
-    QPushButton, QScrollArea, QSizePolicy, QSpinBox, QVBoxLayout, QWidget,
+    QFrame, QGridLayout, QHBoxLayout, QInputDialog, QLabel, QMessageBox, QPushButton,
+    QSizePolicy, QVBoxLayout, QWidget,
 )
-
-import pyqtgraph as pg
+from PySide6.QtWidgets import QDoubleSpinBox
 
 from app.dashboard_config import (
-    ACTUATOR_KEYS, ACTUATOR_KINDS, ACTUATOR_LABELS, AMBIENT_KEYS,
-    AMBIENT_LABELS, AMBIENT_UNITS, GAUGE_KEYS, ActuatorCommand,
-    DashboardConfig, MotorCommand,
+    ACTUATOR_KEYS, ACTUATOR_KINDS, ACTUATOR_LABELS, GAUGE_KEYS, Binding, DashboardConfig,
 )
-from app.theme import ACCENT_INK, BORDER, INK, INK_2, INK_3, SURFACE
+from app.ui.dash_widgets import (  # noqa: F401  (GaugeWidget/ToggleSwitch: eski import yolları)
+    DK_CYAN, DK_MUT, DashGauge, GaugeCard, GaugeWidget, IconLabel, LockButton, ToggleSwitch,
+    format_value,
+)
+from app.ui.dark_theme import dark_qss
+from app.ui.trend_panel import TrendPanel
 from app.user_roles import Role, can_override_actuator
 
 TICK_INTERVAL_MS = 500
-GRAPH_POLL_MS = 1000
+STALE_S = 3.0
 
-# ---- Gösterge (gauge) aralıkları: (min, max, birim) ------------------------
-# Kullanıcının referans mockup'ına göre KESİN ölçek değerleri (bkz. görev
-# tanımındaki 8 göstergenin min/max listesi). Artık 8 göstergenin TAMAMI
-# aynı boyutta, tek tip 4x2 ızgarada çizilir (eski "primary/secondary"
-# boyut ayrımı kaldırıldı).
+# Göstergelerin ölçekleri: (min, max, birim). Ekranda gösterilen DEĞER her zaman
+# gerçek değerdir; ölçek yalnızca ibre/yay çizimi içindir.
 GAUGE_RANGES = {
     "RPM": (0.0, 6000.0, "rpm"),
     "İtki": (0.0, 100.0, "%"),
@@ -68,385 +48,21 @@ GAUGE_RANGES = {
     "Ps2": (0.0, 5.0, "bar"),
     "Tt2": (0.0, 120.0, "°C"),
 }
-# Göstergenin İÇ anahtarı (GAUGE_KEYS, DashboardConfig vb. ile uyumlu
-# olması için "FP"/"FT" büyük harfle kalır) ile EKRANDA gösterilen
-# etiket metni farklı olabilir (referans mockup "Fp"/"Ft" yazıyor).
 GAUGE_DISPLAY_LABELS = {key: key for key in GAUGE_KEYS}
 GAUGE_DISPLAY_LABELS["FP"] = "Fp"
 GAUGE_DISPLAY_LABELS["FT"] = "Ft"
 
+ACTUATOR_SHORT = {
+    "pompa_start": "Yakıt Pompası Start",
+    "pompa_fuel": "Yakıt Pompası Fuel",
+    "valf": "Yakıt Debisi Valfi",
+    "glow_plug": "Buji Isıtıcı (Glow Plug)",
+    "starter": "Başlatma Motoru",
+}
+ACTUATOR_ICON = {"pompa_start": "pump", "pompa_fuel": "pump", "valf": "valve",
+                 "glow_plug": "glow", "starter": "starter"}
 
-def _apply_card_shadow(widget: QWidget, blur: float = 22, dy: float = 3, alpha: int = 45):
-    """Her panele/karta tutarlı, yumuşak bir "card" gölgesi uygular
-    (referans mockup'taki hafif derinlik hissi için)."""
-    effect = QGraphicsDropShadowEffect(widget)
-    effect.setBlurRadius(blur)
-    effect.setOffset(0, dy)
-    effect.setColor(QColor(20, 30, 40, alpha))
-    widget.setGraphicsEffect(effect)
-
-
-def _card_title(text: str) -> QLabel:
-    """Kartın içindeki başlık (sol panel başlığıyla tutarlı)."""
-    lbl = QLabel(text)
-    lbl.setStyleSheet(f"color:{INK}; font-size:13px; font-weight:800; background:transparent;")
-    return lbl
-
-
-def _style_card_group(box: QGroupBox):
-    """QGroupBox'ı, görünür kenarlığı olmayan, beyaz/yuvarlak köşeli bir
-    "kart" gibi stillendirir; gerçek derinlik ayrı bir drop-shadow efekti
-    ile sağlanır (bkz. _apply_card_shadow)."""
-    box.setStyleSheet(
-        f"QGroupBox {{ background: {SURFACE}; border: 1px solid #EDF1F5; "
-        f"border-radius: 10px; margin-top: 0px; padding: 10px; "
-        f"font-weight: 700; color: {INK}; }} "
-        f"QGroupBox::title {{ subcontrol-origin: margin; left: 12px; "
-        f"padding: 0 4px; color: {INK}; }}"
-    )
-    _apply_card_shadow(box)
-
-class ReflowGrid(QWidget):
-    """Genişliğe göre sütun sayısını değiştiren ızgara: pencere genişken
-    öğeler tek sırada, daralınca otomatik alt satıra iner. `options`
-    azalan sütun sayıları (ör. [8, 4, 2]); en büyük uygun olan seçilir."""
-
-    def __init__(self, options, min_cell_width: int, spacing: int = 10, parent=None, stretch_rows: bool = False):
-        super().__init__(parent)
-        self._stretch_rows = stretch_rows
-        self._options = sorted(options, reverse=True)
-        self._min_cell = min_cell_width
-        self._items: list[QWidget] = []
-        self._cols = 0
-        self._grid = QGridLayout(self)
-        self._grid.setContentsMargins(0, 0, 0, 0)
-        self._grid.setSpacing(spacing)
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding if stretch_rows else QSizePolicy.Preferred)
-
-    def add_item(self, w: QWidget):
-        self._items.append(w)
-        self._relayout(force=True)
-
-    def _pick(self) -> int:
-        width = max(self.width(), 1)
-        for n in self._options:
-            if width / n >= self._min_cell:
-                return min(n, max(len(self._items), 1))
-        return min(self._options[-1], max(len(self._items), 1))
-
-    def _relayout(self, force: bool = False):
-        cols = self._pick() if self.width() > 1 else self._options[-1]
-        if cols == self._cols and not force:
-            return
-        self._cols = cols
-        while self._grid.count():
-            self._grid.takeAt(0)
-        for i, w in enumerate(self._items):
-            alone = self._stretch_rows and cols > 1 and i == len(self._items) - 1 and i % cols == 0
-            self._grid.addWidget(w, i // cols, i % cols, 1, cols if alone else 1)
-        for c in range(max(cols, 8)):
-            self._grid.setColumnStretch(c, 1 if c < cols else 0)
-        for r in range(12):
-            self._grid.setRowStretch(r, 1 if self._stretch_rows and r < (len(self._items) + cols - 1) // cols else 0)
-        self.updateGeometry()
-
-    def resizeEvent(self, event):  # noqa: N802
-        super().resizeEvent(event)
-        self._relayout()
-
-
-# Sensör Durumu ve Arıza Tablosu satır sırası + sütunlar.
-_SENSOR_ROWS = ["FP", "FT", "RPM", "Tt5", "Ps2", "Tt2"]
-_SENSOR_CHECKS = ["Elektriksel", "Tutarlılık", "Minimum", "Maksimum"]
-
-# Canlı Grafik'te çizilen seriler artık kullanıcı tarafından seçilir
-# (DashboardConfig.graph_signals); renkler sırayla bu paletten verilir.
-_GRAPH_PALETTE = ["#0E6E8C", "#C22A1D", "#1B8A4C", "#7C3AED", "#B45309",
-                  "#0E7490", "#BE185D", "#4D7C0F", "#1D4ED8", "#9A3412"]
-_GRAPH_MAX_POINTS = 120  # ~60 saniye (GRAPH_POLL_MS=500ms * 120)
-
-# Annunciator (ikaz) lambaları — sırasıyla.
-_LAMP_KEYS = [
-    ("red_stop", "RED STOP LAMP"),
-    ("mil", "MIL LAMP"),
-    ("start_inhibit", "BAŞLATMA ENGELLEME"),
-    ("fault_code", "HATA KODU"),
-    ("fadec_action", "FADEC AKSİYONU"),
-]
-
-
-def _format_scale_number(value: float) -> str:
-    """Gösterge köşelerindeki min/maks etiketleri için kompakt sayı
-    biçimi: tam sayıysa ondalık nokta olmadan ("0", "6000"), değilse
-    kısa ondalık ("2.5")."""
-    if float(value).is_integer():
-        return str(int(value))
-    return f"{value:g}"
-
-
-def get_sensor_status(sensor_name: str, check_name: str) -> tuple:
-    """Sensör Durumu ve Arıza Tablosu'ndaki TEK bir hücrenin durumunu
-    döndürür: (ok: bool, text: str).
-
-    YER TUTUCU (placeholder) UYGULAMA: CCP/DBC katmanında şu an
-    sensör-bazlı elektriksel arıza / tutarlılık / min-maks aşım biti
-    kavramı YOKTUR (bkz. app/ccp/, app/ui/errors_tab.py,
-    app/ui/diagnostics_tab.py — hiçbiri bu granülaritede bir arıza
-    bayrağı sunmuyor). Bu yüzden her hücre burada sabit olarak OK/yeşil
-    döner. Gerçek arıza bitleri DBC/A2L'de tanımlandığında, bu TEK
-    fonksiyonun içini (sensor_name, check_name) ikilisine göre gerçek
-    bir arıza kaynağına (örn. DashboardTab'a iletilmiş bir "fault_bits"
-    sözlüğü) bakacak şekilde değiştirmek yeterlidir; çağıran tablo kodu
-    hiç değişmeyecektir.
-    """
-    return True, "OK"
-
-
-class GaugeWidget(QWidget):
-    """Yarım daire (yay) ibreli gösterge: arka plan yayı, 3 bölgeli
-    (yeşil %0-70, amber %70-90, kırmızı %90-100) renkli yay, yay uçlarının
-    hemen altında küçük gri min/maks ölçek etiketleri, bir ibre ve altında
-    sırasıyla büyük kalın değer / küçük gri birim / kalın isim etiketi.
-    Değer, configured min/max aralığına göre normalize edilip çizilir.
-
-    Referans mockup'a göre ARTIK TÜM göstergeler aynı boyuttadır — eski
-    "primary" (büyük/küçük) ayrımı kaldırıldı."""
-
-    def __init__(self, label: str, minimum: float, maximum: float, unit: str = "",
-                 parent=None):
-        super().__init__(parent)
-        self._label = label
-        self._minimum = minimum
-        self._maximum = maximum
-        self._unit = unit
-        self._value: float | None = None
-        self.setMinimumSize(110, 120)
-        self.setMaximumHeight(168)
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-
-    def sizeHint(self):  # noqa: N802 (Qt override)
-        from PySide6.QtCore import QSize
-        return QSize(160, 172)
-
-    def set_range(self, minimum: float, maximum: float):
-        self._minimum = minimum
-        self._maximum = maximum
-        self.update()
-
-    def set_value(self, value: float | None):
-        self._value = value
-        self.update()
-
-    def _fraction(self) -> float:
-        if self._value is None:
-            return 0.0
-        span = (self._maximum - self._minimum) or 1.0
-        frac = (self._value - self._minimum) / span
-        return max(0.0, min(1.0, frac))
-
-    # Gösterge, sabit bir "tasarım" koordinat uzayında (180x170) çizilir ve
-    # pencere boyutuna göre TEK bir oranla (en-boy korunarak) ölçeklenir:
-    # yay her zaman gerçek yarım daire, yazılar yayla orantılı kalır; pencere
-    # büyüyünce/küçülünce bileşenler birbirinin üstüne binmez.
-    _DESIGN_W = 180.0
-    _DESIGN_H = 180.0
-    ZONES = [(0.0, 0.70, "#1B8A4C"), (0.70, 0.90, "#B9790F"), (0.90, 1.0, "#C22A1D")]
-
-    def paintEvent(self, event):  # noqa: N802 (Qt override)
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-        painter.setRenderHint(QPainter.TextAntialiasing)
-
-        scale = min(self.width() / self._DESIGN_W, self.height() / self._DESIGN_H)
-        if scale <= 0:
-            return
-        painter.translate((self.width() - self._DESIGN_W * scale) / 2,
-                          (self.height() - self._DESIGN_H * scale) / 2)
-        painter.scale(scale, scale)
-
-        cx, cy, radius, pen_w = 90.0, 84.0, 74.0, 12.0
-        rect = QRectF(cx - radius, cy - radius, 2 * radius, 2 * radius)
-
-        # Arka plan yayı
-        pen_bg = QPen(QColor("#D6DEE6"), pen_w)
-        pen_bg.setCapStyle(Qt.FlatCap)
-        painter.setPen(pen_bg)
-        painter.drawArc(rect, 180 * 16, -180 * 16)
-
-        # 3 bölgeli renkli yay: yeşil 0-70%, amber 70-90%, kırmızı 90-100%
-        zones = self.ZONES
-        for z_start, z_end, color in zones:
-            pen = QPen(QColor(color), pen_w)
-            pen.setCapStyle(Qt.FlatCap)
-            painter.setPen(pen)
-            painter.drawArc(rect, 180 * 16 - int(z_start * 180 * 16),
-                            -int((z_end - z_start) * 180 * 16))
-
-        # İnce ölçek çizgileri (yayın iç tarafında, 11 adet)
-        tick_pen = QPen(QColor("#9AA8B5"), 1.4)
-        painter.setPen(tick_pen)
-        r_out = radius - pen_w / 2 - 3
-        for i in range(11):
-            a = math.radians(180 - 18 * i)
-            r_in = r_out - (8 if i % 5 == 0 else 4)
-            painter.drawLine(QPointF(cx + r_out * math.cos(a), cy - r_out * math.sin(a)),
-                             QPointF(cx + r_in * math.cos(a), cy - r_in * math.sin(a)))
-
-        # İbre
-        angle_rad = math.radians(180 - 180 * self._fraction())
-        needle_len = (radius - pen_w / 2) * 0.95
-        tip = QPointF(cx + needle_len * math.cos(angle_rad), cy - needle_len * math.sin(angle_rad))
-        needle_pen = QPen(QColor("#121A22"), 3.2)
-        needle_pen.setCapStyle(Qt.RoundCap)
-        painter.setPen(needle_pen)
-        painter.drawLine(QPointF(cx, cy), tip)
-        painter.setBrush(QColor("#121A22"))
-        painter.setPen(Qt.NoPen)
-        painter.drawEllipse(QPointF(cx, cy), 5.0, 5.0)
-
-        def font(px: float, bold: bool = False, mono: bool = False) -> QFont:
-            f = QFont("IBM Plex Mono") if mono else QFont()
-            if mono:
-                f.setStyleHint(QFont.Monospace)
-            f.setPixelSize(max(1, int(round(px))))
-            f.setBold(bold)
-            return f
-
-        # Yay uçlarının altında küçük gri min/maks etiketleri
-        painter.setFont(font(12, bold=True))
-        painter.setPen(QColor(INK_3))
-        painter.drawText(QRectF(cx - radius - pen_w / 2, cy + 5, 56, 15),
-                         Qt.AlignLeft | Qt.AlignVCenter, _format_scale_number(self._minimum))
-        painter.drawText(QRectF(cx + radius + pen_w / 2 - 56, cy + 5, 56, 15),
-                         Qt.AlignRight | Qt.AlignVCenter, _format_scale_number(self._maximum))
-
-        # Altında sırayla: büyük kalın DEĞER -> küçük gri BİRİM -> kalın İSİM
-        value_text = f"{self._value:.4g}" if isinstance(self._value, (int, float)) else "—"
-        pill = QRectF((self._DESIGN_W - 84) / 2, cy + 22, 84, 30)
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor("#13324A"))
-        painter.drawRoundedRect(pill, 6, 6)
-        painter.setFont(font(20, bold=True, mono=True))
-        painter.setPen(QColor("#FFFFFF"))
-        painter.drawText(pill, Qt.AlignHCenter | Qt.AlignVCenter, value_text)
-
-        if self._unit:
-            painter.setFont(font(12))
-            painter.setPen(QColor(INK_2))
-            painter.drawText(QRectF(0, cy + 54, self._DESIGN_W, 16), Qt.AlignHCenter | Qt.AlignVCenter, self._unit)
-
-        painter.setFont(font(15, bold=True))
-        painter.setPen(QColor(INK))
-        painter.drawText(QRectF(0, cy + 70, self._DESIGN_W, 20), Qt.AlignHCenter | Qt.AlignVCenter, self._label)
-
-
-class _ClockAxisItem(pg.AxisItem):
-    """Canlı Grafik'in alt ekseni: şimdiye göre geçen süre (−60 … 0 sn).
-    Veri hâlâ gerçek epoch zaman damgasıyla tutulur; yalnız etiket göreli."""
-
-    def tickStrings(self, values, scale, spacing):
-        now = time.time()
-        out = []
-        for v in values:
-            d = round(v - now)
-            out.append("şimdi" if d >= -1 else f"{d} sn")
-        return out
-
-
-class _CheckBadge(QWidget):
-    """Sensör tablosundaki "OK" hücresi için yeşil daire içinde onay
-    işareti rozeti (referans mockup'taki check-circle rozetlerine göre)."""
-
-    def __init__(self, text: str = "OK", ok: bool = True, parent=None):
-        super().__init__(parent)
-        self._text = text
-        self._ok = ok
-        self.setMinimumHeight(18)
-        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
-
-    def paintEvent(self, event):  # noqa: N802
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-        if self._ok is None:  # arıza kaynağı yok: nötr gri çizgi
-            painter.setPen(QPen(QColor("#9AA8B5"), 1.6))
-            painter.drawLine(QPointF(4, self.height() / 2), QPointF(14, self.height() / 2))
-            return
-        color = QColor("#1B8A4C") if self._ok else QColor("#B9790F")
-        d = 14
-        cy = self.height() / 2
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(color)
-        painter.drawEllipse(QPointF(d / 2 + 2, cy), d / 2, d / 2)
-        check_pen = QPen(QColor("#FFFFFF"), 1.6)
-        check_pen.setCapStyle(Qt.RoundCap)
-        check_pen.setJoinStyle(Qt.RoundJoin)
-        painter.setPen(check_pen)
-        # basit onay işareti
-        cx = d / 2 + 2
-        painter.drawLine(QPointF(cx - 3.2, cy), QPointF(cx - 0.8, cy + 2.6))
-        painter.drawLine(QPointF(cx - 0.8, cy + 2.6), QPointF(cx + 3.4, cy - 3.0))
-        font = QFont()
-        font.setPointSizeF(10)
-        font.setBold(True)
-        painter.setFont(font)
-        painter.setPen(color)
-        painter.drawText(
-            QRectF(d + 6, 0, self.width() - d - 8, self.height()),
-            Qt.AlignVCenter | Qt.AlignLeft, self._text,
-        )
-
-    def sizeHint(self):
-        from PySide6.QtCore import QSize
-        return QSize(52, 18)
-
-
-class ToggleSwitch(QPushButton):
-    """Basit bir açma/kapama anahtarı (pil/knob switch). QPushButton'ın
-    checkable modunu kullanır; görünümü QSS'ten bağımsız, doğrudan burada
-    çizilir ki tema değişse de anahtar okunaklı kalsın."""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setCheckable(True)
-        self.setFixedSize(56, 28)
-        self.setCursor(Qt.PointingHandCursor)
-
-    def paintEvent(self, event):  # noqa: N802
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-        on = self.isChecked()
-        track_color = QColor("#1B8A4C") if on else QColor("#D6DEE6")
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(track_color)
-        painter.drawRoundedRect(self.rect(), 14, 14)
-        knob_d = 22
-        x = self.width() - knob_d - 3 if on else 3
-        painter.setBrush(QColor("#FFFFFF"))
-        painter.drawEllipse(x, 3, knob_d, knob_d)
-
-
-class _LampCell(QLabel):
-    """Annunciator şeridindeki tek bir ikaz lambası hücresi."""
-
-    def __init__(self, title: str):
-        super().__init__()
-        self._title = title
-        self.setAlignment(Qt.AlignCenter)
-        self.setWordWrap(True)
-        self.setMinimumHeight(34)
-        self.set_state(active=False, placeholder=True)
-
-    def set_state(self, active: bool, placeholder: bool = False, text: str | None = None):
-        shown = text if text else self._title
-        self.setText(shown)
-        if active:
-            bg, fg, border = "#B9790F", "#241A02", "#B9790F"
-        else:
-            bg, fg, border = "#1B2630", ("#58D88C" if placeholder is False else "#7E8E9C"), "#2A3744"
-        self.setStyleSheet(
-            f"background: {bg}; color: {fg}; border: 1px solid {border}; "
-            f"border-radius: 4px; font-size: 10px; font-weight: 700; padding: 4px;"
-        )
+DASH_QSS = dark_qss("dashBody")
 
 
 class DashboardTab(QWidget):
@@ -454,868 +70,565 @@ class DashboardTab(QWidget):
     motor_stop_requested = Signal()
     estop_requested = Signal()
     config_saved = Signal(object)        # DashboardConfig
-    tick = Signal(list)                  # o an yapılandırılmış A2L Measurement adları
+    tick = Signal(list)                  # o an okunması gereken A2L ölçüm adları
     open_graph_requested = Signal()
-    actuator_command = Signal(str, bool, float)  # actuator_key, enable, value
-    gauge_sample = Signal(str, float)            # gösterge anahtarı, değer (Çalışma Alanı için)
+    gauge_sample = Signal(str, float)    # gösterge anahtarı, değer (Çalışma Alanı için)
+    mappings_requested = Signal()        # "Eşleşmeler" penceresini aç
 
     def __init__(self, sim_config=None):
         super().__init__()
         self.config = DashboardConfig()
         self._role = Role.OPERATOR
         self._override_confirmed_session = False
-        self._actuator_armed: dict[str, bool] = {k: False for k in ACTUATOR_KEYS}
-        self._actuator_last_value: dict[str, float] = {k: 0.0 for k in ACTUATOR_KEYS}
-        self._gauge_widgets: dict[str, GaugeWidget] = {}
-        self._tile_value_labels: dict[str, QLabel] = {}
-        self._graph_series: dict[str, dict] = {}   # sinyal kimliği -> {x, y, curve}
-        self._graph_t = 0.0
-        self._measurement_names: list[str] = []     # yüklü A2L ölçüm adları
-        self._measurement_limits: dict[str, tuple] = {}  # ad -> (min, max)
+        # MainWindow atar: writer(binding, value, label) -> bool
+        self.writer = None
+        self._dbc = None
+        self._a2l_summary = None
 
-        # NOT: Annunciator (ikaz lambası) şeridi ve eski "Motor Komutları /
-        # Ortam Koşulları" dar sütunu, referans mockup'ta Ana Sayfa'nın bu
-        # konumunda HİÇ görünmüyor (bkz. görev tanımı madde 3-4). Alttaki
-        # veri/mantık (self._lamps, motor komutu düğmeleri, ortam
-        # etiketleri) KORUNUR — yalnızca bu widget'lar artık görünür
-        # düzene eklenmiyor; düğmeler bunun yerine MainWindow'un üst
-        # "Motoru Başlat / Durdur / Acil Durdurma + durum" satırına monte
-        # edilir (bkz. app/ui/main_window.py _build_action_status_row).
-        self._build_annunciator_strip()  # self._lamps'i doldurur, gösterilmez
-        self._build_motor_group()        # start/stop/estop düğmelerini oluşturur
-        self._build_ambient_group()      # ortam etiketlerini oluşturur (gizli)
+        self._values: dict[str, tuple] = {}            # gösterge -> (değer, monotonic)
+        self._reasons: dict[str, str] = {}             # gösterge -> değer yoksa neden
+        self._faults: dict[str, str] = {}              # gösterge -> arıza nedeni
+        self._limits: dict[str, tuple] = {}            # gösterge -> (min, max) (A2L/DBC)
+        self._sensor_open: dict[str, bool] = {k: False for k in GAUGE_KEYS}
+        self._sensor_manual: dict[str, float] = {}
+        self._act_open: dict[str, bool] = {k: False for k in ACTUATOR_KEYS}
+        self._act_rows: dict[str, dict] = {}
+        self._gauge_cards: dict[str, GaugeCard] = {}
+        self._measurement_names: list[str] = []
+        self._tunable_names: list[str] = []
+        self._measurement_units: dict[str, str] = {}
+        self._measurement_limits: dict[str, tuple] = {}
 
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(0)
+        self._build_motor_buttons()
 
-        # Yerleşim: SOL = "gönderdiklerim" (Simülasyon Girişleri + Eyleyiciler),
-        # SAĞ = "izlediklerim": üstte Motor Parametreleri (4x2) yanında Sensör
-        # tablosu, altta kalan tüm alanı dolduran Canlı Grafik. Sayfa küçük
-        # ekranda ezilmek yerine dikey kayar. DBC/A2L eşlemeleri "⚙ Eşlemeler"
-        # penceresinde.
         from app.ui.sim_inputs import SimInputsPanel
         self.sim_inputs = SimInputsPanel(sim_config)
-        content = QWidget()
-        content.setMinimumHeight(820)
-        columns = QHBoxLayout(content)
-        columns.setContentsMargins(12, 10, 12, 12)
-        columns.setSpacing(10)
+
+        # Koyu stil YALNIZCA bu iç widget'a uygulanır; QMessageBox/QDialog gibi
+        # üst düzey pencereler DashboardTab'ın çocuğu olduğundan etkilenmez.
+        body_w = QWidget()
+        body_w.setObjectName("dashBody")
+        body_w.setStyleSheet(DASH_QSS)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(body_w)
+        body = QHBoxLayout(body_w)
+        body.setContentsMargins(14, 4, 14, 8)
+        body.setSpacing(10)
+
         left = QVBoxLayout()
         left.setSpacing(10)
-        left.setContentsMargins(0, 0, 0, 0)
-        self.sim_inputs.setMinimumWidth(320)
-        self.sim_inputs.setMaximumWidth(360)
         left.addWidget(self.sim_inputs, 0)
-        left.addWidget(self._build_actuators_group(), 1)
+        left.addWidget(self._build_actuators_card(), 1)
         left_w = QWidget()
         left_w.setLayout(left)
-        left_w.setFixedWidth(350)
+        left_w.setFixedWidth(512)
+        left_w.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
+
         right = QVBoxLayout()
         right.setSpacing(10)
-        right.setContentsMargins(0, 0, 0, 0)
-        self._top_row = QBoxLayout(QBoxLayout.LeftToRight)
-        self._top_row.setSpacing(10)
-        self._top_row.addWidget(self._build_gauges_group(), 11)
-        right.addLayout(self._top_row, 0)
-        right.addWidget(self._build_graph_group(), 1)
+        right.addWidget(self._build_gauges_card(), 11)
+        self.trend = TrendPanel()
+        self.trend.pick_requested.connect(self._on_pick_graph_signals)
+        right.addWidget(self.trend, 10)
         right_w = QWidget()
         right_w.setLayout(right)
-        columns.addWidget(left_w, 0)
-        columns.addWidget(right_w, 1)
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll.setWidget(content)
-        outer.addWidget(scroll)
 
-        self._build_settings_dialog()
+        body.addWidget(left_w, 0)
+        body.addWidget(right_w, 1)
+
+        self._rebuild_trend_series()
 
         self.timer = QTimer(self)
         self.timer.setInterval(TICK_INTERVAL_MS)
         self.timer.timeout.connect(self._on_tick)
         self.timer.start()
+        self._health_timer = QTimer(self)
+        self._health_timer.timeout.connect(self.refresh_sensor_health)
+        self._health_timer.start(1000)
 
     # ======================================================================
-    # Annunciator şeridi
+    # Motor komutları (düğmeleri MainWindow üst satıra yerleştirir)
     # ======================================================================
-    def _build_annunciator_strip(self) -> QWidget:
-        strip = QWidget()
-        strip.setStyleSheet("background: #101820; border-radius: 6px;")
-        strip.setFixedHeight(48)
-        layout = QHBoxLayout(strip)
-        layout.setContentsMargins(8, 6, 8, 6)
-        layout.setSpacing(6)
-        self._lamps: dict[str, _LampCell] = {}
-        for key, title in _LAMP_KEYS:
-            cell = _LampCell(title)
-            self._lamps[key] = cell
-            layout.addWidget(cell, stretch=1)
-        return strip
-
-    def set_lamp(self, key: str, active: bool, text: str | None = None):
-        """Gerçek DBC/CCP sinyali bağlandığında MainWindow bunu çağırır.
-        Şu an hiçbir lamba gerçek bir sinyale bağlı değil (DBC'de henüz
-        karşılığı netleşmedi); varsayılan durumları pasif/dim'dir."""
-        lamp = self._lamps.get(key)
-        if lamp is not None:
-            lamp.set_state(active=active, placeholder=False, text=text)
-
-    # ======================================================================
-    # Motor komutu düğmeleri + Ortam etiketleri.
-    #
-    # Referans mockup'ta bunlar artık Ana Sayfa'nın ayrı bir "Motor
-    # Komutları" sütununda GÖRÜNMÜYOR: start/stop/estop düğmeleri,
-    # MainWindow'un üst "buton + durum" satırına monte edilir (bkz.
-    # app/ui/main_window.py), bu yüzden burada widget'lar oluşturulur
-    # ama hiçbir yerel layout'a eklenmez — MainWindow onları alıp kendi
-    # satırına yerleştirir. Ortam etiketleri de aynı şekilde yalnızca
-    # veri taşıyıcı olarak var olur (set_ambient_value hâlâ çalışır).
-    # ======================================================================
-    def _build_motor_group(self):
-        self.power_on_button = QPushButton("Sistemi Aç")
+    def _build_motor_buttons(self):
         self.start_button = QPushButton("Motoru Başlat")
         self.start_button.setProperty("primary", True)
         self.stop_button = QPushButton("Motoru Durdur")
-        self.estop_button = QPushButton("ACİL SUSTURMA")
+        self.estop_button = QPushButton("Acil Durdurma")
         self.estop_button.setProperty("danger", True)
-        self.estop_button.setMinimumHeight(40)
-
-        self.power_on_button.clicked.connect(lambda: None)  # henüz ayrı bir DBC komutu yok
-        self.start_button.clicked.connect(self._on_start_clicked)
-        self.stop_button.clicked.connect(self._on_stop_clicked)
+        self.start_button.clicked.connect(self.motor_start_requested.emit)
+        self.stop_button.clicked.connect(self.motor_stop_requested.emit)
         self.estop_button.clicked.connect(self._on_estop_clicked)
-
-    def _on_start_clicked(self):
-        self.motor_start_requested.emit()
-
-    def _on_stop_clicked(self):
-        self.motor_stop_requested.emit()
 
     def _on_estop_clicked(self):
         confirm = QMessageBox.warning(
-            self, "ACİL SUSTURMA gönderilsin mi?",
-            "Motoru derhal durdurmak üzere ACİL SUSTURMA komutu gönderilecek. Devam edilsin mi?",
+            self, "ACİL DURDURMA gönderilsin mi?",
+            "Motoru derhal durdurmak üzere ACİL DURDURMA komutu gönderilecek. Devam edilsin mi?",
             QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes,
         )
         if confirm == QMessageBox.Yes:
             self.estop_requested.emit()
 
-    def _build_ambient_group(self):
-        """Ortam değeri etiketlerini oluşturur (bkz. yukarıdaki sınıf
-        yorumu) — referans mockup'ta Ana Sayfa'da AYRI bir "Ortam
-        Koşulları" paneli olarak görünmüyor; etiketler yalnızca veri
-        taşıyıcı olarak tutulur, hiçbir layout'a eklenmez."""
-        self._ambient_labels: dict[str, QLabel] = {}
-        for key in AMBIENT_KEYS:
-            value_label = QLabel("—")
-            self._ambient_labels[key] = value_label
-
-    def set_ambient_value(self, key: str, text: str):
-        label = self._ambient_labels.get(key)
-        if label is not None:
-            label.setText(text)
-
     # ======================================================================
-    # SOL sütun (~%65): Motor Parametreleri (8 eşit boyutlu gösterge, 4x2
-    # ızgara) üstte, Sensör Durumu ve Arıza Tablosu altta — dikey istiflenmiş.
+    # Motor Parametreleri (8 gösterge) + sensör sağlığı
     # ======================================================================
-    def _build_column_left(self) -> QWidget:
-        col = QWidget()
-        layout = QVBoxLayout(col)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(10)
-        layout.addWidget(self._build_gauges_group(), stretch=0)
-        return col
-
-    def _build_gauges_group(self) -> QGroupBox:
-        box = QGroupBox()
-        _style_card_group(box)
-        lay = QVBoxLayout()
+    def _build_gauges_card(self) -> QFrame:
+        card = QFrame()
+        card.setObjectName("card")
+        lay = QVBoxLayout(card)
+        lay.setContentsMargins(14, 8, 14, 10)
         lay.setSpacing(6)
         head = QHBoxLayout()
-        head.addWidget(_card_title("Motor Parametreleri"))
+        head.setSpacing(8)
+        head.addWidget(IconLabel("gauge", DK_CYAN, 18))
+        t = QLabel("MOTOR PARAMETRELERİ")
+        t.setObjectName("cardTitle")
+        head.addWidget(t)
+        head.addSpacing(10)
+        cap = QLabel("Sensör sağlığı")
+        cap.setObjectName("mutedSmall")
+        head.addWidget(cap)
+        self._health_box = QHBoxLayout()
+        self._health_box.setSpacing(6)
+        head.addLayout(self._health_box)
+        self._health_labels: list = []
         head.addStretch(1)
         self.map_warn_label = QLabel("")
-        self.map_warn_label.setStyleSheet("color:#B9790F; font-size:11px; font-weight:700;")
-        self.settings_button = QPushButton("⚙ Eşlemeler")
-        self.settings_button.setFixedHeight(26)
-        self.settings_button.setToolTip("Göstergelerin A2L ölçümlerine ve komutların DBC sinyallerine bağlanması "
-                                        "(bir kerelik kurulum)")
-        self.settings_button.clicked.connect(lambda: self.settings_dialog.exec())
+        self.map_warn_label.setObjectName("warnSmall")
         head.addWidget(self.map_warn_label)
-        head.addWidget(self.settings_button)
         lay.addLayout(head)
-        lay.addWidget(self._build_sensor_table_group())
-        self.gauge_grid = ReflowGrid([4, 2], 118, spacing=8)
-        for key in GAUGE_KEYS:
-            minimum, maximum, unit = GAUGE_RANGES[key]
-            display_label = GAUGE_DISPLAY_LABELS.get(key, key)
-            gauge = GaugeWidget(display_label, minimum, maximum, unit)
-            self._gauge_widgets[key] = gauge
-            self.gauge_grid.add_item(self._wrap_gauge_card(gauge))
-        lay.addWidget(self.gauge_grid)
-        box.setLayout(lay)
-        return box
 
-    def _update_map_warning(self):
-        miss = [k for k in GAUGE_KEYS if not self.config.gauge_measurement_map().get(k)]
-        self.map_warn_label.setText(f"⚠ {len(miss)} gösterge bağlı değil" if miss else "")
-
-    def _build_settings_dialog(self):
-        from PySide6.QtWidgets import QDialog
-        box = self._build_settings_group()
-        box.setCheckable(False)
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Eşleme ayarları — DBC / A2L")
-        dlg.resize(1100, 760)
-        sc = QScrollArea()
-        sc.setWidgetResizable(True)
-        sc.setFrameShape(QFrame.NoFrame)
-        sc.setWidget(box)
-        lay = QVBoxLayout(dlg)
-        lay.addWidget(sc)
-        self.save_button.clicked.connect(dlg.accept)
-        self.settings_dialog = dlg
-        self.settings_box = box
-
-    def _wrap_gauge_card(self, gauge: GaugeWidget) -> QFrame:
-        """Tek bir gösterge ibresini, beyaz zeminli/yuvarlak köşeli ve
-        hafif gölgeli bir "kart" çerçevesi içine sarar (görev tanımı
-        madde 5: her gösterge karosu da diğer paneller gibi kart
-        görünümünde olmalı)."""
-        card = QFrame()
-        card.setObjectName("gaugeCard")
-        card.setStyleSheet(
-            f"QFrame#gaugeCard {{ background: {SURFACE}; border: 1px solid #EEF2F6; "
-            f"border-radius: 10px; }}"
-        )
-        _apply_card_shadow(card, blur=14, dy=2, alpha=30)
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(2, 4, 2, 4)
-        layout.addWidget(gauge)
+        grid = QGridLayout()
+        grid.setSpacing(8)
+        for i, key in enumerate(GAUGE_KEYS):
+            lo, hi, unit = GAUGE_RANGES[key]
+            gc = GaugeCard(key, GAUGE_DISPLAY_LABELS.get(key, key), lo, hi, unit)
+            gc.lock_requested.connect(self._on_sensor_lock)
+            gc.value_requested.connect(self._on_sensor_value_request)
+            self._gauge_cards[key] = gc
+            grid.addWidget(gc, i // 4, i % 4)
+        for c in range(4):
+            grid.setColumnStretch(c, 1)
+        for r in range(2):
+            grid.setRowStretch(r, 1)
+        lay.addLayout(grid, 1)
+        self.refresh_sensor_health()
         return card
 
-    def _build_sensor_table_group(self) -> QWidget:
-        """İnce sensör sağlığı şeridi (kart değil): "Sensör sağlığı [Arıza yok]".
-        Yalnızca ARIZALI sensörler, şeridin yanında kırmızı etiketlerle listelenir."""
-        from PySide6.QtCore import QTimer
-
-        strip = QWidget()
-        strip.setStyleSheet("background:transparent;")
-        row = QHBoxLayout(strip)
-        row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(8)
-        cap = QLabel("Sensör sağlığı")
-        cap.setStyleSheet("color:#5B6B79; font-size:12px; font-weight:700;")
-        row.addWidget(cap)
-        self._sensor_pill = QLabel("Arıza yok")
-        row.addWidget(self._sensor_pill)
-        self._sensor_fault_box = row
-        row.addStretch(1)
-        self._sensor_fault_labels = []
-        self.refresh_sensor_health()
-        self._sensor_timer = QTimer(self)
-        self._sensor_timer.timeout.connect(self.refresh_sensor_health)
-        self._sensor_timer.start(1000)
-        return strip
-
     def refresh_sensor_health(self):
-        """Arızalı (ok is False) sensör/kontrol çiftlerini yeniden listeler."""
-        faults = {}
-        for sensor in _SENSOR_ROWS:
-            bad = [c for c in _SENSOR_CHECKS if get_sensor_status(sensor, c)[0] is False]
-            if bad:
-                faults[sensor] = bad
-        for w in self._sensor_fault_labels:
-            self._sensor_fault_box.removeWidget(w)
+        """Arızalı sensörleri (neden ile birlikte) başlık şeridinde listeler."""
+        for w in self._health_labels:
+            self._health_box.removeWidget(w)
             w.deleteLater()
-        self._sensor_fault_labels = []
-        if faults:
-            self._sensor_pill.setText(f"{len(faults)} arıza")
-            self._sensor_pill.setStyleSheet(
-                "background:#FBE9E7; color:#B3261E; border-radius:8px; padding:1px 8px;"
-                " font-size:11px; font-weight:700;")
-            for sensor, bad in faults.items():
-                lbl = QLabel(f"<b>{sensor}</b> — {', '.join(bad)}")
-                lbl.setStyleSheet("color:#B3261E; font-size:12px; background:transparent;")
-                self._sensor_fault_box.insertWidget(self._sensor_fault_box.count() - 1, lbl)
-                self._sensor_fault_labels.append(lbl)
+        self._health_labels = []
+        faults = dict(self._faults)
+        if not faults:
+            w = QLabel("Arıza yok")
+            w.setObjectName("chipGreen")
+            self._health_box.addWidget(w)
+            self._health_labels.append(w)
         else:
-            self._sensor_pill.setText("Arıza yok")
-            self._sensor_pill.setStyleSheet(
-                "background:#E3F4EA; color:#1B8A4C; border-radius:8px; padding:1px 8px;"
-                " font-size:11px; font-weight:700;")
+            w = QLabel(f"{len(faults)} arıza")
+            w.setObjectName("chipBad")
+            self._health_box.addWidget(w)
+            self._health_labels.append(w)
+            items = list(faults.items())
+            for key, reason in items[:3]:
+                c = QLabel(f"{GAUGE_DISPLAY_LABELS.get(key, key)} · {reason}")
+                c.setObjectName("chipBad")
+                c.setToolTip("\n".join(f"{GAUGE_DISPLAY_LABELS.get(k, k)}: {r}" for k, r in items))
+                self._health_box.addWidget(c)
+                self._health_labels.append(c)
+            if len(items) > 3:
+                more = QLabel(f"+{len(items) - 3}")
+                more.setObjectName("chipBad")
+                more.setToolTip("\n".join(f"{GAUGE_DISPLAY_LABELS.get(k, k)}: {r}" for k, r in items))
+                self._health_box.addWidget(more)
+                self._health_labels.append(more)
+        for key, gc in self._gauge_cards.items():
+            if key in self._faults:
+                gc.set_tag("ARIZA", "fault")
+            elif self._sensor_open.get(key):
+                gc.set_tag("MANUEL", "manual")
+            else:
+                gc.set_tag("")
+        self._refresh_gauge_states()
+
+    def _refresh_gauge_states(self):
+        now = time.monotonic()
+        unbound = set(self.config.unbound_gauges())
+        for key, gc in self._gauge_cards.items():
+            val = self._values.get(key)
+            fresh = val is not None and (now - val[1]) <= STALE_S
+            if fresh:
+                gc.gauge.set_value(val[0])
+                gc.set_status("")
+            else:
+                gc.gauge.set_value(None if val is None else val[0], dim=val is not None)
+                if key in unbound:
+                    gc.set_status("Eşleşme yok")
+                elif val is not None:
+                    gc.set_status(f"Veri yok ({STALE_S:.0f} sn)")
+                else:
+                    gc.set_status(self._reasons.get(key, "Veri bekleniyor"))
 
     def set_gauge_value(self, key: str, value):
-        gauge = self._gauge_widgets.get(key)
-        if gauge is not None:
-            gauge.set_value(value)
         if isinstance(value, (int, float)):
-            self._append_graph_sample(f"g:{key}", value)
+            self._values[key] = (float(value), time.monotonic())
+            self._reasons.pop(key, None)
+            gc = self._gauge_cards.get(key)
+            if gc is not None:
+                gc.gauge.set_value(value)
+                gc.set_status("")
+            self.trend.append(f"g:{key}", value)
             self.gauge_sample.emit(key, float(value))
+            self._check_limits(key, float(value))
+        else:
+            self._values.pop(key, None)
+            gc = self._gauge_cards.get(key)
+            if gc is not None:
+                gc.gauge.set_value(None)
+
+    def set_gauge_debug(self, key: str, text: str):
+        gc = self._gauge_cards.get(key)
+        if gc is not None:
+            gc.set_debug(text)
+
+    def set_gauge_error(self, key: str, reason: str):
+        """Değer okunamıyorsa NEDENİNİ göstergenin altında gösterir."""
+        self._reasons[key] = reason
+        if key not in self._values:
+            gc = self._gauge_cards.get(key)
+            if gc is not None:
+                gc.set_status(reason)
+
+    def set_sensor_fault(self, key: str, reason: str | None):
+        """Arıza bitinden/limit aşımından gelen arıza durumunu bildirir."""
+        changed = (key in self._faults) != bool(reason) or self._faults.get(key) != reason
+        if reason:
+            self._faults[key] = reason
+        else:
+            self._faults.pop(key, None)
+        if changed:
+            self.refresh_sensor_health()
+
+    def _check_limits(self, key: str, value: float):
+        lim = self._limits.get(key)
+        if lim is None or self.config.sensor_map(key).fault.is_set:
+            return
+        lo, hi = lim
+        if value < lo or value > hi:
+            self.set_sensor_fault(key, "Aralık dışı")
+        elif self._faults.get(key) == "Aralık dışı":
+            self.set_sensor_fault(key, None)
+
+    def set_gauge_limits(self, key: str, lo: float | None, hi: float | None):
+        if lo is None or hi is None or hi <= lo:
+            self._limits.pop(key, None)
+        else:
+            self._limits[key] = (lo, hi)
+
+    # ---- sensör manuel değer (anahtar kapısı)
+    def _on_sensor_lock(self, key: str, want_open: bool):
+        smap = self.config.sensor_map(key)
+        label = GAUGE_DISPLAY_LABELS.get(key, key)
+        gc = self._gauge_cards[key]
+        if want_open:
+            if not smap.sw.is_set or not smap.value.is_set:
+                QMessageBox.information(
+                    self, "Eşleşme yok",
+                    f"{label} için değer ve anahtar (_sw) eşleşmesi tanımlı değil.\n"
+                    "⚙ Eşleşmeler penceresinden tanımlayın.")
+                return
+            if not self._confirm_override(label):
+                return
+            cur = self._values.get(key)
+            start = cur[0] if cur is not None else self._sensor_manual.get(key, 0.0)
+            if not self._write(smap.value, start, f"{label} değeri"):
+                return
+            if not self._write(smap.sw, 1.0, f"{label} anahtarı"):
+                return
+            self._sensor_open[key] = True
+            self._sensor_manual[key] = start
+            gc.lock.set_open(True)
+        else:
+            if not self._write(smap.sw, 0.0, f"{label} anahtarı"):
+                return
+            self._sensor_open[key] = False
+            gc.lock.set_open(False)
+        self.refresh_sensor_health()
+
+    def _on_sensor_value_request(self, key: str):
+        if not self._sensor_open.get(key):
+            return
+        smap = self.config.sensor_map(key)
+        label = GAUGE_DISPLAY_LABELS.get(key, key)
+        lo, hi, unit = GAUGE_RANGES[key]
+        span = hi - lo
+        cur = self._sensor_manual.get(key, lo)
+        v, ok = QInputDialog.getDouble(self, f"{label} manuel değer",
+                                       f"{label} için gönderilecek değer ({unit}):",
+                                       cur, lo - span, hi + span, 3)
+        if ok and self._write(smap.value, v, f"{label} değeri"):
+            self._sensor_manual[key] = v
 
     # ======================================================================
-    # SAĞ sütun (~%35): Canlı Grafik üstte, Eyleyiciler altta.
+    # Eyleyiciler
     # ======================================================================
-    def _build_column_right(self) -> QWidget:
-        col = QWidget()
-        layout = QVBoxLayout(col)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(10)
-        layout.addWidget(self._build_graph_group(), stretch=1)
-        layout.addWidget(self._build_actuators_group(), stretch=0)
-        return col
+    def _build_actuators_card(self) -> QFrame:
+        card = QFrame()
+        card.setObjectName("card")
+        lay = QVBoxLayout(card)
+        lay.setContentsMargins(14, 10, 14, 8)
+        lay.setSpacing(0)
+        head = QHBoxLayout()
+        head.setSpacing(8)
+        head.addWidget(IconLabel("actuator", DK_CYAN, 18))
+        t = QLabel("EYLEYİCİLER")
+        t.setObjectName("cardTitle")
+        head.addWidget(t)
+        head.addStretch(1)
+        lay.addLayout(head)
 
-    def _build_graph_group(self) -> QGroupBox:
-        box = QGroupBox()
-        _style_card_group(box)
-        layout = QVBoxLayout()
+        cols = QHBoxLayout()
+        cols.setContentsMargins(2, 4, 2, 2)
+        for text, align in (("EYLEYİCİ", Qt.AlignLeft), ("KOMUT", Qt.AlignRight), ("MANUEL", Qt.AlignRight)):
+            c = QLabel(text)
+            c.setObjectName("colHead")
+            cols.addWidget(c, 1 if align == Qt.AlignLeft else 0)
+            if text == "KOMUT":
+                cols.addSpacing(34)
+        lay.addLayout(cols)
 
-        title_row = QHBoxLayout()
-        title_row.addWidget(_card_title("Canlı Grafik (son ~60 sn)"))
-        title_row.addStretch()
-        self.graph_normalize = QCheckBox("Normalize (0–1)")
-        self.graph_normalize.setToolTip("Her seri kendi aralığına göre 0–1'e ölçeklenir "
-                                        "(farklı birimleri tek eksende karşılaştırmak için).")
-        self.graph_normalize.toggled.connect(lambda _v: self._redraw_graph())
-        title_row.addWidget(self.graph_normalize)
-        self.graph_pick_button = QPushButton("Sinyalleri seç")
-        self.graph_pick_button.setToolTip("Grafikte çizilecek sinyalleri seç (sayı ve tür serbest).")
-        self.graph_pick_button.clicked.connect(self._on_pick_graph_signals)
-        title_row.addWidget(self.graph_pick_button)
-        layout.addLayout(title_row)
+        for key in ACTUATOR_KEYS:
+            lay.addWidget(self._build_actuator_row(key), 1)
+        lay.addStretch(1)      # satırlar azami yüksekliğe ulaşınca artan boşluk altta toplanır
+        return card
 
-        pg.setConfigOptions(antialias=True)
-        # Alt eksen göreli saniye (−60 … şimdi) gösterir; x değerleri GERÇEK
-        # epoch zaman damgasıdır (bkz. _ClockAxisItem).
-        clock_axis = _ClockAxisItem(orientation="bottom")
-        self.graph_widget = pg.PlotWidget(background="#FFFFFF", axisItems={"bottom": clock_axis})
-        self.graph_widget.showGrid(x=True, y=True, alpha=0.2)
-        self.graph_widget.setMinimumHeight(200)
-        self.graph_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Ignored)
-        self.graph_widget.setMaximumHeight(16777215)  # pyqtgraph'ın büyük varsayılan
-        # sizeHint'i yüzünden sınırlanmazsa panel aşırı uzuyor.
-        self._graph_legend = self.graph_widget.addLegend(
-            offset=(8, 6), labelTextColor=INK, labelTextSize="10pt",
-            brush=pg.mkBrush(255, 255, 255, 215), pen=pg.mkPen("#E3EAF1"))
-        self.graph_widget.setXRange(time.time() - 60.0, time.time(), padding=0)
-        layout.addWidget(self.graph_widget, stretch=1)
+    def _build_actuator_row(self, key: str) -> QFrame:
+        kind = ACTUATOR_KINDS[key]
+        row = QFrame()
+        row.setObjectName("rowFrame")
+        row.setMinimumHeight(28)
+        row.setMaximumHeight(44)
+        hl = QHBoxLayout(row)
+        hl.setContentsMargins(0, 2, 0, 2)
+        hl.setSpacing(10)
+        icon = IconLabel(ACTUATOR_ICON[key], DK_CYAN, 18)
+        name = QLabel(ACTUATOR_SHORT[key])
+        name.setObjectName("rowName")
+        hl.addWidget(icon)
+        hl.addWidget(name, 1)
+        entry = {"kind": kind, "name": name, "icon": icon}
+        if kind == "toggle":
+            onoff = QLabel("OFF")
+            onoff.setObjectName("onoff")
+            onoff.setProperty("on", False)
+            sw = ToggleSwitch(on_color="#22c55e")
+            sw.toggled.connect(lambda checked, k=key: self._on_actuator_toggle(k, checked))
+            hl.addWidget(onoff)
+            hl.addWidget(sw)
+            entry.update(control=sw, onoff=onoff)
+        else:
+            spin = QDoubleSpinBox()
+            spin.setObjectName("valueSpin")
+            spin.setRange(0.0, 100.0)
+            spin.setDecimals(1)
+            spin.setSuffix(" %")
+            spin.setKeyboardTracking(False)
+            spin.setMinimumWidth(92)
+            spin.valueChanged.connect(lambda v, k=key: self._on_actuator_value(k, v))
+            hl.addWidget(spin)
+            entry.update(control=spin)
+        lock = LockButton(26)
+        lock.lock_requested.connect(lambda want, k=key: self._on_actuator_lock(k, want))
+        hl.addWidget(lock)
+        entry["lock"] = lock
+        entry["control"].setEnabled(False)
+        self._act_rows[key] = entry
+        self._style_actuator_row(key)
+        return row
 
-        box.setLayout(layout)
-        self._rebuild_graph_series()
-        return box
+    def _style_actuator_row(self, key: str):
+        e = self._act_rows[key]
+        opened = self._act_open[key]
+        e["name"].setEnabled(opened)
+        e["icon"].setEnabled(opened)
+        e["control"].setEnabled(opened)
+        e["name"].setStyleSheet("" if opened else "color:#7d93a8;")
 
-    # ---- Sinyal seçimi ---------------------------------------------------
+    def set_role(self, role: Role):
+        self._role = role
+
+    def _confirm_override(self, label: str) -> bool:
+        if not can_override_actuator(self._role):
+            QMessageBox.warning(
+                self, "Yetki yok",
+                f"{label} için manuel değeri açmak için Mühendis veya Yönetici rolü gerekir "
+                "(Kullanıcı / Profil sekmesinden rol seçin).")
+            return False
+        if not self._override_confirmed_session:
+            confirm = QMessageBox.warning(
+                self, "MANUEL DEĞER — devam edilsin mi?",
+                "Bu kontrol, GERÇEK donanımı (veya MATLAB/Simulink anahtar bloğunu) doğrudan sürer. "
+                "Yalnızca motor ÇALIŞMIYORKEN, bileşen/HIL testi amacıyla kullanılmalıdır.\n\n"
+                "Yanlış bir değer gönderimi donanıma zarar verebilir. Gerçekten devam etmek "
+                "istediğinizden emin misiniz?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if confirm != QMessageBox.Yes:
+                return False
+            self._override_confirmed_session = True
+        return True
+
+    def _write(self, binding: Binding, value: float, label: str) -> bool:
+        if self.writer is None:
+            return False
+        return bool(self.writer(binding, float(value), label))
+
+    def _actuator_value(self, key: str) -> float:
+        e = self._act_rows[key]
+        if e["kind"] == "toggle":
+            return 1.0 if e["control"].isChecked() else 0.0
+        return float(e["control"].value())
+
+    def _on_actuator_lock(self, key: str, want_open: bool):
+        amap = self.config.actuator_map(key)
+        label = ACTUATOR_SHORT[key]
+        e = self._act_rows[key]
+        if want_open:
+            if not amap.sw.is_set or not amap.value.is_set:
+                QMessageBox.information(
+                    self, "Eşleşme yok",
+                    f"{label} için değer ve anahtar (_sw) eşleşmesi tanımlı değil.\n"
+                    "⚙ Eşleşmeler penceresinden tanımlayın.")
+                return
+            if not self._confirm_override(label):
+                return
+            # önce değer, sonra anahtar: anahtar açıldığında ECU bilinen bir değer görür
+            if not self._write(amap.value, self._actuator_value(key), f"{label} değeri"):
+                return
+            if not self._write(amap.sw, 1.0, f"{label} anahtarı"):
+                return
+            self._act_open[key] = True
+            e["lock"].set_open(True)
+        else:
+            if not self._write(amap.sw, 0.0, f"{label} anahtarı"):
+                return
+            self._act_open[key] = False
+            e["lock"].set_open(False)
+        self._style_actuator_row(key)
+
+    def _on_actuator_toggle(self, key: str, checked: bool):
+        e = self._act_rows[key]
+        e["onoff"].setText("ON" if checked else "OFF")
+        e["onoff"].setProperty("on", checked)
+        e["onoff"].style().unpolish(e["onoff"])
+        e["onoff"].style().polish(e["onoff"])
+        if not self._act_open[key]:
+            return
+        label = ACTUATOR_SHORT[key]
+        if not self._write(self.config.actuator_map(key).value, 1.0 if checked else 0.0, f"{label} komutu"):
+            e["control"].blockSignals(True)
+            e["control"].setChecked(not checked)
+            e["control"].blockSignals(False)
+            e["onoff"].setText("ON" if not checked else "OFF")
+
+    def _on_actuator_value(self, key: str, value: float):
+        if not self._act_open[key]:
+            return
+        self._write(self.config.actuator_map(key).value, value, f"{ACTUATOR_SHORT[key]} komutu")
+
+    def set_actuator_feedback(self, key: str, text: str):
+        e = self._act_rows.get(key)
+        if e is not None:
+            e["name"].setToolTip(text)
+
+    # ======================================================================
+    # Canlı Trendler: sinyal seçimi ve besleme
+    # ======================================================================
     def set_measurements(self, measurements):
         """Yüklü A2L'deki ölçümleri (MeasurementInfo listesi) bildirir."""
-        self._measurement_names = [m.name for m in measurements]
+        self._measurement_names = [m.name for m in measurements if not hasattr(m, "char_type")]
+        self._tunable_names = [m.name for m in measurements if hasattr(m, "char_type")]
+        self._measurement_units = {m.name: (m.unit or "") for m in measurements}
         self._measurement_limits = {
             m.name: (m.minimum, m.maximum) for m in measurements
             if m.minimum is not None and m.maximum is not None and m.maximum > m.minimum
         }
+        self._rebuild_trend_series()
 
     def graph_measurement_names(self) -> list:
-        """Grafik için seçilmiş A2L ölçüm adları (gösterge eşlemesinden bağımsız)."""
         return [sid[2:] for sid in self.config.graph_signals if sid.startswith("m:")]
 
     def _on_pick_graph_signals(self):
         from app.ui.graph_signal_dialog import GraphSignalDialog
-        dlg = GraphSignalDialog(GAUGE_KEYS, self._measurement_names,
-                                self.config.graph_signals, self)
+        dlg = GraphSignalDialog(GAUGE_KEYS, self._measurement_names, self.config.graph_signals, self,
+                                tunable_names=self._tunable_names)
         if dlg.exec() != GraphSignalDialog.Accepted:
             return
         self.set_graph_signals(dlg.selected_ids(), persist=True)
 
     def set_graph_signals(self, ids: list, persist: bool = False):
         self.config.graph_signals = list(ids)
-        self._rebuild_graph_series()
+        self._rebuild_trend_series()
         if persist:
             self.config_saved.emit(self.config)
 
-    def _rebuild_graph_series(self):
-        """Seçime göre eğrileri yeniden kurar; ortak sinyallerin geçmişi korunur."""
+    def _rebuild_trend_series(self):
         from app.ui.graph_signal_dialog import signal_label
-        old = self._graph_series
-        for sid, ser in old.items():
-            self.graph_widget.removeItem(ser["curve"])
-        if getattr(self, "_graph_legend", None) is not None:
-            self._graph_legend.clear()
-        self._graph_series = {}
-        for i, sid in enumerate(self.config.graph_signals):
-            color = _GRAPH_PALETTE[i % len(_GRAPH_PALETTE)]
-            name = signal_label(sid)
-            if sid.startswith("g:") and name in GAUGE_RANGES:
-                name = f"{name} [{GAUGE_RANGES[name][2]}]"
-            curve = self.graph_widget.plot([], [], pen=pg.mkPen(color, width=2), name=name)
-            prev = old.get(sid)
-            self._graph_series[sid] = {"x": prev["x"] if prev else [],
-                                       "y": prev["y"] if prev else [], "curve": curve}
-        self._redraw_graph()
-        if hasattr(self, "graph_pick_button"):
-            n = len(self._graph_series)
-            self.graph_pick_button.setText(f"Sinyalleri seç ({n})")
+        specs = []
+        for sid in self.config.graph_signals:
+            if sid.startswith("g:"):
+                k = sid[2:]
+                unit = GAUGE_RANGES[k][2] if k in GAUGE_RANGES else ""
+                specs.append({"key": sid, "label": GAUGE_DISPLAY_LABELS.get(k, k), "unit": unit})
+            elif sid.startswith("m:"):
+                specs.append({"key": sid, "label": signal_label(sid), "unit": self._measurement_units.get(sid[2:], "")})
+        self.trend.set_series(specs)
 
     def add_measurement_sample(self, name: str, value: float):
-        """Seçili bir A2L ölçümünün okunan değerini grafiğe ekler."""
-        if isinstance(value, (int, float)):
-            self._append_graph_sample(f"m:{name}", float(value))
-
-    def _append_graph_sample(self, key: str, value: float):
-        series = self._graph_series.get(key)
-        if series is None:
-            return
-        now = time.time()
-        series["x"].append(now)
-        series["y"].append(value)
-        # Kayan ~60 saniyelik pencere: hem nokta sayısına (emniyet üst
-        # sınırı) hem de gerçek zamana göre kırpılır.
-        cutoff = now - 60.0
-        while series["x"] and series["x"][0] < cutoff:
-            series["x"].pop(0)
-            series["y"].pop(0)
-        if len(series["x"]) > _GRAPH_MAX_POINTS:
-            series["x"] = series["x"][-_GRAPH_MAX_POINTS:]
-            series["y"] = series["y"][-_GRAPH_MAX_POINTS:]
-        self._redraw_graph(key)
-
-    def _graph_ys(self, key: str, ys: list) -> list:
-        if getattr(self, "graph_normalize", None) is None or not self.graph_normalize.isChecked():
-            return ys
-        lo = hi = None
-        if key.startswith("g:") and key[2:] in GAUGE_RANGES:
-            lo, hi, _u = GAUGE_RANGES[key[2:]]
-        elif key.startswith("m:") and key[2:] in self._measurement_limits:
-            lo, hi = self._measurement_limits[key[2:]]
-        if lo is None or hi is None:           # aralık yoksa: penceredeki min/max
-            if not ys:
-                return ys
-            lo, hi = min(ys), max(ys)
-        span = (hi - lo) or 1.0
-        return [(y - lo) / span for y in ys]
-
-    def _redraw_graph(self, only: str | None = None):
-        for k, series in self._graph_series.items():
-            if only is not None and k != only:
-                continue
-            series["curve"].setData(series["x"], self._graph_ys(k, series["y"]))
-        norm = self.graph_normalize.isChecked()
-        self.graph_widget.getAxis("left").setLabel("normalize (0–1)" if norm else "")
-        now = time.time()
-        self.graph_widget.setXRange(now - 60.0, now, padding=0)
-
-    def _build_actuators_group(self) -> QGroupBox:
-        box = QGroupBox()
-        _style_card_group(box)
-        lay = QVBoxLayout()
-        lay.setSpacing(6)
-        lay.addWidget(_card_title("Eyleyiciler (manuel override)"))
-        warn = QLabel("⚠  Override: ECU kendi kararını kullanmaz")
-        warn.setWordWrap(True)
-        warn.setStyleSheet("color:#B9790F; font-size:12px; font-weight:600;")
-        lay.addWidget(warn)
-        self.actuator_rows: dict[str, dict] = {}
-        self._actuator_labels: dict[str, QLabel] = {}
-        self._actuator_channel_boxes: dict[str, QComboBox] = {}
-        grid = ReflowGrid([2], 120, spacing=8, stretch_rows=True)
-
-        for key in ACTUATOR_KEYS:
-            chip = QFrame()
-            chip.setObjectName("actChip")
-            chip.setStyleSheet("QFrame#actChip { background:#F5F8FA; border:1px solid #E3EAF1; border-radius:8px; }"
-                               "QFrame#actChip QLabel { background:transparent; }")
-            cl = QVBoxLayout(chip)
-            cl.setContentsMargins(12, 6, 12, 6)
-            cl.setSpacing(4)
-            label = QLabel(ACTUATOR_LABELS[key])
-            label.setStyleSheet("font-size: 13px; font-weight:700;")
-            self._actuator_labels[key] = label
-            feedback = QLabel("—")
-            feedback.setStyleSheet("color: #5B6B79; font-size: 12px; font-weight:600;")
-            feedback.setToolTip("Son bilinen gerçek durum (geri besleme) — komut edilen değerden ayrıdır.")
-            label.setWordWrap(True)
-            kind = ACTUATOR_KINDS[key]
-            chan = QComboBox()
-            chan.addItem("CAN", "can")
-            chan.addItem("A2L", "a2l")
-            chan.setFixedWidth(56)
-            chan.setToolTip("Komutun gönderileceği kanal: CAN (DBC mesajı) veya A2L (CCP ile değişken yazımı).")
-            chan.setStyleSheet("QComboBox { font-size:11px; font-weight:700; padding:1px 4px; }")
-            cur = self.config.actuators.get(key, ActuatorCommand()).channel
-            chan.setCurrentIndex(1 if cur == "a2l" else 0)
-            chan.currentIndexChanged.connect(lambda _i, k=key, c=chan: self._on_actuator_channel(k, c.currentData()))
-            self._actuator_channel_boxes[key] = chan
-            cl.addWidget(label)
-            row = QHBoxLayout()
-            row.setSpacing(6)
-            if kind == "toggle":
-                switch = ToggleSwitch()
-                switch.toggled.connect(lambda checked, k=key: self._on_actuator_toggle(k, checked))
-                row.addWidget(switch)
-                row.addWidget(feedback, 1)
-                row.addWidget(chan)
-                self.actuator_rows[key] = {"kind": kind, "control": switch, "feedback": feedback,
-                                            "override_checkbox": None}
-                cl.addLayout(row)
-            else:
-                spin = QDoubleSpinBox()
-                spin.setRange(0.0, 100.0)
-                spin.setSuffix(" %")
-                spin.setEnabled(False)
-                override_checkbox = QCheckBox("Manuel")
-                override_checkbox.setStyleSheet("font-size: 12px; font-weight:600;")
-                override_checkbox.toggled.connect(lambda checked, k=key: self._on_actuator_toggle(k, checked))
-                spin.valueChanged.connect(lambda v, k=key: self._on_actuator_value_changed(k, v))
-                row.addWidget(override_checkbox)
-                row.addWidget(feedback, 1)
-                row.addWidget(chan)
-                self.actuator_rows[key] = {"kind": kind, "control": spin, "feedback": feedback,
-                                            "override_checkbox": override_checkbox}
-                cl.addLayout(row)
-                cl.addWidget(spin)
-            grid.add_item(chip)
-        lay.addWidget(grid)
-        box.setLayout(lay)
-        return box
-
-    def _on_actuator_channel(self, key: str, channel: str):
-        """Eyleyicinin kanalını (CAN/A2L) değiştirir ve kalıcı kaydeder."""
-        cmd = self.config.actuators.setdefault(key, ActuatorCommand())
-        if cmd.channel == channel:
-            return
-        if self._actuator_armed.get(key):
-            # Açıkken kanal değişirse eski kanalda override açık kalmasın.
-            row = self.actuator_rows[key]
-            ctl = row["override_checkbox"] or row["control"]
-            if hasattr(ctl, "setChecked"):
-                (row["override_checkbox"] or row["control"]).setChecked(False)
-        cmd.channel = channel
-        self.config_saved.emit(self.config)
-
-    def _mark_actuator_armed(self, key: str, armed: bool):
-        lbl = self._actuator_labels.get(key)
-        if lbl is not None:
-            lbl.setStyleSheet("font-size:11px; font-weight:700; color:#8A5A00; background:#FFF1D6; "
-                              "border-radius:4px; padding:2px 6px;" if armed else "font-size:11px;")
-
-    # ---- Eyleyici override mantığı (gating + güvenlik) --------------------
-    def set_role(self, role: Role):
-        self._role = role
-
-    def _commanded_value(self, key: str) -> float:
-        kind = ACTUATOR_KINDS[key]
-        row = self.actuator_rows[key]
-        if kind == "toggle":
-            return 1.0
-        return float(row["control"].value())
-
-    def _on_actuator_toggle(self, key: str, checked: bool):
-        """Hem toggle anahtarları HEM DE valf satırındaki 'Override'
-        onay kutusu buraya bağlıdır: ikisi de 'override aç/kapat'
-        anlamına gelir."""
-        if checked:
-            if not can_override_actuator(self._role):
-                QMessageBox.warning(
-                    self, "Yetki yok",
-                    f"{ACTUATOR_LABELS[key]} override'ını açmak için Mühendis veya "
-                    "Yönetici rolü gerekir (Kullanıcı / Profil sekmesinden rol seçin).",
-                )
-                self._revert_actuator_control(key, False)
-                return
-            if not self._override_confirmed_session:
-                confirm = QMessageBox.warning(
-                    self, "EYLEYİCİ OVERRIDE — devam edilsin mi?",
-                    "Bu kontrol, GERÇEK donanımı (veya MATLAB/Simulink override "
-                    "anahtar bloğunu) doğrudan sürer. Yalnızca motor ÇALIŞMIYORKEN,"
-                    " bileşen/HIL testi amacıyla kullanılmalıdır.\n\n"
-                    "Yanlış bir değer gönderimi donanıma zarar verebilir. "
-                    "Gerçekten devam etmek istediğinizden emin misiniz?",
-                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
-                )
-                if confirm != QMessageBox.Yes:
-                    self._revert_actuator_control(key, False)
-                    return
-                self._override_confirmed_session = True
-
-            self._actuator_armed[key] = True
-            self._mark_actuator_armed(key, True)
-            value = self._commanded_value(key)
-            self._actuator_last_value[key] = value
-            if ACTUATOR_KINDS[key] == "valve":
-                self.actuator_rows[key]["control"].setEnabled(True)
-            self.actuator_command.emit(key, True, value)
-        else:
-            self._actuator_armed[key] = False
-            self._mark_actuator_armed(key, False)
-            self.actuator_command.emit(key, False, self._actuator_last_value.get(key, 0.0))
-            if ACTUATOR_KINDS[key] == "valve":
-                self.actuator_rows[key]["control"].setEnabled(False)
-
-    def _revert_actuator_control(self, key: str, checked: bool):
-        kind = ACTUATOR_KINDS[key]
-        row = self.actuator_rows[key]
-        widget = row["override_checkbox"] if kind == "valve" else row["control"]
-        widget.blockSignals(True)
-        widget.setChecked(checked)
-        widget.blockSignals(False)
-
-    def _on_actuator_value_changed(self, key: str, value: float):
-        """Yalnızca override ZATEN açıkken (valf satırı etkinken) bir
-        gönderim tetikler; override kapalıyken değer sadece yerelde
-        arabelleğe alınır, HİÇBİR ŞEY gönderilmez (bkz. CRITICAL
-        override-gating gereksinimi)."""
-        self._actuator_last_value[key] = value
-        if self._actuator_armed.get(key):
-            self.actuator_command.emit(key, True, value)
-
-    def set_actuator_feedback(self, key: str, text: str):
-        row = self.actuator_rows.get(key)
-        if row is not None:
-            row["feedback"].setText(text)
+        self.trend.append(f"m:{name}", value)
 
     # ======================================================================
-    # Ayarlar (DBC / A2L eşlemeleri) — Motor komutları + 8 gösterge +
-    # 4 ortam değeri + 5 eyleyici override komutu.
+    # Kaynaklar, yapılandırma, periyodik tetikleme
     # ======================================================================
-    def _build_settings_group(self) -> QGroupBox:
-        box = QGroupBox("Ayarlar — DBC / A2L eşlemeleri (bir kere girilip kaydedilir)")
-        box.setCheckable(True)
-        box.setChecked(True)  # referans mockup'ta açık/dolu görünüyor — varsayılan açık
-        _style_card_group(box)
-
-        # ---- Ölçüm eşlemeleri: 8 gösterge + 4 ortam değeri, İKİ sütun
-        # halinde yan yana (referans mockup'taki düzen) — tek sütunda
-        # alt alta istiflemek yerine, bu dikey alanı yaklaşık yarıya
-        # indirir ve QFormLayout satırlarının sıkışıp üst üste binmesini
-        # önler (bkz. bu metodun docstring'indeki hata açıklaması).
-        self.meas_edits: dict[str, QLineEdit] = {}
-        self.ambient_edits: dict[str, QLineEdit] = {}
-
-        meas_left_form = QFormLayout()
-        meas_left_form.setSpacing(4)
-        meas_right_form = QFormLayout()
-        meas_right_form.setSpacing(4)
-
-        for key in GAUGE_KEYS:
-            edit = QLineEdit()
-            edit.setPlaceholderText("A2L Measurement ismi, örn: N_RPM")
-            self.meas_edits[key] = edit
-            meas_left_form.addRow(f"{key} → Ölçüm:", edit)
-
-        for key in AMBIENT_KEYS:
-            edit = QLineEdit()
-            edit.setPlaceholderText("A2L Measurement ismi")
-            self.ambient_edits[key] = edit
-            meas_right_form.addRow(f"{AMBIENT_LABELS[key]} → Measurement:", edit)
-        meas_right_form.addRow(QLabel(""))  # sağ sütunu sola görsel olarak hizalar
-
-        meas_columns = QHBoxLayout()
-        meas_columns.setSpacing(18)
-        meas_columns.addLayout(meas_left_form, 1)
-        meas_columns.addLayout(meas_right_form, 1)
-
-        # ---- Motor / sistem komutları: iki sütun halinde kompakt satırlar.
-        self.motor_edits: dict[str, dict[str, QLineEdit]] = {}
-        self.actuator_edits: dict[str, dict[str, QLineEdit]] = {}
-
-        cmd_left_form = QFormLayout()
-        cmd_left_form.setSpacing(4)
-        cmd_right_form = QFormLayout()
-        cmd_right_form.setSpacing(4)
-
-        motor_rows = (("Motor Başlat", "motor_start"), ("Motor Durdur", "motor_stop"),
-                      ("Acil Susturma", "estop"))
-        for label, cmd_key in motor_rows:
-            msg_edit = QLineEdit()
-            msg_edit.setPlaceholderText("DBC mesaj ismi")
-            sig_edit = QLineEdit()
-            sig_edit.setPlaceholderText("DBC sinyal ismi")
-            val_edit = QLineEdit()
-            val_edit.setPlaceholderText("değer, örn: 1")
-            val_edit.setMaximumWidth(60)
-            self.motor_edits[cmd_key] = {"message": msg_edit, "signal": sig_edit, "value": val_edit}
-            row = QHBoxLayout()
-            row.addWidget(msg_edit)
-            row.addWidget(sig_edit)
-            row.addWidget(val_edit)
-            cmd_left_form.addRow(f"{label}:", row)
-
-        for key in ACTUATOR_KEYS:
-            msg_edit = QLineEdit()
-            msg_edit.setPlaceholderText("DBC mesaj ismi")
-            en_edit = QLineEdit()
-            en_edit.setPlaceholderText("override enable sinyali")
-            val_edit = QLineEdit()
-            val_edit.setPlaceholderText("komut değeri sinyali")
-            a_en = QLineEdit()
-            a_en.setPlaceholderText("A2L enable değişkeni")
-            a_val = QLineEdit()
-            a_val.setPlaceholderText("A2L değer değişkeni")
-            self.actuator_edits[key] = {"message": msg_edit, "enable_signal": en_edit, "value_signal": val_edit,
-                                        "a2l_enable": a_en, "a2l_value": a_val}
-            row = QHBoxLayout()
-            row.addWidget(msg_edit)
-            row.addWidget(en_edit)
-            row.addWidget(val_edit)
-            row2 = QHBoxLayout()
-            row2.addWidget(a_en)
-            row2.addWidget(a_val)
-            vb = QVBoxLayout()
-            vb.setSpacing(2)
-            vb.addLayout(row)
-            vb.addLayout(row2)
-            cmd_right_form.addRow(f"{ACTUATOR_LABELS[key]}:", vb)
-
-        cmd_columns = QHBoxLayout()
-        cmd_columns.setSpacing(18)
-        cmd_columns.addLayout(cmd_left_form, 1)
-        cmd_columns.addLayout(cmd_right_form, 1)
-
-        self.save_button = QPushButton("Ayarları Kaydet")
-        self.save_button.setProperty("primary", True)
-        self.save_button.clicked.connect(self._on_save_clicked)
-
-        info = QLabel(
-            "Motor/eyleyici komutu satırları: Mesaj ismi / Sinyal ismi / Değer. "
-            "Gönderim, Gönderim sekmesinde yüklü olan aynı DBC dosyasını kullanır."
-        )
-        info.setWordWrap(True)
-        info.setStyleSheet("color: #5B6B79;")
-
-        # Onaylanan tasarıma göre: panel İÇ KAYDIRMA içermez — tüm alanlar
-        # (ölçüm eşlemeleri + motor/eyleyici komutları) tek seferde, kendi
-        # doğal yüksekliğince görünür. Üst üste binme riski zaten 2 sütunlu
-        # ızgara + kompakt satır yüksekliğiyle (görev: "Ayarlar panelinin
-        # üst üste binmesi" düzeltmesi) ortadan kaldırıldı; artık ayrıca
-        # bir QScrollArea'ya da gerek yok (kullanıcı: "aşağı sürüklenme
-        # şeklinde olmasın, tam o sayfaya sığacak hale getir").
-        content = QWidget()
-        content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(2, 2, 2, 2)
-        content_layout.setSpacing(10)
-        content_layout.addLayout(meas_columns)
-        content_layout.addLayout(cmd_columns)
-        content_layout.addWidget(info)
-        content_layout.addWidget(self.save_button)
-
-        layout = QVBoxLayout()
-        layout.addWidget(content)
-        box.setLayout(layout)
-        content.setVisible(box.isChecked())
-        box.toggled.connect(content.setVisible)
-        return box
-
-    def _on_save_clicked(self):
-        cfg = DashboardConfig()
-        gauge_attr = {
-            "RPM": "measurement_rpm", "İtki": "measurement_itki", "PLA": "measurement_pla",
-            "Tt5": "measurement_tt5", "FP": "measurement_fp", "FT": "measurement_ft",
-            "Ps2": "measurement_ps2", "Tt2": "measurement_tt2",
-        }
-        for key, attr in gauge_attr.items():
-            setattr(cfg, attr, self.meas_edits[key].text().strip())
-        ambient_attr = {
-            "BataryaV": "measurement_batarya", "OrtamBasinc": "measurement_ortam_basinc",
-            "AtmSicaklik": "measurement_atm_sicaklik", "Tt0": "measurement_tt0",
-        }
-        for key, attr in ambient_attr.items():
-            setattr(cfg, attr, self.ambient_edits[key].text().strip())
-        for cmd_key in ("motor_start", "motor_stop", "estop"):
-            edits = self.motor_edits[cmd_key]
-            try:
-                value = float(edits["value"].text().strip().replace(",", ".") or "1")
-            except ValueError:
-                value = 1.0
-            setattr(cfg, cmd_key, MotorCommand(
-                message=edits["message"].text().strip(),
-                signal=edits["signal"].text().strip(),
-                value=value,
-            ))
-        actuators = {}
-        for key in ACTUATOR_KEYS:
-            edits = self.actuator_edits[key]
-            actuators[key] = ActuatorCommand(
-                message=edits["message"].text().strip(),
-                enable_signal=edits["enable_signal"].text().strip(),
-                value_signal=edits["value_signal"].text().strip(),
-                channel=self.config.actuators.get(key, ActuatorCommand()).channel,
-                a2l_enable=edits["a2l_enable"].text().strip(),
-                a2l_value=edits["a2l_value"].text().strip(),
-            )
-        cfg.actuators = actuators
-        cfg.graph_signals = list(self.config.graph_signals)
-        self.set_config(cfg)
-        self.config_saved.emit(cfg)
+    def set_sources(self, dbc, a2l_summary):
+        self._dbc = dbc
+        self._a2l_summary = a2l_summary
 
     def set_config(self, cfg: DashboardConfig):
         self.config = cfg
-        if hasattr(self, "graph_widget"):
-            self._rebuild_graph_series()
-        self._update_map_warning()
-        gauge_attr = {
-            "RPM": "measurement_rpm", "İtki": "measurement_itki", "PLA": "measurement_pla",
-            "Tt5": "measurement_tt5", "FP": "measurement_fp", "FT": "measurement_ft",
-            "Ps2": "measurement_ps2", "Tt2": "measurement_tt2",
-        }
-        for key, attr in gauge_attr.items():
-            self.meas_edits[key].setText(getattr(cfg, attr, ""))
-        ambient_attr = {
-            "BataryaV": "measurement_batarya", "OrtamBasinc": "measurement_ortam_basinc",
-            "AtmSicaklik": "measurement_atm_sicaklik", "Tt0": "measurement_tt0",
-        }
-        for key, attr in ambient_attr.items():
-            self.ambient_edits[key].setText(getattr(cfg, attr, ""))
-        for cmd_key in ("motor_start", "motor_stop", "estop"):
-            cmd: MotorCommand = getattr(cfg, cmd_key)
-            edits = self.motor_edits[cmd_key]
-            edits["message"].setText(cmd.message)
-            edits["signal"].setText(cmd.signal)
-            edits["value"].setText(f"{cmd.value:g}")
-        for key in ACTUATOR_KEYS:
-            cmd: ActuatorCommand = cfg.actuators.get(key, ActuatorCommand())
-            edits = self.actuator_edits[key]
-            edits["message"].setText(cmd.message)
-            edits["enable_signal"].setText(cmd.enable_signal)
-            edits["value_signal"].setText(cmd.value_signal)
-            edits["a2l_enable"].setText(cmd.a2l_enable)
-            edits["a2l_value"].setText(cmd.a2l_value)
-            box = getattr(self, "_actuator_channel_boxes", {}).get(key)
-            if box is not None:
-                box.blockSignals(True)
-                box.setCurrentIndex(1 if cmd.channel == "a2l" else 0)
-                box.blockSignals(False)
-
-        self.start_button.setEnabled(bool(cfg.motor_start.message and cfg.motor_start.signal))
-        self.stop_button.setEnabled(bool(cfg.motor_stop.message and cfg.motor_stop.signal))
-        self.estop_button.setEnabled(bool(cfg.estop.message and cfg.estop.signal))
+        self._rebuild_trend_series()
+        miss = cfg.unbound_gauges()
+        self.map_warn_label.setText(f"⚠ {len(miss)} sensör bağlı değil" if miss else "")
+        self.start_button.setEnabled(cfg.motor_start.binding.is_set)
+        self.stop_button.setEnabled(cfg.motor_stop.binding.is_set)
+        self.estop_button.setEnabled(cfg.estop.binding.is_set)
         for btn, cmd, label in ((self.start_button, cfg.motor_start, "Motoru Başlat"),
                                  (self.stop_button, cfg.motor_stop, "Motoru Durdur"),
-                                 (self.estop_button, cfg.estop, "Acil Susturma")):
-            if not btn.isEnabled():
-                btn.setToolTip(f"{label} için DBC mesaj/sinyal ismi Ayarlar panelinden girilmedi.")
-            else:
-                btn.setToolTip("")
+                                 (self.estop_button, cfg.estop, "Acil Durdurma")):
+            btn.setToolTip("" if btn.isEnabled() else f"{label} için ⚙ Eşleşmeler penceresinden DBC sinyali veya A2L değişkeni seçin.")
+        for key in GAUGE_KEYS:
+            if key not in cfg.gauge_a2l_map() and key not in cfg.gauge_can_map():
+                self._values.pop(key, None)
+        self._refresh_gauge_states()
 
-        if not cfg.measurement_map():
-            for key in GAUGE_KEYS:
-                self.set_gauge_value(key, None)
-            for key in AMBIENT_KEYS:
-                self.set_ambient_value(key, "—")
-
-    def resizeEvent(self, event):  # noqa: N802
-        super().resizeEvent(event)
-        # Dar ekranda sensör tablosu göstergelerin yanına sığmaz: altına iner.
-        wide = self.width() - 350 - 36 >= 820
-        want = QBoxLayout.LeftToRight if wide else QBoxLayout.TopToBottom
-        if self._top_row.direction() != want:
-            self._top_row.setDirection(want)
+    def open_mappings(self):
+        from app.ui.mapping_dialog import MappingDialog
+        dlg = MappingDialog(self.config, self.sim_inputs, self._dbc, self._a2l_summary, self)
+        if dlg.exec() == MappingDialog.Accepted:
+            cfg = dlg.result_config()
+            self.set_config(cfg)
+            self.config_saved.emit(cfg)
+            self.mappings_requested.emit()
 
     def _on_tick(self):
-        now = time.time()
-        self.graph_widget.setXRange(now - 60.0, now, padding=0)
-        names = list(dict.fromkeys(list(self.config.measurement_map().values())
+        names = list(dict.fromkeys(list(self.config.gauge_a2l_map().values())
+                                   + [self.config.sensor_map(k).fault.a2l_name.strip()
+                                      for k in GAUGE_KEYS
+                                      if self.config.sensor_map(k).fault.source == "a2l"
+                                      and self.config.sensor_map(k).fault.a2l_name.strip()]
                                    + self.graph_measurement_names()))
+        self._refresh_gauge_states()
         if names:
-            self._graph_t += TICK_INTERVAL_MS / 1000.0
             self.tick.emit(names)

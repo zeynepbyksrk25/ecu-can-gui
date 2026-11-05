@@ -8,7 +8,7 @@ from PySide6.QtGui import QColor, QGuiApplication
 from PySide6.QtWidgets import (
     QApplication, QFrame, QGraphicsDropShadowEffect, QHBoxLayout, QLabel,
     QListWidget, QListWidgetItem, QMainWindow, QMessageBox, QPushButton,
-    QScrollArea, QSizePolicy, QStackedWidget, QVBoxLayout, QWidget,
+    QScrollArea, QSizePolicy, QStackedWidget, QTabBar, QVBoxLayout, QWidget,
 )
 
 from app.can_worker import CanConnection
@@ -16,11 +16,14 @@ from app.ccp import codec as ccp_codec
 from app.ccp import mapio as ccp_mapio
 from app.ccp import protocol as ccp_protocol
 from app.ccp.client import CCPClient
+from app.ccp.worker import CONNECTING, IDLE, LOST, ONLINE, CcpSession
 from app import control_panel as cpanel
 from app.ui.control_panel_tab import ControlPanelTab
 from app.ui.performance_tab import PerformanceTab
 from app.sim_interface import INPUT_DEFS, SimConfig
-from app.dashboard_config import DashboardConfigStore
+from app.dashboard_config import (
+    GAUGE_KEYS, SOURCE_A2L, SOURCE_CAN, Binding, DashboardConfigStore,
+)
 from app.eventlog import EventLog
 from app.history import CalibrationHistory
 from app.logger import CanLogger
@@ -48,6 +51,7 @@ HEALTH_CHECK_INTERVAL_MS = 500  # bağlantının GERÇEKTEN sağlıklı olup olm
 # koptu" denir (anlık/geçici hatalarda yanlış alarm vermemek için).
 CONNECTION_LOSS_CONFIRM_S = 3.0
 RECONNECT_INTERVAL_MS = 2000  # bağlantı koptuktan sonra otomatik yeniden bağlanma denemesi aralığı
+SILENT_NOTICE_S = 3.0  # bu kadar süre mesaj gelmezse bağlantı şeridinde "Hat sessiz" uyarısı
 CCP_AUTO_CONNECT_DELAY_MS = 300  # CAN bağlandıktan kaç ms sonra CCP otomatik bağlansın
 WATCH_FAIL_STREAK_LIMIT = 3  # Parametre Listesi'nde art arda bu kadar ECU-cevapsız turdan sonra sürekli okuma durur
 
@@ -62,7 +66,7 @@ class MainWindow(QMainWindow):
         self.periodic_manager: PeriodicManager | None = None
         self.can_logger = CanLogger()
         self._logged_count = 0
-        self.ccp_client: CCPClient | None = None
+        self.ccp_session = CcpSession(self.connection)
         self.event_log = EventLog(file_path=data_path("audit_log.txt"))
         # calibration_history diske de kalıcı yazılır: FLAŞ yazımlarının,
         # uygulama kapansa/yeniden başlasa bile eski değerine geri
@@ -97,6 +101,8 @@ class MainWindow(QMainWindow):
         self.monitor_tab = self.can_monitor_tab.monitor
         self.transmit_tab = self.can_monitor_tab.transmit
         self.log_tab = self.can_monitor_tab.log
+        self.connection_tab.attach_settings(data_path("can_ayarlari.json"))
+        self.monitor_tab.frame_hook = self._on_monitor_frame
 
         self.a2l_tab = A2LTab()
         self.control_panel_tab = ControlPanelTab(cpanel.ControlPanelConfig(data_path("kontrol_paneli.json")))
@@ -136,7 +142,7 @@ class MainWindow(QMainWindow):
             ("🎛", "Kontrol Paneli", self.control_panel_tab),
             ("🛡", "Tanılama", self.tanilama_tab),
             ("🗓", "Test Oturumu", self.session_tab),
-            ("👤", "Kullanıcı / Profil", self.user_tab),
+            ("👤", "Profil", self.user_tab),
         ]
         # Her sayfa kendi QScrollArea'sı içinde yaşar: pencere sayfa
         # içeriğinden KÜÇÜKSE (düşük çözünürlüklü laptop vb.) içerik aşağıdan
@@ -147,12 +153,16 @@ class MainWindow(QMainWindow):
                                          self.workspace_tab)])
         self.stack = QStackedWidget()
         self._page_scrolls: dict[QWidget, QScrollArea] = {}
+        # Koyu temaya geçirilmiş sayfalar (koyu gövdeye sarılır); diğerleri henüz açık temada.
+        self._dark_pages = {self.a2l_tab, self.tanilama_tab, self.session_tab, self.user_tab, self.kalibrasyon_tab, self.graph_tab, self.performance_tab, self.workspace_tab, self.control_panel_tab}
         for _icon, _label, page in self._nav_pages:
-            self.stack.addWidget(self._make_scrollable_page(page))
+            # Ana Sayfa kaydırılmaz: 16" ekrana tamamen sığar (bkz. DashboardTab)
+            self.stack.addWidget(page if page is self.dashboard_tab else self._make_scrollable_page(page))
 
         self._build_ui_chrome()
 
         self.dashboard_tab.set_config(self.dashboard_config_store.load())
+        self._rebuild_dash_can_map()
         self.watch_tab.set_storage_path(data_path("watchlist.json"))
 
         # İzleme sekmesi, Gönderim sekmesindeki DBC ile AYNI nesneyi kullanır;
@@ -200,8 +210,12 @@ class MainWindow(QMainWindow):
         self.dashboard_tab.open_graph_requested.connect(
             lambda: self.setCurrentWidget(self.graph_tab)
         )
-        self.dashboard_tab.actuator_command.connect(self._send_actuator_override)
+        self.dashboard_tab.writer = self._write_binding
+        self.transmit_tab.dbc_loaded.connect(self._on_dashboard_sources_changed)
+        self.a2l_tab.a2l_loaded.connect(self._on_dashboard_sources_changed)
         self.dashboard_tab.set_role(self.current_role)
+        if hasattr(self, "header_role_label"):
+            self._update_role_label()
 
         self._wire_signals()
 
@@ -217,9 +231,45 @@ class MainWindow(QMainWindow):
         self.reconnect_timer.setInterval(RECONNECT_INTERVAL_MS)
         self.reconnect_timer.timeout.connect(self._try_reconnect)
 
+        QTimer.singleShot(800, self._startup_auto_connect)
+        self._ccp_timer = QTimer(self)
+        self._ccp_timer.setInterval(100)
+        self._ccp_timer.timeout.connect(self._on_ccp_events)
+        self._ccp_timer.start()
+        self.connection.on_reopen.append(self._on_bus_reopened)
+
+    # ---- CCP oturumu (arka plan iş parçacığı; bkz. app/ccp/worker.py) ----------------------
+    @property
+    def ccp_client(self):
+        """Açık işlemler (yazma, harita, tanılama) için CCPClient benzeri; oturum yoksa None.
+        ECU 'yok' iken çağrılar bekletmeden hata verir."""
+        return self.ccp_session.client
+
+    @ccp_client.setter
+    def ccp_client(self, client):
+        if client is None:
+            self.ccp_session.stop(graceful=False)
+        else:
+            self.ccp_session.adopt(client)
+
+    @property
+    def ccp_reader(self):
+        """Periyodik okuma yapan arayüz zamanlayıcıları için: önbellekten okur, ASLA beklemez."""
+        return self.ccp_session.reader
+
     def _make_scrollable_page(self, page: QWidget) -> QScrollArea:
         scroll = QScrollArea()
         scroll.setObjectName("pageScroll")
+        if page in self._dark_pages:
+            from app.ui.dark_theme import dark_scroll_page
+            scroll.setStyleSheet("QScrollArea#pageScroll { background: #08121f; border: none; }")
+            scroll.setWidget(dark_scroll_page(page))
+            scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+            scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+            scroll.setWidgetResizable(True)
+            scroll.setFrameShape(QFrame.NoFrame)
+            self._page_scrolls[page] = scroll
+            return scroll
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
@@ -229,15 +279,16 @@ class MainWindow(QMainWindow):
         return scroll
 
     def current_page(self) -> QWidget | None:
-        """Şu an görünen sayfanın KENDİ widget'ı (QScrollArea sarmalayıcısı değil)."""
+        """Şu an görünen sayfanın KENDİ widget'ı (QScrollArea / koyu gövde sarmalayıcısı değil)."""
         scroll = self.stack.currentWidget()
-        return scroll.widget() if isinstance(scroll, QScrollArea) else scroll
+        inner = scroll.widget() if isinstance(scroll, QScrollArea) else scroll
+        return getattr(inner, "inner", inner)
 
     def _apply_initial_geometry(self):
         """İlk pencere boyutu EKRANA sığmalı: sabit 1600x950, 1366x768 gibi
         laptop ekranlarında pencereyi alt kenardan dışarı taşırıyordu.
         Kullanılabilir alanın %92'sini aşmayacak şekilde seçilir."""
-        self.setMinimumSize(900, 560)
+        self.setMinimumSize(1100, 600)
         screen = QGuiApplication.primaryScreen()
         if screen is None:
             self.resize(1280, 800)
@@ -245,7 +296,7 @@ class MainWindow(QMainWindow):
         avail = screen.availableGeometry()
         width = min(1600, int(avail.width() * 0.92))
         height = min(950, int(avail.height() * 0.92))
-        self.resize(max(900, width), max(560, height))
+        self.resize(max(1100, width), max(600, height))
         frame = self.frameGeometry()
         frame.moveCenter(avail.center())
         self.move(frame.topLeft())
@@ -264,16 +315,18 @@ class MainWindow(QMainWindow):
         central_layout.setSpacing(0)
         central_layout.addWidget(self._build_top_header())
         central_layout.addWidget(self._build_action_status_row())
-
-        body = QHBoxLayout()
-        body.setContentsMargins(0, 0, 0, 0)
-        body.setSpacing(0)
-        body.addWidget(self._build_sidebar())
-        body.addWidget(self.stack, stretch=1)
-        central_layout.addLayout(body, stretch=1)
+        central_layout.addWidget(self.stack, stretch=1)
 
         self.setCentralWidget(central)
         self.statusBar().setSizeGripEnabled(False)
+        # Ana Sayfa kaydırılmadığı için pencere, sayfanın sığacağı en küçük boyuttan
+        # küçültülemez (16" laptop: 1280x720 etkin çözünürlükte bile sığar).
+        hint = central.minimumSizeHint()
+        self.setMinimumSize(max(1100, hint.width()), max(600, hint.height() + 26))
+        self.resize(max(self.width(), self.minimumWidth()), max(self.height(), self.minimumHeight()))
+        self.header_clock_label = QLabel("")
+        self.header_clock_label.setObjectName("headerClock")
+        self.statusBar().addPermanentWidget(self.header_clock_label)
         self._update_connection_display()
 
         self._clock_timer = QTimer(self)
@@ -289,79 +342,37 @@ class MainWindow(QMainWindow):
         effect.setColor(QColor(20, 30, 40, alpha))
         widget.setGraphicsEffect(effect)
 
-    def _build_sidebar(self) -> QWidget:
-        root = QWidget()
-        root.setObjectName("sidebarRoot")
-        root.setFixedWidth(220)
-        layout = QVBoxLayout(root)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-
-        self.nav_list = QListWidget()
-        self.nav_list.setObjectName("sidebarNav")
-        self.nav_list.setFocusPolicy(Qt.NoFocus)
-        for icon, label, _page in self._nav_pages:
-            item = QListWidgetItem(f"{icon}   {label}")
-            self.nav_list.addItem(item)
-        self.nav_list.setCurrentRow(0)
-        self.nav_list.currentRowChanged.connect(self.stack.setCurrentIndex)
-        layout.addWidget(self.nav_list, stretch=1)
-
-        # Alt durum bloğu: referans mockup'ta koyu lacivert sidebar
-        # zemininin üzerinde YÜZEN, BEYAZ/açık renkli yuvarlak köşeli bir
-        # "kart" (düz metin DEĞİL — bkz. görev tanımı madde 7).
-        status = QFrame()
-        status.setObjectName("sidebarStatusCard")
-        status_layout = QVBoxLayout(status)
-        status_layout.setContentsMargins(14, 12, 14, 10)
-        status_layout.setSpacing(3)
-
-        self.sidebar_conn_label = QLabel()
-        self.sidebar_conn_label.setTextFormat(Qt.RichText)
-        self.sidebar_conn_label.setObjectName("sidebarStatusTitle")
-        self.sidebar_iface_label = QLabel("Bağlantı: Pasif")
-        self.sidebar_iface_label.setObjectName("sidebarStatusDim")
-        self.sidebar_version_label = QLabel("CAN 2.0A / 2.0B")
-        self.sidebar_version_label.setObjectName("sidebarStatusDim")
-        status_layout.addWidget(self.sidebar_conn_label)
-        status_layout.addWidget(self.sidebar_iface_label)
-        status_layout.addWidget(self.sidebar_version_label)
-
-        settings_link = QPushButton("⚙  Ayarlar")
-        settings_link.setObjectName("sidebarSettingsLink")
-        settings_link.setCursor(Qt.PointingHandCursor)
-        settings_link.clicked.connect(lambda: self.nav_list.setCurrentRow(
-            len(self._nav_pages) - 1))  # "Kullanıcı / Profil" sekmesine götürür
-        status_layout.addSpacing(4)
-        status_layout.addWidget(settings_link)
-
-        status_margin = QWidget()
-        status_margin_layout = QVBoxLayout(status_margin)
-        status_margin_layout.setContentsMargins(10, 8, 10, 14)
-        status_margin_layout.addWidget(status)
-        self._apply_shadow(status, blur=16, dy=2, alpha=70)
-        layout.addWidget(status_margin)
-        return root
-
     def _build_top_header(self) -> QWidget:
-        """Üst koyu lacivert başlık şeridi: logo rozeti + başlık + bağlantı
-        pili (referans mockup'taki ince navy şerit)."""
+        """Üst şerit: logo + başlık + YATAY sekme çubuğu (sidebar yok) + bağlantı pili.
+        Sekmeler sabittir: kapatılamaz/taşınamaz, "Ana Sayfa" her zaman ilk sekmedir."""
         header = QFrame()
         header.setObjectName("topHeaderNavy")
         outer = QHBoxLayout(header)
-        outer.setContentsMargins(16, 10, 16, 10)
-        outer.setSpacing(10)
+        outer.setContentsMargins(14, 0, 14, 0)
+        outer.setSpacing(14)
 
-        logo = QLabel("🔧")
+        logo = QLabel("⚡")
         logo.setObjectName("headerLogoBadge")
-        logo.setFixedSize(30, 30)
+        logo.setFixedSize(24, 24)
         logo.setAlignment(Qt.AlignCenter)
         outer.addWidget(logo)
-
-        title = QLabel("ECU CAN Haberleşme Arayüzü")
+        title = QLabel("ECU CAN Arayüzü")
         title.setObjectName("headerTitle")
         outer.addWidget(title)
-        outer.addStretch()
+
+        self.nav_bar = QTabBar()
+        self.nav_bar.setObjectName("topNav")
+        self.nav_bar.setDrawBase(False)
+        self.nav_bar.setExpanding(False)
+        self.nav_bar.setMovable(False)
+        self.nav_bar.setTabsClosable(False)
+        self.nav_bar.setUsesScrollButtons(False)
+        self.nav_bar.setFocusPolicy(Qt.NoFocus)
+        for _icon, label, _page in self._nav_pages:
+            self.nav_bar.addTab(label)
+        self.nav_bar.setCurrentIndex(0)
+        self.nav_bar.currentChanged.connect(self.stack.setCurrentIndex)
+        outer.addWidget(self.nav_bar, 1)
 
         self.header_conn_pill = QLabel("●  Bağlı değil")
         self.header_conn_pill.setObjectName("connPillBad")
@@ -369,50 +380,51 @@ class MainWindow(QMainWindow):
         return header
 
     def _build_action_status_row(self) -> QWidget:
-        """Başlık şeridinin HEMEN altındaki TEK satır: solda motor
-        komutu düğmeleri (her biri hafif gölgeli birer "kart" gibi),
-        sağda ikonlu durum okumaları (Sistem / Ortam / Tarih-Saat) — arka
-        plan kartı YOK, doğrudan sayfa zemini üzerinde (görev tanımı
-        madde 3). Büyük koyu ikaz lambası şeridi burada KASITLI OLARAK
-        YOK (bkz. app/ui/dashboard_tab.py DashboardTab sınıf yorumu ve bu
-        dosyanın değişiklik raporu: lamba verisi/mantığı korunuyor,
-        yalnızca görünür ana akıştan çıkarıldı)."""
+        """Sekmelerin altındaki komut şeridi (TÜM sayfalarda görünür; Acil Durdurma
+        her zaman erişilebilir): Motoru Başlat / Durdur / Acil Durdurma, sağda rol ve
+        ⚙ Eşleşmeler."""
         row = QFrame()
         row.setObjectName("actionStatusRow")
         layout = QHBoxLayout(row)
-        layout.setContentsMargins(16, 10, 20, 10)
+        layout.setContentsMargins(14, 4, 14, 4)
         layout.setSpacing(10)
 
-        # Dashboard sekmesinin KENDİ düğmelerini (mantık/onay diyalogları
-        # zaten orada) burada, tek görünür satırda kullanıyoruz — ayrı bir
-        # "Motor Komutları" kutusu / kopya düğme YOK.
         self.dashboard_tab.start_button.setText("▶  Motoru Başlat")
         self.dashboard_tab.stop_button.setText("⏹  Motoru Durdur")
         self.dashboard_tab.estop_button.setText("⚠  Acil Durdurma")
-        self.dashboard_tab.estop_button.setProperty("danger", True)
         for btn in (self.dashboard_tab.start_button, self.dashboard_tab.stop_button,
                     self.dashboard_tab.estop_button):
-            btn.setMinimumHeight(36)
-            btn.setMaximumWidth(180)
+            btn.setFixedHeight(30)
+            btn.setMinimumWidth(150)
             btn.setCursor(Qt.PointingHandCursor)
-            self._apply_shadow(btn, blur=12, dy=2, alpha=35)
             layout.addWidget(btn)
 
         layout.addStretch()
-
-        self.header_system_label = QLabel("ⓘ Sistem:  <span style=\"color:#1B8A4C;\">●</span> Aktif")
-        self.header_ambient_label = QLabel("🌡 Ortam:  <span style=\"color:#1B8A4C;\">●</span> Normal")
-        self.header_clock_label = QLabel("📅 Tarih/Saat  —")
-        for lbl in (self.header_system_label, self.header_ambient_label, self.header_clock_label):
-            lbl.setObjectName("headerReadout")
-            lbl.setTextFormat(Qt.RichText)
-            layout.addWidget(lbl)
-            layout.addSpacing(18)
+        self.ccp_chip = QLabel("CCP bağlı değil")
+        self.ccp_chip.setObjectName("ccpChip")
+        self.ccp_chip.setProperty("state", IDLE)
+        self.ccp_chip.setToolTip("CCP/ECU durumu: bağlı değil → bağlanıyor → çevrimiçi → ECU yok (otomatik yeniden bağlanır)")
+        layout.addWidget(self.ccp_chip)
+        layout.addSpacing(8)
+        self.header_role_label = QLabel("")
+        self.header_role_label.setObjectName("headerReadout")
+        self.header_role_label.setTextFormat(Qt.RichText)
+        layout.addWidget(self.header_role_label)
+        self.mappings_button = QPushButton("⚙  Eşleşmeler")
+        self.mappings_button.setFixedHeight(28)
+        self.mappings_button.setCursor(Qt.PointingHandCursor)
+        self.mappings_button.setToolTip("Sensör, eyleyici, motor komutu ve giriş sinyallerinin CAN (DBC) / A2L eşleşmeleri")
+        self.mappings_button.clicked.connect(self.dashboard_tab.open_mappings)
+        layout.addWidget(self.mappings_button)
+        self._update_role_label()
         return row
+
+    def _update_role_label(self):
+        self.header_role_label.setText(f"Rol: <b style='color:#fff'>{self.current_role.value}</b>")
 
     def _update_clock(self):
         now_text = datetime.now().strftime("%d.%m.%Y  %H:%M:%S")
-        self.header_clock_label.setText(f"📅 Tarih/Saat  {now_text}")
+        self.header_clock_label.setText(now_text)
 
     def _update_connection_display(self, health_message: str | None = None):
         connected = self._conn_state["connected"]
@@ -423,21 +435,12 @@ class MainWindow(QMainWindow):
         if connected:
             self.header_conn_pill.setObjectName("connPillOk")
             self.header_conn_pill.setText(f"●  Bağlı  |  {interface}")
-            self.sidebar_iface_label.setText("Bağlantı: Aktif")
-            dot_color = "#58D88C"
         elif lost:
             self.header_conn_pill.setObjectName("connPillBad")
             self.header_conn_pill.setText("●  Bağlantı koptu — yeniden bağlanılıyor…")
-            self.sidebar_iface_label.setText("Bağlantı: KOPTU")
-            dot_color = "#E0A030"
         else:
             self.header_conn_pill.setObjectName("connPillBad")
             self.header_conn_pill.setText("●  Bağlı değil")
-            self.sidebar_iface_label.setText("Bağlantı: Pasif")
-            dot_color = "#C22A1D"
-        self.sidebar_conn_label.setText(
-            f'<span style="color:{dot_color};">●</span>&nbsp;&nbsp;<b>PCAN-USB</b>'
-        )
         # objectName değiştiğinde QSS'in yeniden uygulanması gerekir.
         self.header_conn_pill.style().unpolish(self.header_conn_pill)
         self.header_conn_pill.style().polish(self.header_conn_pill)
@@ -465,10 +468,10 @@ class MainWindow(QMainWindow):
         """Eski QTabWidget tabanlı kodun `self.setCurrentWidget(...)`
         çağrılarının (bkz. open_graph_requested bağlantısı) değişmeden
         çalışmaya devam etmesi için ince bir uyumluluk katmanı: hem sayfa
-        yığınını hem de sidebar seçimini günceller."""
+        yığınını hem de üst sekme çubuğunu günceller."""
         index = self.stack.indexOf(self._page_scrolls.get(widget, widget))
         if index != -1:
-            self.nav_list.setCurrentRow(index)
+            self.nav_bar.setCurrentIndex(index)
 
     def _wire_signals(self):
         self.connection_tab.connect_requested.connect(self._on_connect)
@@ -499,6 +502,7 @@ class MainWindow(QMainWindow):
         self.control_panel_tab.tx_toggle_requested.connect(self._on_panel_tx_toggle)
         self.control_panel_tab.reload_requested.connect(self._on_panel_reload)
         self.tx_scheduler.failed.connect(self._on_panel_tx_failed)
+        self.tx_scheduler.recovered.connect(self._on_panel_tx_recovered)
         self.tx_scheduler.state_changed.connect(self._panel_tx_state)
         self.control_panel_tab.set_allowed(can_override_actuator(self.current_role))
         self.watch_tab.read_requested.connect(self._on_watch_read)
@@ -546,7 +550,7 @@ class MainWindow(QMainWindow):
         self._last_health_state = "ok"
         self._conn_lost = False
         self._dismiss_loss_box()
-        self.periodic_manager = PeriodicManager(self.connection.bus)
+        self.periodic_manager = PeriodicManager(lambda: self.connection.bus)
         self.connection_tab.set_connected(True)
         self.monitor_tab.set_bitrate(bitrate if interface != "virtual" else None)
         self.rx_timer.start()
@@ -571,13 +575,13 @@ class MainWindow(QMainWindow):
         # CCP Bağlan / Kes düğmeleri ayrıca çalışmaya devam eder.
         if self.ccp_tab.auto_connect_enabled() or self._resume_ccp_after_reconnect:
             self._resume_ccp_after_reconnect = False
-            QTimer.singleShot(CCP_AUTO_CONNECT_DELAY_MS, self._auto_ccp_connect)
+            self._auto_ccp_connect()
 
     def _teardown_connection(self, graceful: bool = True):
         """CAN bağlantısına bağlı her şeyi kapatır. graceful=False: adaptör
         gitmiş olduğu için CCP DISCONNECT gibi bus'a yazan adımlar ATLANIR
         (aksi halde zaman aşımlarında arayüz bloklanırdı)."""
-        if self.ccp_client is not None:
+        if self.ccp_session.state != IDLE:
             if graceful:
                 self._on_ccp_disconnect()
             else:
@@ -616,6 +620,10 @@ class MainWindow(QMainWindow):
         yalnızca uyarı olarak gösterilir."""
         if not self.connection.is_connected:
             return
+        # Bus-off/ağır hata + sessizlikte reset → gerekirse adaptörü yeniden aç (otomatik kurtarma);
+        # PCAN durum kodu geçişleri donanım testinde teşhis için günlüğe yazılır.
+        for event in self.connection.watchdog():
+            self._log_event("BAGLANTI", event)
         state, message = self.connection.link_state()
         now = time.monotonic()
 
@@ -639,6 +647,12 @@ class MainWindow(QMainWindow):
             self._unhealthy_since = None
 
         ok = state == "ok"
+        silent = self.connection.silent_for()
+        if state == "bus_warning" and self.connection.recovering:
+            message = f"Hat hatalı, kurtarılıyor: {message} (son mesaj {silent:.0f} sn önce)"
+        elif ok and silent > SILENT_NOTICE_S:
+            ok = False
+            message = f"Hat sessiz ({silent:.0f} sn): ECU kapalı olabilir; hat dönünce otomatik sürer"
         self.connection_tab.set_health(ok, message)
         self.errors_tab.set_health(ok, message)
         if not ok and getattr(self, "_last_health_state", "ok") == "ok":
@@ -649,7 +663,7 @@ class MainWindow(QMainWindow):
     def _handle_connection_lost(self, reason: str, elapsed: float):
         """Bağlantı KOPTU: her şeyi temizle, kullanıcıya açıkça bildir ve
         adaptör geri gelirse otomatik yeniden bağlanmak için denemeye başla."""
-        self._resume_ccp_after_reconnect = self.ccp_client is not None or self._resume_ccp_after_reconnect
+        self._resume_ccp_after_reconnect = self.ccp_session.state != IDLE or self._resume_ccp_after_reconnect
         self._conn_lost = True
         self._unhealthy_since = None
         self._teardown_connection(graceful=False)  # adaptör yok: bus'a yazan adımlar atlanır
@@ -698,6 +712,12 @@ class MainWindow(QMainWindow):
     def _cancel_reconnect(self):
         self.reconnect_timer.stop()
 
+    def _on_bus_reopened(self):
+        """Bekçi adaptörü yeniden açınca: CCP istemcisi ve periyodik görevler yeni bus'a geçer
+        (periyodik görevler bus'ı çağrılabilirle aldığı için kendiliğinden geçer)."""
+        self.ccp_session.refresh_bus()
+        self._log_event("BAGLANTI", "Adaptör yeniden açıldı; CCP ve periyodik gönderim yeni bus'a geçti")
+
     def _try_reconnect(self):
         if not self._conn_lost or self._last_connect_params is None:
             self._cancel_reconnect()
@@ -726,11 +746,37 @@ class MainWindow(QMainWindow):
             self.control_panel_tab.on_can_frame(msg.arbitration_id, bytes(msg.data))
             self.performance_tab.on_can_frame(msg.arbitration_id, bytes(msg.data))
             self.workspace_tab.on_can_frame(msg.arbitration_id, bytes(msg.data))
-            if self.can_logger.is_active:
-                self.can_logger.write(msg.timestamp, msg.arbitration_id, msg.dlc,
-                                       msg.data, msg.is_extended_id)
-                self._logged_count += 1
-                self.log_tab.set_count(self._logged_count)
+            self._dash_on_can_frame(msg.arbitration_id, bytes(msg.data))
+
+    def _on_monitor_frame(self, msg, direction: str):
+        """İzleme sekmesi her RX/TX mesajı için çağırır (duraklatılmış olsa da): kayıt açıksa
+        CSV'ye yön ve (DBC varsa) mesaj adıyla yazar."""
+        if not self.can_logger.is_active:
+            return
+        name = ""
+        dbc = self.transmit_tab.dbc
+        if dbc.is_loaded:
+            m = dbc.get_message_by_frame_id(msg.arbitration_id)
+            name = m.name if m is not None else ""
+        self.can_logger.write(msg.timestamp, msg.arbitration_id, msg.dlc, msg.data,
+                              msg.is_extended_id, direction=direction, name=name)
+        self._logged_count += 1
+        self.log_tab.set_count(self._logged_count)
+
+    def _startup_auto_connect(self):
+        """"Açılışta otomatik bağlan" seçiliyse sessizce bağlanır; hata iletişim kutusu açmaz."""
+        if self.connection.is_connected or not self.connection_tab.auto_connect_enabled():
+            return
+        interface = self.connection_tab.current_interface()
+        channel = self.connection_tab.current_channel()
+        bitrate = self.connection_tab.current_bitrate()
+        try:
+            self.connection.connect(interface, channel, bitrate)
+        except Exception as exc:
+            self.connection_tab.set_health(False, f"Otomatik bağlanma başarısız: {exc}")
+            self._log_event("HATA", f"Otomatik bağlanma başarısız: {exc}")
+            return
+        self._after_connected(interface, channel, bitrate)
 
     # ---- Gönderim -------------------------------------------------------
     def _on_manual_send(self, can_id: int, data: bytes, extended: bool):
@@ -763,104 +809,71 @@ class MainWindow(QMainWindow):
 
     # ---- CCP (kalibrasyon) ------------------------------------------------
     def _on_ccp_connect(self, cro_id: int, dto_id: int, station_address: int):
-        """Manuel "CCP Bağlan" düğmesi (hata durumunda kullanıcıya diyalog gösterir)."""
-        self._do_ccp_connect(cro_id, dto_id, station_address, silent=False)
+        """Manuel "CCP Bağlan": arka planda (geri çekilmeli) bağlanmayı başlatır; arayüz beklemez,
+        durum CCP sekmesinde ve üst şeritteki çipte canlı görünür."""
+        if not self.connection.is_connected:
+            QMessageBox.warning(
+                self, "CAN bağlantısı yok",
+                "CCP bağlantısı kurmadan önce CAN Monitor sekmesinden CAN hattına bağlanın.")
+            return
+        self.ccp_session.start(cro_id, dto_id, station_address)
+        self._log_event("CCP", f"CCP bağlanıyor (CRO=0x{cro_id:X}, DTO=0x{dto_id:X}, istasyon=0x{station_address:X})")
 
     def _auto_ccp_connect(self):
-        """CAN bağlanınca otomatik CCP bağlantısı: başarısızlıkta diyalog
-        AÇMAZ (ECU kapalı/CCP desteklemeyen hat olabilir), sadece günlüğe ve
-        CCP durum etiketine yazar; kullanıcı elle tekrar deneyebilir."""
-        if not self.connection.is_connected or self.ccp_client is not None:
+        """CAN bağlanınca otomatik CCP: sabit gecikme + tek deneme yerine arka planda geri çekilmeli
+        sonsuz deneme (ECU henüz açılmamış/hazır değilse sürer; ECU gelince kendiliğinden bağlanır)."""
+        if not self.connection.is_connected or self.ccp_session.state != IDLE:
             return
         try:
             cro_id, dto_id, station = self.ccp_tab.parsed_connection_params()
         except ValueError as exc:
             self._log_event("HATA", f"Otomatik CCP bağlantısı atlandı: {exc}")
             return
-        self._do_ccp_connect(cro_id, dto_id, station, silent=True)
-
-    def _do_ccp_connect(self, cro_id: int, dto_id: int, station_address: int, silent: bool) -> bool:
-        if not self.connection.is_connected:
-            if not silent:
-                QMessageBox.warning(
-                    self, "CAN bağlantısı yok",
-                    "CCP bağlantısı kurmadan önce Bağlantı sekmesinden CAN hattına bağlanın."
-                )
-            return False
-        if self.ccp_client is not None:
-            if not silent:
-                QMessageBox.warning(self, "Zaten bağlı", "CCP bağlantısı zaten açık.")
-            return True
-
-        # Tek RX thread bu DTO ID'sine uyan mesajları ccp_queue'ya da
-        # yazsın diye önce filtreyi kuruyoruz (bkz. app/can_worker.py).
-        self.connection.ccp_dto_id = dto_id
-        client = CCPClient(
-            self.connection.bus, cro_id, dto_id, station_address=station_address,
-            timeout=0.5, retries=2, dto_queue=self.connection.ccp_queue,
-        )
-        try:
-            client.connect()
-            major, minor = client.get_ccp_version()
-        except (ccp_protocol.CCPError, ccp_protocol.CCPTimeoutError) as exc:
-            self.connection.ccp_dto_id = None
-            self._log_event("HATA", f"CCP {'otomatik ' if silent else ''}bağlantı hatası: {exc}")
-            if silent:
-                self.ccp_tab.set_auto_connect_failed(str(exc))
-            else:
-                QMessageBox.critical(self, "CCP bağlantı hatası", str(exc))
-            return False
-        except Exception as exc:  # bus yazma hatası (adaptör kopmuş olabilir)
-            self.connection.ccp_dto_id = None
-            self._log_event("HATA", f"CCP bağlantı hatası (bus): {exc}")
-            if silent:
-                self.ccp_tab.set_auto_connect_failed(str(exc))
-            else:
-                QMessageBox.critical(self, "CCP bağlantı hatası", str(exc))
-            return False
-
-        self.ccp_client = client
-        self._watch_fail_streak = 0
-        self.ccp_tab.set_connected(True, f"(CCP v{major}.{minor})")
-        self.watch_tab.set_connected(True)
-        self.map_editor_tab.set_online(True)
-        self._panel_conn_state()
-        self._log_event(
-            "CCP",
-            f"CCP {'otomatik ' if silent else ''}bağlandı (CRO=0x{cro_id:X}, DTO=0x{dto_id:X}, v{major}.{minor})"
-        )
-        return True
+        self.ccp_session.start(cro_id, dto_id, station)
 
     def _drop_ccp_client(self):
-        """CCP istemcisini bus'a HİÇ yazmadan bırakır (adaptör kopmuşken)."""
-        if self.ccp_client is not None:
-            try:
-                self.ccp_client.stop_listening()
-            except Exception:
-                pass
-            self.ccp_client = None
+        """CCP oturumunu bus'a HİÇ yazmadan bırakır (adaptör kopmuşken)."""
+        was_active = self.ccp_session.state != IDLE
+        self.ccp_session.stop(graceful=False)
+        if was_active:
             self._log_event("CCP", "CCP bağlantısı düştü (CAN bağlantısı koptu)")
-        self.connection.ccp_dto_id = None
-        self.ccp_tab.set_connected(False)
-        self.watch_tab.set_connected(False)
-        self.map_editor_tab.set_online(False)
-        self._panel_conn_state()
+        self._apply_ccp_state(IDLE, "")
 
     def _on_ccp_disconnect(self):
-        if self.ccp_client is not None:
-            try:
-                self.ccp_client.disconnect()
-            except (ccp_protocol.CCPError, ccp_protocol.CCPTimeoutError):
-                pass  # bağlantı zaten kopmuş olabilir, yine de temizle
-            except Exception:
-                pass  # bus yazma hatası vb.; yine de temizle
-            self.ccp_client = None
+        was_active = self.ccp_session.state != IDLE
+        self.ccp_session.stop(graceful=True)
+        if was_active:
             self._log_event("CCP", "CCP bağlantısı kesildi")
-        self.connection.ccp_dto_id = None
-        self.ccp_tab.set_connected(False)
-        self.watch_tab.set_connected(False)
-        self.map_editor_tab.set_online(False)
+        self._apply_ccp_state(IDLE, "")
+
+    def _on_ccp_events(self):
+        """Arka plan CCP iş parçacığından gelen durum/günlük olaylarını arayüze uygular (100 ms)."""
+        for ev in self.ccp_session.poll_events():
+            if ev[0] == "state":
+                self._apply_ccp_state(ev[1], ev[2])
+            elif ev[0] == "log":
+                self._log_event(ev[1], ev[2])
+        self._update_ccp_chip()
+
+    def _apply_ccp_state(self, state: str, info: str):
+        online = state == ONLINE
+        self.ccp_tab.set_session_state(state, self.ccp_session.status_text())
+        self.watch_tab.set_live_state(state, self.ccp_session.status_text())
+        self.watch_tab.set_connected(state in (ONLINE, LOST))
+        self.map_editor_tab.set_online(online)
         self._panel_conn_state()
+        self._update_ccp_chip()
+
+    def _update_ccp_chip(self):
+        if not hasattr(self, "ccp_chip"):
+            return
+        st = self.ccp_session.state
+        text = self.ccp_session.status_text()
+        if self.ccp_chip.text() != text or self.ccp_chip.property("state") != st:
+            self.ccp_chip.setText(text)
+            self.ccp_chip.setProperty("state", st)
+            self.ccp_chip.style().unpolish(self.ccp_chip)
+            self.ccp_chip.style().polish(self.ccp_chip)
 
     def _on_ccp_read(self):
         if self.ccp_client is None:
@@ -877,13 +890,14 @@ class MainWindow(QMainWindow):
             return
         try:
             size = ccp_codec.datatype_size(obj.datatype)
-            raw_bytes = self.ccp_client.read_memory(
+            raw_bytes = self.ccp_reader.read_memory(
                 address, size, getattr(obj, "address_extension", 0) or 0
             )
             raw_value = ccp_codec.decode_value(obj.datatype, raw_bytes, getattr(obj, "byte_order", None))
             phys_value = ccp_codec.raw_to_physical(getattr(obj, "compu_method", None), raw_value)
         except (ccp_protocol.CCPError, ccp_protocol.CCPTimeoutError,
                 ccp_codec.UnknownDatatypeError, ValueError) as exc:
+            self.ccp_tab.set_read_value("-")
             self.ccp_tab.set_write_result(False, f"Okuma hatası: {exc}")
             return
 
@@ -1113,51 +1127,40 @@ class MainWindow(QMainWindow):
             return None
 
     def _on_watch_read(self):
+        """Parametre Listesi canlı okuma: değerler arka plan CCP iş parçacığının önbelleğinden
+        gelir (arayüz hiç beklemez); ECU yokken satırlar anında 'ECU cevap vermiyor' gösterir ve
+        ECU geri gelince değerler kendiliğinden akmaya başlar."""
         if self.ccp_client is None:
-            self.watch_tab.stop_polling()
             return
-        any_ok = False
-        timed_out = False
         for row, e in enumerate(self.watch_tab.entries()):
             if not getattr(e, "resolved", True) or not e.datatype:
                 continue
             try:
                 size = ccp_codec.datatype_size(e.datatype)
-                raw = self.ccp_client.read_memory(e.address, size, e.address_extension or 0)
+                raw = self.ccp_reader.read_memory(e.address, size, e.address_extension or 0)
                 phys = ccp_codec.raw_to_physical(
                     e.compu_method, ccp_codec.decode_value(e.datatype, raw, e.byte_order))
-            except ccp_protocol.CCPTimeoutError:
-                # ECU hiç cevap vermiyor: kalan satırlar için de (her biri ~1,5 sn)
-                # beklemeyip bu turu kes — aksi halde arayüz donar.
-                self.watch_tab.set_row_error(row, "ECU cevap vermedi")
-                timed_out = True
-                break
+            except ccp_protocol.CCPTimeoutError as exc:
+                self.watch_tab.set_row_error(row, str(exc) or "ECU cevap vermedi")
+                continue
             except (ccp_protocol.CCPError, ccp_codec.UnknownDatatypeError, ValueError) as exc:
                 self.watch_tab.set_row_error(row, str(exc))
                 continue
-            except Exception as exc:  # bus yazma hatası (adaptör kopmuş olabilir)
+            except Exception as exc:
                 self.watch_tab.set_row_error(row, f"Okuma hatası: {exc}")
-                timed_out = True
-                break
+                continue
             self.watch_tab.set_row_value(row, raw, phys)
-            any_ok = True
-        if any_ok:
-            self._watch_fail_streak = 0
-        elif timed_out:
-            self._watch_fail_streak += 1
-            if self._watch_fail_streak >= WATCH_FAIL_STREAK_LIMIT:
-                self.watch_tab.stop_polling()
-                self.watch_tab.set_write_result(
-                    False, "ECU art arda cevap vermedi — sürekli okuma durduruldu. "
-                           "CAN/CCP bağlantısını kontrol edip tekrar başlatın.")
-                self._log_event("HATA", "Parametre Listesi: ECU cevap vermedi, sürekli okuma durduruldu")
-                self._watch_fail_streak = 0
 
     def _on_watch_write(self, rows: list):
+        """Parametre Listesi: Değer hücresine Enter ile onaylanan değerleri RAM'e yazar (anında).
+        Yazılamayanlarda bekleyen metin atılır (hücre canlı değere döner); yazılanlar ECU'dan geri
+        okunarak doğrulanır (bkz. WatchTab.commit_written / set_row_value)."""
         if self.ccp_client is None:
-            self.watch_tab.set_write_result(False, "CCP bağlantısı yok; önce CCP'ye bağlanın.")
+            self.watch_tab.discard_pending(rows)
+            self.watch_tab.set_write_result(False, "CCP bağlı değil; değer yazılamadı (bağlantı kurulunca tekrar deneyin).")
             return
         if not can_write_calibration(self.current_role):
+            self.watch_tab.discard_pending(rows)
             self.watch_tab.set_write_result(
                 False, "Yetki yok: kalibrasyon yazmak için Mühendis veya Yönetici rolü gerekir "
                        "(Kullanıcı / Profil sekmesinden rol seçin).")
@@ -1165,6 +1168,7 @@ class MainWindow(QMainWindow):
         entries = self.watch_tab.entries()
         done = 0
         problems: list[str] = []
+        failed_rows: list[int] = []
         for row in rows:
             if row < 0 or row >= len(entries):
                 continue
@@ -1176,19 +1180,22 @@ class MainWindow(QMainWindow):
                 phys = parse_value_text(text)
             except ValueError:
                 problems.append(f"{e.name}: geçersiz sayı ({text!r})")
+                failed_rows.append(row)
                 continue
             old_phys = self._read_phys_best_effort(e)
             try:
                 raw_value = ccp_codec.physical_to_raw(e.compu_method, phys)
                 raw_bytes = ccp_codec.encode_value(e.datatype, raw_value, e.byte_order)
                 self.ccp_client.write_memory(e.address, raw_bytes, e.address_extension or 0)
-            except ccp_protocol.CCPTimeoutError:
-                problems.append(f"{e.name}: ECU cevap vermedi")
+            except ccp_protocol.CCPTimeoutError as exc:
+                problems.append(f"{e.name}: {str(exc) or 'ECU cevap vermedi'}")
                 self._log_event("HATA", f"{e.name} RAM yazma: ECU cevap vermedi")
-                break  # ECU yoksa kalan satırlar için de beklemeyelim
+                failed_rows.append(row)
+                continue
             except (ccp_protocol.CCPError, ccp_codec.UnknownDatatypeError, ValueError) as exc:
                 problems.append(f"{e.name}: {exc}")
                 self._log_event("HATA", f"{e.name} RAM yazma hatası: {exc}")
+                failed_rows.append(row)
                 continue
             self.watch_tab.commit_written(row, phys)
             self._log_event("KALIBRASYON", f"{e.name} = {phys} {e.unit or ''} (RAM, Parametre Listesi) yazıldı")
@@ -1197,14 +1204,13 @@ class MainWindow(QMainWindow):
                 persistent=False,
             )
             done += 1
+        self.watch_tab.discard_pending(failed_rows)
         self.history_tab.refresh()
         if problems:
             self.watch_tab.set_write_result(
                 False, f"{done} parametre yazıldı; sorunlar: " + "; ".join(problems))
         elif done:
-            self.watch_tab.set_write_result(True, f"{done} parametre RAM'e yazıldı.")
-        else:
-            self.watch_tab.set_write_result(False, "Yazılacak (değeri değiştirilmiş) satır yok.")
+            self.watch_tab.set_write_result(True, f"{done} parametre RAM'e yazıldı; ECU'dan doğrulanıyor…")
 
     # ---- Grafik (canlı Measurement çizimi) ---------------------------------
     def _on_graph_tick(self, names: list):
@@ -1213,14 +1219,14 @@ class MainWindow(QMainWindow):
         summary = self.a2l_tab.db.summary
         if summary is None:
             return
-        by_name = {m.name: m for m in summary.measurements}
+        by_name = summary.readable_by_name()
         for name in names:
             m = by_name.get(name)
             if m is None or m.address is None:
                 continue
             try:
                 size = ccp_codec.datatype_size(m.datatype)
-                raw_bytes = self.ccp_client.read_memory(m.address, size, m.address_extension or 0)
+                raw_bytes = self.ccp_reader.read_memory(m.address, size, m.address_extension or 0)
                 raw_value = ccp_codec.decode_value(m.datatype, raw_bytes, m.byte_order)
                 phys_value = ccp_codec.raw_to_physical(m.compu_method, raw_value)
             except (ccp_protocol.CCPError, ccp_protocol.CCPTimeoutError,
@@ -1331,44 +1337,142 @@ class MainWindow(QMainWindow):
         self._log_event("KALIBRASYON", f"{obj.name} eski değerine geri yazıldı: {entry.old_value}")
 
     # ---- Ana Sayfa (Dashboard) -----------------------------------------------
-    def _send_dbc_command(self, command_name: str, cmd) -> bool:
-        if not cmd.message or not cmd.signal:
+    # Her değişken bir Binding ile tanımlıdır: CAN (DBC mesaj.sinyal) ya da A2L (CCP).
+    _can_tx_values: dict = {}
+
+    def _write_binding(self, binding: Binding, value: float, label: str, merge: bool = True) -> bool:
+        """Bir Binding'e değer yazar (DashboardTab.writer). Başarısızlıkta kullanıcıyı
+        bilgilendirir ve False döner. ``merge``: aynı CAN mesajına daha önce yazılan
+        diğer sinyallerin son değerleri korunur (değer + anahtar aynı mesajda olabilir)."""
+        if not binding.is_set:
+            QMessageBox.warning(self, "Eşleşme yok", f"{label} için eşleşme tanımlı değil (⚙ Eşleşmeler).")
             return False
+        if binding.source == SOURCE_A2L:
+            return self._write_a2l(binding, value, label)
+        return self._write_can(binding, value, label, merge)
+
+    def _write_can(self, binding: Binding, value: float, label: str, merge: bool = True) -> bool:
         if not self.connection.is_connected:
-            QMessageBox.warning(
-                self, "CAN bağlantısı yok",
-                f"{command_name} göndermeden önce Bağlantı sekmesinden CAN hattına bağlanın."
-            )
+            QMessageBox.warning(self, "CAN bağlantısı yok",
+                                f"{label} göndermeden önce CAN hattına bağlanın.")
             return False
+        vals = self._can_tx_values.setdefault(binding.message, {}) if merge else {}
+        vals[binding.signal] = value
         try:
-            can_id, data, extended = self.transmit_tab.dbc.encode(cmd.message, {cmd.signal: cmd.value})
+            can_id, data, extended = self.transmit_tab.dbc.encode(binding.message, dict(vals))
             self.connection.send(can_id, data, extended)
         except Exception as exc:  # cantools/python-can çeşitli hata tipleri fırlatabilir
-            QMessageBox.critical(self, f"{command_name} gönderilemedi", str(exc))
-            self._log_event("HATA", f"{command_name} gönderilemedi: {exc}")
+            QMessageBox.critical(self, f"{label} gönderilemedi", str(exc))
+            self._log_event("HATA", f"{label} gönderilemedi: {exc}")
             return False
         sent_msg = can.Message(arbitration_id=can_id, data=data, is_extended_id=extended,
                                 timestamp=time.time())
         self.monitor_tab.add_message(sent_msg, direction="TX")
-        self._log_event("MOTOR", f"{command_name} gönderildi ({cmd.message}.{cmd.signal}={cmd.value})")
+        self._log_event("EYLEYICI", f"{label} [CAN {binding.message}.{binding.signal}] = {value:g} "
+                                    f"({self.current_user}/{self.current_role.value})")
         return True
 
+    def _a2l_info(self, name: str):
+        summary = self.a2l_tab.db.summary
+        if summary is None:
+            return None
+        for coll in (summary.measurements, summary.characteristics):
+            for m in coll:
+                if m.name == name:
+                    return m
+        return None
+
+    def _write_a2l(self, binding: Binding, value: float, label: str) -> bool:
+        if self.ccp_client is None:
+            QMessageBox.warning(self, "CCP bağlı değil",
+                                f"{label} A2L üzerinden yazılmadan önce CCP bağlantısı kurun.")
+            return False
+        info = self._a2l_info(binding.a2l_name)
+        try:
+            if info is None:
+                raise ValueError(f"A2L'de '{binding.a2l_name}' bulunamadı")
+            if info.address is None:
+                raise ValueError(f"'{binding.a2l_name}' için ECU adresi yok")
+            cpanel.ccp_write_value(self.ccp_client, info, value)
+        except Exception as exc:
+            QMessageBox.critical(self, f"{label} yazılamadı", str(exc))
+            self._log_event("HATA", f"{label} A2L yazılamadı: {exc}")
+            return False
+        self._log_event("EYLEYICI", f"{label} [A2L {binding.a2l_name}] = {value:g} "
+                                    f"({self.current_user}/{self.current_role.value})")
+        return True
+
+    def _send_motor_command(self, command_name: str, cmd) -> bool:
+        if not cmd.binding.is_set:
+            return False
+        # Komutlar tek sinyallik darbedir: diğer sinyallerin eski değerleri taşınmaz.
+        ok = self._write_binding(cmd.binding, cmd.value, command_name, merge=False)
+        if ok:
+            self._log_event("MOTOR", f"{command_name} gönderildi ({cmd.binding.text}={cmd.value:g})")
+        return ok
+
     def _on_motor_start(self):
-        self._send_dbc_command("Motor Start", self.dashboard_tab.config.motor_start)
+        self._send_motor_command("Motor Start", self.dashboard_tab.config.motor_start)
 
     def _on_motor_stop(self):
-        self._send_dbc_command("Motor Stop", self.dashboard_tab.config.motor_stop)
+        self._send_motor_command("Motor Stop", self.dashboard_tab.config.motor_stop)
 
     def _on_estop(self):
-        self._send_dbc_command("ACİL STOP", self.dashboard_tab.config.estop)
+        self._send_motor_command("ACİL DURDURMA", self.dashboard_tab.config.estop)
 
     def _on_dashboard_config_saved(self, cfg):
         self.dashboard_config_store.save(cfg)
-        self._log_event("AYAR", "Ana Sayfa ayarları (DBC/A2L eşlemeleri) kaydedildi.")
+        self._rebuild_dash_can_map()
+        self._log_event("AYAR", "Eşleşmeler (CAN/A2L) kaydedildi.")
+
+    def _on_dashboard_sources_changed(self, *_):
+        summary = self.a2l_tab.db.summary
+        self.dashboard_tab.set_sources(self.transmit_tab.dbc, summary)
+        self._rebuild_dash_can_map()
+
+    # ---- Ana Sayfa: CAN'dan (DBC) sensör okuma --------------------------------
+    _dash_can: dict = {}
+
+    def _rebuild_dash_can_map(self):
+        """CAN kaynaklı sensör değer/arıza sinyallerini frame id'ye göre indeksler."""
+        self._dash_can = {}
+        cdb = getattr(self.transmit_tab.dbc, "_db", None)
+        if cdb is None:
+            return
+        cfg = self.dashboard_tab.config
+        for key in GAUGE_KEYS:
+            smap = cfg.sensor_map(key)
+            for role, b in (("value", smap.value), ("fault", smap.fault)):
+                if b.source != SOURCE_CAN or not b.is_set:
+                    continue
+                try:
+                    msg = cdb.get_message_by_name(b.message)
+                except KeyError:
+                    continue
+                ent = self._dash_can.setdefault(msg.frame_id, {"msg": msg, "sigs": []})
+                ent["sigs"].append((b.signal, role, key))
+
+    def _dash_on_can_frame(self, can_id: int, data: bytes):
+        ent = self._dash_can.get(can_id)
+        if ent is None:
+            return
+        try:
+            vals = ent["msg"].decode(bytes(data), decode_choices=False)
+        except Exception:
+            return
+        dt = self.dashboard_tab
+        for sig, role, key in ent["sigs"]:
+            v = vals.get(sig)
+            if not isinstance(v, (int, float)):
+                continue
+            if role == "value":
+                dt.set_gauge_value(key, float(v))
+            else:
+                dt.set_sensor_fault(key, "Sensör arızası" if v else None)
 
     def _sync_workspace_a2l(self):
         summary = self.a2l_tab.db.summary
-        self.workspace_tab.set_a2l_measurements(summary.measurements if summary is not None else [])
+        self.workspace_tab.set_a2l_measurements(summary.readable() if summary is not None else [])
 
     def _on_workspace_tick(self, names: list):
         """Çalışma Alanı'nda seçili A2L ölçümlerini CCP ile okuyup hub'a yazar."""
@@ -1377,14 +1481,14 @@ class MainWindow(QMainWindow):
         summary = self.a2l_tab.db.summary
         if summary is None:
             return
-        by_name = {m.name: m for m in summary.measurements}
+        by_name = summary.readable_by_name()
         for name in names:
             m = by_name.get(name)
             if m is None or m.address is None:
                 continue
             try:
                 size = ccp_codec.datatype_size(m.datatype)
-                raw_bytes = self.ccp_client.read_memory(m.address, size, m.address_extension or 0)
+                raw_bytes = self.ccp_reader.read_memory(m.address, size, m.address_extension or 0)
                 raw_value = ccp_codec.decode_value(m.datatype, raw_bytes, m.byte_order)
                 phys_value = ccp_codec.raw_to_physical(m.compu_method, raw_value)
             except (ccp_protocol.CCPError, ccp_protocol.CCPTimeoutError,
@@ -1394,118 +1498,84 @@ class MainWindow(QMainWindow):
 
     def _sync_dashboard_measurements(self):
         summary = self.a2l_tab.db.summary
-        self.dashboard_tab.set_measurements(summary.measurements if summary is not None else [])
+        self.dashboard_tab.set_measurements(summary.readable() if summary is not None else [])
 
+    # ---- Ana Sayfa: A2L'den (CCP) okuma --------------------------------------
     def _on_dashboard_tick(self, names: list):
+        dt = self.dashboard_tab
+        cfg = dt.config
+        a2l_gauges = cfg.gauge_a2l_map()                    # gösterge -> A2L adı
         if self.ccp_client is None:
+            reason = self.ccp_session.not_ready_reason()
+            for key in a2l_gauges:
+                dt.set_gauge_error(key, reason)
             return
         summary = self.a2l_tab.db.summary
         if summary is None:
+            for key in a2l_gauges:
+                dt.set_gauge_error(key, "A2L yüklü değil")
             return
-        from app.dashboard_config import AMBIENT_KEYS, GAUGE_KEYS
 
-        by_name = {m.name: m for m in summary.measurements}
-        name_to_key = {v: k for k, v in self.dashboard_tab.config.measurement_map().items()}
-        graph_names = set(self.dashboard_tab.graph_measurement_names())
-        for name in names:
+        by_name = summary.readable_by_name()
+        roles: dict[str, list] = {}                          # A2L adı -> [(rol, gösterge)]
+        for key, name in a2l_gauges.items():
+            roles.setdefault(name, []).append(("value", key))
             m = by_name.get(name)
-            key = name_to_key.get(name)
+            if m is not None:
+                dt.set_gauge_limits(key, m.minimum, m.maximum)
+        for key in GAUGE_KEYS:
+            f = cfg.sensor_map(key).fault
+            if f.source == SOURCE_A2L and f.a2l_name.strip():
+                roles.setdefault(f.a2l_name.strip(), []).append(("fault", key))
+        graph_names = set(dt.graph_measurement_names())
+
+        for name in names:
+            targets = roles.get(name, [])
             graph_wanted = name in graph_names
-            if m is None or m.address is None or (key is None and not graph_wanted):
+            if not targets and not graph_wanted:
+                continue
+            m = by_name.get(name)
+
+            def fail(reason: str, targets=targets):
+                for role, key in targets:
+                    if role == "value":
+                        dt.set_gauge_error(key, reason)
+
+            if m is None:
+                fail(f"A2L'de '{name}' yok")
+                continue
+            if m.address is None:
+                fail("ECU adresi yok")
                 continue
             try:
                 size = ccp_codec.datatype_size(m.datatype)
-                raw_bytes = self.ccp_client.read_memory(m.address, size, m.address_extension or 0)
+                raw_bytes = self.ccp_reader.read_memory(m.address, size, m.address_extension or 0)
                 raw_value = ccp_codec.decode_value(m.datatype, raw_bytes, m.byte_order)
                 phys_value = ccp_codec.raw_to_physical(m.compu_method, raw_value)
-            except (ccp_protocol.CCPError, ccp_protocol.CCPTimeoutError,
-                    ccp_codec.UnknownDatatypeError, ValueError):
+            except ccp_protocol.CCPTimeoutError as exc:
+                fail(str(exc) or "ECU cevap vermedi")
+                continue
+            except ccp_protocol.CCPError as exc:
+                fail(f"CCP hatası: {exc}")
+                continue
+            except ccp_codec.UnknownDatatypeError:
+                fail(f"Veri tipi desteklenmiyor ({m.datatype})")
+                continue
+            except ValueError as exc:
+                fail(str(exc))
                 continue
             if graph_wanted and isinstance(phys_value, (int, float)):
-                self.dashboard_tab.add_measurement_sample(name, float(phys_value))
-            if key in GAUGE_KEYS:
-                self.dashboard_tab.set_gauge_value(key, float(phys_value))
-            elif key in AMBIENT_KEYS:
-                unit = f" {m.unit}" if m.unit else ""
-                text = f"{phys_value:.4g}{unit}" if isinstance(phys_value, float) else f"{phys_value}{unit}"
-                self.dashboard_tab.set_ambient_value(key, text)
-
-    # ---- Eyleyiciler (manuel override) --------------------------------------
-    def _send_actuator_override(self, actuator_key: str, enable: bool, value: float):
-        """DashboardTab, gating (rol kontrolü + onay diyaloğu) işini
-        KENDİSİ yapar (bkz. DashboardTab._on_actuator_toggle); bu
-        fonksiyon yalnızca ZATEN onaylanmış bir override isteğinin
-        gerçek CAN gönderimini yapar — tıpkı _send_dbc_command gibi.
-        Reuses the same DBC-encode-and-send mechanism as motor komutları."""
-        from app.dashboard_config import ACTUATOR_LABELS
-
-        cmd = self.dashboard_tab.config.actuators.get(actuator_key)
-        label = ACTUATOR_LABELS.get(actuator_key, actuator_key)
-        if cmd is not None and cmd.channel == "a2l":
-            self._send_actuator_override_a2l(actuator_key, cmd, label, enable, value)
-            return
-        if cmd is None or not cmd.message or not cmd.enable_signal:
-            self.dashboard_tab.set_actuator_feedback(actuator_key, "DBC eşlemesi tanımsız")
-            return
-        if not self.connection.is_connected:
-            QMessageBox.warning(
-                self, "CAN bağlantısı yok",
-                f"{label} override göndermeden önce Bağlantı grubundan CAN hattına bağlanın."
-            )
-            return
-        values = {cmd.enable_signal: 1.0 if enable else 0.0}
-        if cmd.value_signal:
-            values[cmd.value_signal] = value
-        try:
-            can_id, data, extended = self.transmit_tab.dbc.encode(cmd.message, values)
-            self.connection.send(can_id, data, extended)
-        except Exception as exc:  # cantools/python-can çeşitli hata tipleri fırlatabilir
-            QMessageBox.critical(self, f"{label} override gönderilemedi", str(exc))
-            self._log_event("HATA", f"{label} override gönderilemedi: {exc}")
-            return
-        sent_msg = can.Message(arbitration_id=can_id, data=data, is_extended_id=extended,
-                                timestamp=time.time())
-        self.monitor_tab.add_message(sent_msg, direction="TX")
-        state_text = f"override AÇIK, değer={value:g}" if enable else "override KAPALI"
-        self.dashboard_tab.set_actuator_feedback(
-            actuator_key, f"%{value:g}" if enable else "Kapalı"
-        )
-        self._log_event(
-            "EYLEYICI",
-            f"{label}: {state_text} ({self.current_user}/{self.current_role.value})"
-        )
-
-    def _send_actuator_override_a2l(self, actuator_key, cmd, label, enable, value):
-        """A2L kanalı: override-enable ve değer değişkenlerini CCP ile yazar."""
-        if not cmd.a2l_enable:
-            self.dashboard_tab.set_actuator_feedback(actuator_key, "A2L eşlemesi tanımsız")
-            return
-        if self.ccp_client is None:
-            QMessageBox.warning(self, "CCP bağlı değil",
-                                f"{label} A2L üzerinden yazılmadan önce CCP bağlantısı kurun.")
-            return
-        summary = self.a2l_tab.db.summary
-        by_name = {m.name: m for m in summary.measurements} if summary is not None else {}
-        steps = []
-        if enable and cmd.a2l_value:
-            steps.append((cmd.a2l_value, value))        # önce değer
-        steps.append((cmd.a2l_enable, 1.0 if enable else 0.0))  # sonra bayrak
-        try:
-            for name, v in steps:
-                info = by_name.get(name)
-                if info is None:
-                    raise ValueError(f"A2L'de '{name}' bulunamadı")
-                cpanel.ccp_write_value(self.ccp_client, info, v)
-        except Exception as exc:
-            QMessageBox.critical(self, f"{label} override yazılamadı", str(exc))
-            self._log_event("HATA", f"{label} A2L override yazılamadı: {exc}")
-            return
-        self.dashboard_tab.set_actuator_feedback(
-            actuator_key, f"%{value:g}" if enable else "Kapalı")
-        self._log_event(
-            "EYLEYICI",
-            f"{label} [A2L]: {'override AÇIK, değer=%g' % value if enable else 'override KAPALI'} "
-            f"({self.current_user}/{self.current_role.value})")
+                dt.add_measurement_sample(name, float(phys_value))
+            for role, key in targets:
+                if role == "value":
+                    dt.set_gauge_value(key, float(phys_value))
+                    dt.set_gauge_debug(
+                        key, f"A2L: {name}  @0x{m.address:X}  {m.datatype}  "
+                             f"{m.byte_order or 'bayt sırası: varsayılan (MSB_FIRST)'}\n"
+                             f"ham = {raw_value}   →   fiziksel = {float(phys_value):.6g} {m.unit or ''}"
+                             f"   [{getattr(m.compu_method, 'conversionType', 'dönüşüm yok')}]")
+                else:
+                    dt.set_sensor_fault(key, "Sensör arızası" if phys_value else None)
 
     # ---- Kullanıcı / Profil -------------------------------------------------
     # ---- Kontrol Paneli ---------------------------------------------------
@@ -1590,10 +1660,10 @@ class MainWindow(QMainWindow):
             return
         for key, info in pt.ccp_poll_targets():
             try:
-                pt.set_ccp_value(key, cpanel.ccp_read_value(self.ccp_client, info))
+                pt.set_ccp_value(key, cpanel.ccp_read_value(self.ccp_reader, info))
             except ccp_protocol.CCPTimeoutError:
                 pt.set_ccp_error(key, "ECU cevap vermedi")
-                break
+                continue
             except Exception as exc:
                 pt.set_ccp_error(key, str(exc))
 
@@ -1604,8 +1674,14 @@ class MainWindow(QMainWindow):
     _panel_paused = False
 
     def _on_panel_tx_failed(self, message: str, error: str):
-        self._log_event("HATA", f"Kontrol Paneli: {message} gönderimi durdu: {error}")
-        self.control_panel_tab._set_status(f"{message} gönderilemedi: {error}", False)
+        self._log_event("HATA", f"Kontrol Paneli: {message} gönderilemiyor ({error}); hat düzelince "
+                                "otomatik yeniden denenecek")
+        self.control_panel_tab._set_status(
+            f"{message} gönderilemiyor: {error} — hat düzelince otomatik sürecek", False)
+
+    def _on_panel_tx_recovered(self, message: str):
+        self._log_event("BAGLANTI", f"Kontrol Paneli: {message} gönderimi yeniden başladı")
+        self.control_panel_tab._set_status(f"{message} gönderimi yeniden başladı", True)
 
     def _on_panel_tx_toggle(self, stop: bool):
         if stop:
@@ -1668,7 +1744,7 @@ class MainWindow(QMainWindow):
             return
         for key, kind, info in panel.ccp_poll_targets():
             try:
-                panel.set_ccp_value(key, kind, cpanel.ccp_read_value(self.ccp_client, info))
+                panel.set_ccp_value(key, kind, cpanel.ccp_read_value(self.ccp_reader, info))
             except ccp_protocol.CCPTimeoutError:
                 panel.set_ccp_error(key, "ECU cevap vermedi")
                 break
@@ -1711,6 +1787,8 @@ class MainWindow(QMainWindow):
         self.current_user = user_name
         self.current_role = Role(role_value)
         self.dashboard_tab.set_role(self.current_role)
+        if hasattr(self, "header_role_label"):
+            self._update_role_label()
         self.control_panel_tab.set_allowed(can_override_actuator(self.current_role))
         self.dashboard_tab.sim_inputs.set_allowed(can_override_actuator(self.current_role))
         self._log_event("KULLANICI", f"Rol uygulandı: {user_name} ({role_value})")
@@ -1718,9 +1796,9 @@ class MainWindow(QMainWindow):
     def _on_profile_save(self, name: str):
         profile = ConfigProfile(
             name=name,
-            interface=self.connection_tab.interface_combo.currentText(),
-            channel=self.connection_tab.channel_edit.text().strip(),
-            bitrate=self.connection_tab.baudrate_combo.currentData(),
+            interface=self.connection_tab.current_interface(),
+            channel=self.connection_tab.current_channel(),
+            bitrate=self.connection_tab.current_bitrate(),
             cro_id=self.ccp_tab.cro_edit.text().strip(),
             dto_id=self.ccp_tab.dto_edit.text().strip(),
             station_address=self.ccp_tab.station_edit.text().strip(),
@@ -1752,10 +1830,7 @@ class MainWindow(QMainWindow):
             except ValueError as exc:
                 QMessageBox.warning(self, "A2L yüklenemedi", str(exc))
                 return
-            self.a2l_tab.status_label.setText(
-                f"Yüklü: {profile.a2l_path.split('/')[-1]}  |  Proje: {summary.project_name}"
-            )
-            self.a2l_tab._populate_tree(summary)
+            self.a2l_tab.show_loaded(profile.a2l_path, summary)
             self.a2l_tab.a2l_loaded.emit()
 
     def _on_profile_delete(self, name: str):

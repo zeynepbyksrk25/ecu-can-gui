@@ -36,4 +36,5 @@ class KalibrasyonTab(QWidget):
         self.inner_tabs.addTab(self.history, "Geçmiş")
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(14, 8, 14, 8)
         layout.addWidget(self.inner_tabs)

@@ -153,6 +153,58 @@ uygulamada donanımla doğrulanmamıştır**. Bu yüzden:
 - Gerçek donanımda ilk denemenizi önce test ortamında (yedek bir ECU ya da
   düşük riskli bir parametreyle) yapmanız önerilir.
 
+### Ana Sayfa (tek ekran, sidebar'sız)
+
+- Üstte yatay sekme çubuğu; **Ana Sayfa sekmesi sabittir** (kapatılamaz/taşınamaz) ve
+  16" laptopta (en az ~1280x720 etkin çözünürlük) **kaydırma olmadan** tek ekrana sığar.
+- Sol: **Uçuş Koşulları** ve **Motor Kontrol** (CAN/DBC üzerinden gönderilen girişler) +
+  **Eyleyiciler**. Sağ: **Motor Parametreleri** (8 gösterge) + **Canlı Trendler**.
+- **⚙ Eşleşmeler**: sensör, eyleyici, motor komutu ve giriş sinyalleri. Sensör ve eyleyicilerde
+  her değişkenin **Değer** ve **Anahtar (`_sw`)** eşleşmesi ayrı ayrı **CAN (DBC) ya da A2L**
+  olarak seçilir (sensörlerde isteğe bağlı *Arıza* biti de). Motoru Başlat / Durdur / Acil
+  Durdurma da CAN veya A2L olabilir. Eski `dashboard_config.json` otomatik göç eder.
+- **Kilit (`_sw`)**: kilitli (anahtar=0) iken değer değiştirilemez. Kilit açılınca (Mühendis/Yönetici
+  + onay) önce değer, sonra `<ad>_sw = 1` yazılır; tekrar kilitleyince `<ad>_sw = 0`.
+- **Canlı Trendler**: normalize yok, her sinyal gerçek birimiyle (çoklu Y ekseni); 60 sn/5 dk/10 dk/1 sa,
+  yakınlaştır/uzaklaştır, A/B imleçleri ve Δ, iki sinyalin farkı, Test Başlat/Bitir işaretleri,
+  CSV/MAT/MDF dışa aktarım.
+- Gösterge değer göstermiyorsa nedeni kartın altında yazar (CCP bağlı değil, ECU adresi yok, ECU
+  cevap vermedi…); fare ile üzerine gelince kaynak/ham/fiziksel değer görünür. A2L'deki
+  `MOD_COMMON BYTE_ORDER` artık okunur (küçük-endian ECU'larda değerler eskiden bozuk çıkıyordu).
+- Testler: `python -m pytest tests` (Windows için `1_kurulum` sonrası venv içinde).
+
+### CAN Monitor (canlı kullanım)
+
+- Arayüz/backend ve kanal seçimi yoktur: bağlantı **PCAN-USB** (`PCAN_USBBUS1`) üzerinden kurulur;
+  birden fazla adaptör takılıysa yalnızca o zaman küçük bir adaptör seçici görünür. Baudrate ve
+  "açılışta otomatik bağlan" seçimi hatırlanır. Donanımsız geliştirme için ortam değişkeni:
+  `OPENECU_CAN_INTERFACE=virtual` (veya `udp_multicast`).
+- Sol **İzleme** kartı: her (yön, ID) için bir satır, ID başına ölçülen **periyot (ms)**, DBC mesaj adı ve
+  birimli sinyaller, canlı filtreler, hex/ondalık, değişen verinin vurgulanması, seçili mesajın sinyal/ham
+  değer paneli. Başlıkta **DBC Yükle** ve **Kayıt** (CSV: RX + TX, yön ve mesaj adıyla).
+- Sağ **Gönderim** kartı: *Manuel* ve *Periyodik* sekmeleri. DBC modunda girilmeyen sinyaller önceden
+  uyarı olarak gösterilir; çalışan periyodik satırın sinyal değerleri değişince gönderim güncellenir.
+
+### ECU gücü kesilip gelince (güvenilirlik)
+
+- **CAN:** PCAN bus'ı sürücü `auto_reset` ile açılır. Hat bus-off/ağır hatada ve sessizse bekçi `reset()`
+  dener, olmazsa adaptörü aynı ayarlarla yeniden açar; toparlanırken gönderim saniyede 1 kareye iner.
+  Bağlantı şeridinde "Hat sessiz / kurtarılıyor" yazar; PCAN durum kodu geçişleri olay günlüğüne
+  (BAGLANTI) zamanıyla yazılır — gerçek donanımda sorun olursa buradan teşhis edilir.
+- **Periyodik gönderimler** (Kontrol Paneli, uçuş/motor girişleri, Gönderim sekmesi) hata alınca durmaz;
+  hat/ECU dönünce kendiliğinden sürer.
+- **CCP:** tüm CCP okumaları arka plan iş parçacığında yapılır; arayüz hiçbir zaman beklemez. Durum:
+  bağlı değil → bağlanıyor → çevrimiçi → **ECU YOK** → (her saniye yeniden CONNECT) → çevrimiçi. ECU
+  güç döngüsünden sonra CCP oturumu otomatik yeniden kurulur. Otomatik bağlanma, ECU hazır olana kadar
+  geri çekilmeli olarak (0,5 → 5 sn) sürekli dener. Durum üst şeritteki çipte ve CCP/Kalibrasyon
+  sekmelerinde görünür.
+- **Kalibrasyon > Parametre Listesi:** değerler sürekli canlıdır; Değer hücresine yazıp **Enter** yazar
+  (Esc / başka yere tıklamak iptal), yazılan değer ECU'dan geri okunup doğrulanır.
+- **Ayarlanabilir parametreler (clbc_*)** grafik/trend/çalışma alanı/performans listelerinde
+  "Ayarlanabilir parametreler" grubunda görünür.
+- Doğrulanamayanlar: PCAN-USB'nin gerçek bus-off davranışı ve gerçek ECU açılış süresi yalnızca
+  yazılım simülasyonuyla test edildi; ilk gerçek testte olay günlüğünü kontrol edin.
+
 ### PCAN-View ile birlikte test etme (donanımsız-adjacent)
 
 PEAK-System'in PCAN-View programı ve bu uygulama, aynı CAN kanalına
