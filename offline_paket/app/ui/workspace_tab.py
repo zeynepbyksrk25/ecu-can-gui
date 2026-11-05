@@ -89,8 +89,42 @@ class WorkspaceLayoutStore:
         self._write(d)
 
 
+def _apply_mdi_palette():
+    from PySide6.QtGui import QPalette
+    from PySide6.QtWidgets import QApplication
+    pal = QPalette()
+    for grp in (QPalette.Active, QPalette.Inactive, QPalette.Disabled):
+        pal.setColor(grp, QPalette.Highlight, QColor("#1b4a73"))
+        pal.setColor(grp, QPalette.HighlightedText, QColor("#ffffff"))
+        pal.setColor(grp, QPalette.Window, QColor("#16304d"))
+        pal.setColor(grp, QPalette.Button, QColor("#16304d"))
+        pal.setColor(grp, QPalette.WindowText, QColor("#cfe0f1"))
+        pal.setColor(grp, QPalette.ButtonText, QColor("#cfe0f1"))
+        pal.setColor(grp, QPalette.Text, QColor("#cfe0f1"))
+        pal.setColor(grp, QPalette.Base, QColor("#0f2034"))
+    QApplication.setPalette(pal, "QMdiSubWindow")
+
+
 class _Sub(QMdiSubWindow):
     closed = Signal(object)
+
+    def __init__(self, *args, **kw):
+        super().__init__(*args, **kw)
+        from PySide6.QtGui import QIcon
+        self.setWindowIcon(QIcon())
+
+    def showEvent(self, ev):  # noqa: N802
+        # başlık çubuğu rengi: stil sayfası paleti ezdiği için gösterimde uygula
+        from PySide6.QtGui import QPalette
+        pal = self.palette()
+        for grp in (QPalette.Active, QPalette.Inactive):
+            pal.setColor(grp, QPalette.Highlight, QColor("#1b4a73"))
+            pal.setColor(grp, QPalette.HighlightedText, QColor("#ffffff"))
+            pal.setColor(grp, QPalette.Window, QColor("#2a4a6b"))
+            pal.setColor(grp, QPalette.WindowText, QColor("#ffffff"))
+            pal.setColor(grp, QPalette.Text, QColor("#ffffff"))
+        self.setPalette(pal)
+        super().showEvent(ev)
 
     def closeEvent(self, ev):  # noqa: N802
         self.closed.emit(self)
@@ -141,7 +175,7 @@ class MathDialog(QDialog):
         self.row_win = (QLabel("Pencere"), self.window)
         form.addRow(*self.row_win)
         self.error = QLabel("")
-        self.error.setStyleSheet("color:#C22A1D;")
+        self.error.setStyleSheet("color:#ff6b6b;")
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         bb.button(QDialogButtonBox.Ok).setText("Kaydet")
         bb.button(QDialogButtonBox.Cancel).setText("Vazgeç")
@@ -317,22 +351,22 @@ class WorkspaceTab(QWidget):
         self.tree.itemDoubleClicked.connect(self._on_dbl)
         self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self._on_tree_menu)
-        self.browser_hint = QLabel("Çift tıkla: etkin panele ekle · Sağ tık: seçenekler")
-        self.browser_hint.setStyleSheet("color:#7E8E9C; font-size:11px;")
-        self.browser_hint.setWordWrap(True)
+        self.browser_hint = QLabel("")
+        self.browser_hint.setVisible(False)
         left = QWidget()
         ll = QVBoxLayout(left)
         ll.setContentsMargins(0, 0, 4, 0)
         title = QLabel("Sinyaller")
-        title.setStyleSheet("font-weight:800;")
+        title.setObjectName("cardTitle")
         ll.addWidget(title)
         ll.addWidget(self.search)
         ll.addWidget(self.tree, 1)
         ll.addWidget(self.browser_hint)
 
+        _apply_mdi_palette()
         self.mdi = QMdiArea()
         self.mdi.setViewMode(QMdiArea.SubWindowView)
-        self.mdi.setBackground(QColor("#E4EAF0"))
+        self.mdi.setBackground(QColor("#08121f"))
         split = QSplitter(Qt.Horizontal)
         split.addWidget(left)
         split.addWidget(self.mdi)
@@ -529,11 +563,11 @@ class WorkspaceTab(QWidget):
 
     def _update_state_label(self):
         if self.frozen:
-            self.state_label.setText("● DONDURULDU — veri arka planda kaydediliyor")
-            self.state_label.setStyleSheet("color:#B9790F; font-weight:700;")
+            self.state_label.setText("● DONDURULDU")
+            self.state_label.setStyleSheet("color:#f0b04a; font-weight:700;")
         else:
             self.state_label.setText("● CANLI")
-            self.state_label.setStyleSheet("color:#1B8A4C; font-weight:700;")
+            self.state_label.setStyleSheet("color:#4ade80; font-weight:700;")
 
     # ====================================================================
     # Sinyal tarayıcı

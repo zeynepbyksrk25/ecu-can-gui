@@ -340,6 +340,13 @@ class GaugeWidget(QWidget):
         painter.drawText(QRectF(0, cy + 70, self._DESIGN_W, 20), Qt.AlignHCenter | Qt.AlignVCenter, self._label)
 
 
+class DarkGauge(GaugeWidget):
+    """GaugeWidget'ın koyu temalı varyantı (Performans / Çalışma Alanı)."""
+    ZONES = [(0.0, 1.0, "#35c6f4")]
+    C_ARC, C_TICK, C_NEEDLE, C_SCALE, C_PILL, C_VALUE, C_UNIT, C_LABEL = (
+        "#1a3049", "#4d6a86", "#e8f0f8", "#8fa6bd", "#0a1626", "#ffffff", "#8fa6bd", "#cfe0f1")
+
+
 # ===========================================================================
 # Ana Sayfa koyu gösterge
 # ===========================================================================

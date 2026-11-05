@@ -101,3 +101,12 @@ def test_graph_performance_dark_no_captions():
     assert "geri okunuşu" not in "".join(b.toolTip() for b in w.performance_tab._flight_boxes.values())
     assert w.graph_tab._tiles[0].crosshair_label.text() == ""
     w.close()
+
+
+def test_workspace_and_control_panel_dark():
+    from app.ui.main_window import MainWindow
+    w = MainWindow()
+    assert w.workspace_tab in w._dark_pages and w.control_panel_tab in w._dark_pages
+    assert w.workspace_tab.browser_hint.isVisible() is False
+    assert "Uygula'ya basınca" not in w.control_panel_tab.effects_title.text()
+    w.close()
