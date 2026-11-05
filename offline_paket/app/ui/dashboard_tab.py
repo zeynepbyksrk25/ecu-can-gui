@@ -184,6 +184,11 @@ def _format_scale_number(value: float) -> str:
     return f"{value:g}"
 
 
+# Gerçek sensör arıza kaynağı bağlanana dek False: arayüz "Arıza yok" (yeşil)
+# demek yerine "izlenmiyor" (gri) gösterir — sahte güvence vermemek için.
+SENSOR_MONITORING_AVAILABLE = False
+
+
 def get_sensor_status(sensor_name: str, check_name: str) -> tuple:
     """Sensör Durumu ve Arıza Tablosu'ndaki TEK bir hücrenin durumunu
     döndürür: (ok: bool, text: str).
@@ -710,7 +715,7 @@ class DashboardTab(QWidget):
         cap = QLabel("Sensör sağlığı")
         cap.setStyleSheet("color:#5B6B79; font-size:12px; font-weight:700;")
         row.addWidget(cap)
-        self._sensor_pill = QLabel("Arıza yok")
+        self._sensor_pill = QLabel("İzlenmiyor")
         row.addWidget(self._sensor_pill)
         self._sensor_fault_box = row
         row.addStretch(1)
@@ -742,6 +747,12 @@ class DashboardTab(QWidget):
                 lbl.setStyleSheet("color:#B3261E; font-size:12px; background:transparent;")
                 self._sensor_fault_box.insertWidget(self._sensor_fault_box.count() - 1, lbl)
                 self._sensor_fault_labels.append(lbl)
+        elif not SENSOR_MONITORING_AVAILABLE:
+            self._sensor_pill.setText("İzlenmiyor")
+            self._sensor_pill.setToolTip("Sensör arıza bitleri henüz bir DBC/A2L kaynağına bağlı değil.")
+            self._sensor_pill.setStyleSheet(
+                "background:#ECEFF1; color:#5F6B76; border-radius:8px; padding:1px 8px;"
+                " font-size:11px; font-weight:700;")
         else:
             self._sensor_pill.setText("Arıza yok")
             self._sensor_pill.setStyleSheet(
@@ -992,6 +1003,25 @@ class DashboardTab(QWidget):
                 (row["override_checkbox"] or row["control"]).setChecked(False)
         cmd.channel = channel
         self.config_saved.emit(self.config)
+
+    def reset_actuators_unknown(self):
+        """Bağlantı kapandı: ECU'daki override durumu BİLİNMİYOR. Anahtarları
+        komut göndermeden kapalıya çeker ve 'Bilinmiyor' gösterir; böylece UI
+        'KAPALI' diyerek yanlış güvence vermez, tekrar açmak yeni onay ister."""
+        for key, row in self.actuator_rows.items():
+            widget = row["override_checkbox"] if ACTUATOR_KINDS[key] == "valve" else row["control"]
+            if hasattr(widget, "setChecked"):
+                widget.blockSignals(True)
+                widget.setChecked(False)
+                widget.blockSignals(False)
+            if ACTUATOR_KINDS[key] == "valve":
+                row["control"].setEnabled(False)
+            was_armed = self._actuator_armed.get(key)
+            self._actuator_armed[key] = False
+            self._mark_actuator_armed(key, False)
+            if was_armed:
+                self.set_actuator_feedback(key, "Bilinmiyor (bağlantı kapandı)")
+        self._override_confirmed_session = False
 
     def _mark_actuator_armed(self, key: str, armed: bool):
         lbl = self._actuator_labels.get(key)

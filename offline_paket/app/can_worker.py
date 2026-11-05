@@ -30,6 +30,9 @@ _PCAN_BUS_LEVEL_BITS = (
 RX_ERROR_STREAK_LIMIT = 3
 
 
+RX_QUEUE_MAX = 50000
+CCP_QUEUE_MAX = 2000
+
 class CanConnection:
     """Tek bir CAN bus bağlantısını yönetir.
 
@@ -42,14 +45,17 @@ class CanConnection:
         self.bus: can.BusABC | None = None
         self._recv_thread: threading.Thread | None = None
         self._stop_event = threading.Event()
-        self.rx_queue: "queue.Queue[can.Message]" = queue.Queue()
+        # Sınırlı kuyruk: UI takılırsa bellek sonsuz büyümesin. Taşan kareler
+        # düşürülür ve sayılır (dropped_frames) — sessiz kayıp olmasın.
+        self.rx_queue: "queue.Queue[can.Message]" = queue.Queue(maxsize=RX_QUEUE_MAX)
+        self.dropped_frames = 0
         # CCP/CAL katmanı aynı fiziksel bus'ı paylaşır; tek RX thread her
         # mesajı okuyup CCP DTO ID'sine uyanları da (rx_queue'ya EK olarak)
         # bu kuyruğa yazar. İki ayrı thread'in aynı bus.recv()'i yarışarak
         # çağırması mesaj kaybına yol açacağı için CCP kendi Notifier'ını
         # AÇMAZ, bu kuyruğu okur (bkz. app/ccp/client.py).
         self.ccp_dto_id: int | None = None
-        self.ccp_queue: "queue.Queue[can.Message]" = queue.Queue()
+        self.ccp_queue: "queue.Queue[can.Message]" = queue.Queue(maxsize=CCP_QUEUE_MAX)
 
         # Bağlantı kopması tespiti için alım döngüsünün hata sayaçları.
         self.rx_error_streak = 0
@@ -165,6 +171,12 @@ class CanConnection:
             self.rx_error_streak = 0  # hatasız bir okuma (mesaj ya da temiz zaman aşımı)
             if msg is not None:
                 msg.timestamp = time.time()
-                self.rx_queue.put(msg)
+                try:
+                    self.rx_queue.put_nowait(msg)
+                except queue.Full:
+                    self.dropped_frames += 1
                 if self.ccp_dto_id is not None and msg.arbitration_id == self.ccp_dto_id:
-                    self.ccp_queue.put(msg)
+                    try:
+                        self.ccp_queue.put_nowait(msg)
+                    except queue.Full:
+                        self.dropped_frames += 1

@@ -14,6 +14,7 @@ Gerçek CCP okuması / CAN gönderimi burada YAPILMAZ; MainWindow'a sinyal veril
 from __future__ import annotations
 
 import json
+import logging
 import os
 
 from PySide6.QtCore import QPoint, QRect, Qt, QTimer, Signal
@@ -102,8 +103,10 @@ class _Float(QWidget):
     closed = Signal(object)
     dock_requested = Signal(object)
 
-    def __init__(self, panel, title: str):
-        super().__init__(None, Qt.Window)
+    def __init__(self, panel, title: str, owner=None):
+        # owner verilirse pencere ana pencerenin "sahip olduğu" üst düzey pencere
+        # olur: ana pencerenin arkasında kaybolmaz, birlikte küçülür/kapanır.
+        super().__init__(owner, Qt.Window)
         self.panel = panel
         self.mdi_geom = None            # geri yerleştirirken kullanılacak MDI konumu
         self.setWindowTitle(title)
@@ -429,11 +432,20 @@ class WorkspaceTab(QWidget):
                 self.hub.push(f"dbc:{name}.{s}", decoded[s])
 
     def shutdown(self):
-        self._autosave(force=True)
+        try:
+            self._autosave(force=True)
+        except Exception:  # noqa: BLE001
+            logging.getLogger(__name__).exception("workspace son kayıt hatası")
         for sub in list(self._subs.values()):
             if isinstance(sub, _Float):
-                sub.closed.disconnect()
-                sub.close()
+                try:
+                    sub.closed.disconnect()
+                except (RuntimeError, TypeError):
+                    pass
+                try:
+                    sub.close()
+                except RuntimeError:
+                    pass
 
     # ====================================================================
     # Zamanlayıcı
@@ -452,9 +464,15 @@ class WorkspaceTab(QWidget):
             names = sorted(s.split(":", 1)[1] for s in self.hub.sources_needed() if kind_of(s) == "a2l")
             if names:
                 self.read_requested.emit(names)
-        if self.isVisible():
-            span = self._span()
-            for p in self._panels:
+        tab_visible = self.isVisible()
+        span = self._span()
+        for p in self._panels:
+            holder = self._subs.get(p)
+            # Ayrılmış paneller ayrı pencerede görünür kaldığı sürece (başka sekme
+            # seçili olsa bile) canlı güncellenmeye devam eder.
+            floating_visible = (isinstance(holder, _Float) and holder.isVisible()
+                                and not holder.isMinimized())
+            if tab_visible or floating_visible:
                 p.refresh(span, self.frozen)
 
     # ====================================================================
@@ -512,13 +530,17 @@ class WorkspaceTab(QWidget):
 
     @staticmethod
     def _visible_geometry(geom):
-        """Kayıtlı ekran konumu artık geçerli bir ekranda değilse birincil ekrana al."""
+        """Kayıtlı konumu geçerli bir ekrana sığdırır: ekran yoksa (ör. ikinci
+        monitör takılı değil) birincil ekrana alır; pencere ekrandan büyükse
+        küçültür ve tamamen görünür olacak şekilde kaydırır."""
         x, y, w, h = [int(v) for v in geom]
-        if QGuiApplication.screenAt(QPoint(x + 20, y + 20)) is None:
-            scr = QGuiApplication.primaryScreen()
-            if scr is not None:
-                a = scr.availableGeometry()
-                x, y = a.x() + 60, a.y() + 60
+        scr = QGuiApplication.screenAt(QPoint(x + 20, y + 20)) or QGuiApplication.primaryScreen()
+        if scr is None:
+            return QRect(x, y, w, h)
+        a = scr.availableGeometry()
+        w, h = max(240, min(w, a.width())), max(160, min(h, a.height()))
+        x = min(max(x, a.x()), a.x() + a.width() - w)
+        y = min(max(y, a.y()), a.y() + a.height() - h)
         return QRect(x, y, w, h)
 
     def _detach(self, panel, geometry=None):
@@ -527,7 +549,7 @@ class WorkspaceTab(QWidget):
             return
         mdi_geom = sub.geometry()
         title = sub.windowTitle()
-        fl = _Float(panel, title)
+        fl = _Float(panel, title, owner=self.window())
         fl.mdi_geom = mdi_geom
         panel.setParent(fl)               # panel MDI alt penceresiyle birlikte silinmesin
         fl.layout().addWidget(panel, 1)
@@ -575,6 +597,10 @@ class WorkspaceTab(QWidget):
         self._counter = {k: 0 for k in PANEL_TYPES}
 
     def active_panel(self):
+        # Ayrı pencerelerden biri etkinse (odak onda) hedef o panel olur.
+        for p, holder in self._subs.items():
+            if isinstance(holder, _Float) and holder.isActiveWindow() and p in self._panels:
+                return p
         sub = self.mdi.activeSubWindow()
         w = sub.widget() if sub is not None else None
         return w if w in self._panels else None

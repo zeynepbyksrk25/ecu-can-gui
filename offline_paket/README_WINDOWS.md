@@ -232,6 +232,16 @@ Sol menüde **Çalışma Alanı**. Tek ekranda istediğiniz pencereleri kurarsı
 - **⧉ Paneli ayır:** seçili paneli (başlığına tıklayıp) uygulamanın dışında ayrı bir pencereye alır; ikinci monitöre taşıyabilirsiniz. Ayrı penceredeki **Çalışma alanına geri yerleştir** düğmesi geri getirir. Ayrılmış pencereler konumlarıyla birlikte yerleşime kaydedilir.
 - **Kaydı temizle:** veriyi siler, zamanı 0'a alır. **CSV'ye aktar / CSV aç:** kayıtları dışa/içe aktarır; eski bir kaydı yenisiyle üst üste çizip karşılaştırabilirsiniz.
 
+## Güvenli yazma ve kararlılık notları
+- **Yazma doğrulaması:** Her kalibrasyon yazımı önce doğrulanır (sonlu sayı, veri tipi aralığı, A2L alt/üst sınırı, READ_ONLY) ve yazdıktan sonra ECU'dan geri okunup karşılaştırılır. Dönüşüm (COMPU_METHOD) çevrilemiyorsa hiçbir şey yazılmaz.
+- **Tablo (harita) yazımı:** Önce ECU'daki mevcut içerik okunur ve `tablo_yedekleri/` klasörüne JSON olarak yedeklenir; yazma ya da doğrulama başarısız olursa eski içerik geri yazılır. FIX_AXIS dışındaki eksen türlerinde (STD/COM/RES/CURVE_AXIS) bellek yerleşimi doğrulanmadığından **yazma reddedilir** (okuma serbest).
+- **CCP yeniden deneme:** Bellek işaretçisini ilerleten komutlar (DNLOAD/UPLOAD/PROGRAM) cevap kaybolsa bile tekrar gönderilmez; okuma SHORT_UP ile yapılır ve güvenle tekrarlanır.
+- **ECU susarsa:** CCP okumaları arka planda yapılır; ECU yanıt vermezse arayüz donmaz ve CAN'a giden periyodik giriş çerçeveleri durmaz. Okumalar birkaç saniye duraklatılır, durum çubuğunda belirtilir.
+- **Override'lar:** Bağlantı kapanırken ECU'da açık kalan eyleyici override'ları bırakılmaya çalışılır; bırakılamazsa HATA olarak loglanır ve arayüz "Bilinmiyor" gösterir. "Tüm override'ları kapat" hiçbir rol gerektirmez.
+- **Rol yükseltme** onay ister; profil kaydetme/silme rol gerektirir ve üzerine yazma/silme onaylanır. (Roller kimlik doğrulama değil, kaza önleme amaçlıdır.)
+- **Günlük:** Beklenmeyen hatalar `openecu.log` dosyasına yazılır ve ekranda gösterilir. Aynı veri klasörünü iki program kopyası birlikte kullanamaz.
+- **Testler:** `python -m pytest tests -q` (geliştirme ortamında; `pytest`, `PySide6`, `pya2ldb`, `python-can` gerekir).
+
 ## Sorun giderme: .bat dosyasına çift tıklayınca bir şey olmuyorsa
 - Dosyayı zip'ten **çıkarıp** klasör olarak açtıktan sonra çalıştırın (zip içinden çalışmaz).
 - Pencere hemen kapanıyorsa Başlat menüsünden "cmd" açıp klasöre gidin ve dosya adını yazıp Enter'a basın; hata ekranda kalır.

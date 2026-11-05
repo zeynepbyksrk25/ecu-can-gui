@@ -159,6 +159,14 @@ class CCPTab(QWidget):
         return box
 
     def refresh_objects(self):
+        # Yeni A2L yüklendi: eski nesne (eski adres!) seçili kalmamalı; aksi
+        # halde Yaz/Oku düğmeleri önceki revizyonun adresini kullanırdı.
+        self._selected = None
+        self.poll_checkbox.setChecked(False)
+        self.poll_checkbox.setEnabled(False)
+        self.read_button.setEnabled(False)
+        self.flash_enable_checkbox.setChecked(False)
+        self._set_write_enabled(False)
         self.tree.clear()
         if self.a2l_db is None or self.a2l_db.summary is None:
             return
@@ -304,8 +312,15 @@ class CCPTab(QWidget):
             self.poll_timer.stop()
 
     def _on_write_flash_clicked(self):
+        sel = self._selected[1] if self._selected else None
+        what = ""
+        if sel is not None:
+            addr = getattr(sel, "address", None)
+            what = (f"Nesne: {sel.name}\nAdres: {('0x%X' % addr) if addr is not None else '-'}\n"
+                    f"Yeni değer: {self.entered_value_text()} {getattr(sel, 'unit', '') or ''}\n\n")
         confirm = QMessageBox.warning(
             self, "KALICI (FLAŞ) YAZMA — devam edilsin mi?",
+            what +
             "Bu işlem seçili değeri ECU'nun KALICI (flaş) belleğine "
             "yazacak; RAM yazmadan farklı olarak güç kesilse bile kalır.\n\n"
             "M220'nin gerçek flaş programlama akışı bu uygulamada "
@@ -324,6 +339,9 @@ class CCPTab(QWidget):
             self.open_in_map_editor_requested.emit(self._selected[1])
 
     def _on_item_clicked(self, item: QTreeWidgetItem, _column: int):
+        # Seçim değişince flaş "etkinleştir" kutusu sıfırlanır: önceki nesne
+        # için verilen izin yeni nesneye taşınmasın.
+        self.flash_enable_checkbox.setChecked(False)
         payload = item.data(0, ROLE_OBJECT)
         if payload is None:
             self._selected = None
@@ -375,5 +393,7 @@ class CCPTab(QWidget):
         self.value_display.setText(text)
 
     def set_write_result(self, ok: bool, message: str):
+        # Her yazma denemesinden sonra flaş izni kapanır (tek seferlik izin).
+        self.flash_enable_checkbox.setChecked(False)
         self.op_status_label.setText(message)
         self.op_status_label.setStyleSheet("color: green;" if ok else "color: #b00020;")

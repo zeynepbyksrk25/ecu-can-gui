@@ -1389,6 +1389,7 @@ class ControlPanelTab(QWidget):
         else:
             st["live"] = value
         st["error"] = ""
+        st["t_live"] = time.monotonic()
         self._dirty.add(key)
 
     def set_ccp_error(self, key: str, message: str):
@@ -1400,14 +1401,26 @@ class ControlPanelTab(QWidget):
         if self._ccp_connected and not self._lost and self.isVisible() and self.ccp_poll_targets():
             self.poll_requested.emit()
 
+    STALE_SECONDS = 3.0
+
     def _on_ui_tick(self):
         now = time.monotonic()
         for key, (t, r) in list(self._rows.items()):
             st = self._st(key)
+            # Bayat değer "canlı" gibi kalmasın: CCP kopmuş/ECU susmuşsa temizle.
+            t_live = st.get("t_live")
+            if t_live is not None and (now - t_live > self.STALE_SECONDS
+                                       or not self._ccp_connected or self._lost):
+                if st["live"] is not None or st["seen"] is not None:
+                    st["live"] = None
+                    st["seen"] = None
+                    self._dirty.add(key)
             if t.role in (ROLE_OUTPUT, ROLE_INTERNAL) and st["live"] is not None:
                 st["hist"].append((now, st["live"]))
             while st["hist"] and now - st["hist"][0][0] > HIST_SECONDS:
                 st["hist"].popleft()
+        if not self.isVisible():
+            return                      # gizli sekmede satırları boşuna yenileme
         keys = set(self._dirty)
         self._dirty.clear()
         for key, (t, r) in self._rows.items():
@@ -1529,7 +1542,7 @@ class ControlPanelTab(QWidget):
         if allowed != self._can_allowed:
             self._can_allowed = allowed
             self._rebuild_tables()
-        self.kill_button.setEnabled(allowed)
+        self.kill_button.setEnabled(True)   # güvenlik amaçlı bırakma: rol gerektirmez
 
     def set_tx_running(self, names: set, paused: bool = False):
         self._tx_running = set(names)

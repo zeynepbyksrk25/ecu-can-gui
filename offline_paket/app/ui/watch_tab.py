@@ -738,7 +738,8 @@ class WatchTab(QWidget):
                 self._entries[i] = self._unresolved(e.name, e.kind)
                 continue
             fresh = self._entry_from_a2l(e.kind, obj)
-            fresh.pending_text = e.pending_text if not fresh.read_only else None
+            same_target = (fresh.address == e.address and fresh.datatype == e.datatype)
+            fresh.pending_text = e.pending_text if (not fresh.read_only and same_target) else None
             self._entries[i] = fresh
         self._rebuild_table()
 

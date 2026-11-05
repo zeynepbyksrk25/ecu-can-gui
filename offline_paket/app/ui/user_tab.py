@@ -58,9 +58,27 @@ class UserTab(QWidget):
         box.setLayout(outer)
         return box
 
+    _RANK = {Role.OPERATOR: 0, Role.ENGINEER: 1, Role.ADMIN: 2}
+
     def _on_apply_role(self):
         name = self.user_edit.text().strip() or "bilinmeyen"
         role: Role = self.role_combo.currentData()
+        current = getattr(self, "_current_role", Role.OPERATOR)
+        # Yetki YÜKSELTME bilinçli bir adım olmalı (combo'da kazara seçim).
+        if self._RANK[role] > self._RANK[current]:
+            extra = ("RAM'e kalibrasyon, harita yazma, ham tanı komutu ve eyleyici override"
+                     if role == Role.ENGINEER else
+                     "yukarıdakilere ek olarak KALICI (flaş) yazma")
+            ans = QMessageBox.question(
+                self, "Yetki yükseltme",
+                f"'{role.value}' rolüne geçiliyor. Bu rol {extra} işlemlerini açar ve ECU'ya "
+                f"zarar verebilir. İşlemler denetim günlüğüne '{name}' adıyla kaydedilir.\n\n"
+                f"Devam edilsin mi?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+            )
+            if ans != QMessageBox.Yes:
+                return
+        self._current_role = role
         self.role_applied.emit(name, role.value)
         self.current_label.setText(f"Aktif: {name} ({role.value})")
 

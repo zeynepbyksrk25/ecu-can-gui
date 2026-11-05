@@ -1,3 +1,4 @@
+import logging
 import os
 import queue
 import time
@@ -17,6 +18,7 @@ from app.ccp import codec as ccp_codec
 from app.ccp import mapio as ccp_mapio
 from app.ccp import protocol as ccp_protocol
 from app.ccp.client import CCPClient
+from app.ccp_poll import CcpReadPool
 from app import control_panel as cpanel
 from app.ui.control_panel_tab import ControlPanelTab
 from app.ui.performance_tab import PerformanceTab
@@ -39,7 +41,7 @@ from app.ui.tanilama_tab import TanilamaTab
 from app.ui.user_tab import UserTab
 from app.ui.watch_tab import parse_value_text
 from app.user_roles import (
-    Role, can_override_actuator, can_run_diagnostics, can_write_calibration,
+    Role, can_manage_profiles, can_override_actuator, can_run_diagnostics, can_write_calibration,
     can_write_flash,
 )
 
@@ -64,6 +66,10 @@ class MainWindow(QMainWindow):
         self.can_logger = CanLogger()
         self._logged_count = 0
         self.ccp_client: CCPClient | None = None
+        # CCP okumaları UI thread'ini bloklamasın (bkz. app/ccp_poll.py).
+        self._active_overrides: dict = {}   # actuator_key -> son değer (ECU'da açık override'lar)
+        self.ccp_pool = CcpReadPool(self)
+        self.ccp_pool.unresponsive_changed.connect(self._on_ccp_unresponsive)
         self.event_log = EventLog(file_path=data_path("audit_log.txt"))
         # calibration_history diske de kalıcı yazılır: FLAŞ yazımlarının,
         # uygulama kapansa/yeniden başlasa bile eski değerine geri
@@ -574,10 +580,33 @@ class MainWindow(QMainWindow):
             self._resume_ccp_after_reconnect = False
             QTimer.singleShot(CCP_AUTO_CONNECT_DELAY_MS, self._auto_ccp_connect)
 
+    def _release_overrides_on_teardown(self, graceful: bool):
+        """Bağlantı kapanırken ECU'da açık kalmış eyleyici override'larını
+        bırakmayı dener (graceful) ve her durumda arayüzü 'bilinmiyor'a çeker.
+        Bırakılamayanlar HATA olarak loglanır ve kullanıcıya gösterilir."""
+        keys = list(self._active_overrides)
+        if not keys:
+            return
+        if graceful:
+            for k in keys:
+                try:
+                    self._send_actuator_override(k, False, 0.0)
+                except Exception:  # noqa: BLE001
+                    pass
+        remaining = [k for k in keys if k in self._active_overrides]
+        if remaining:
+            from app.dashboard_config import ACTUATOR_LABELS
+            names = ", ".join(ACTUATOR_LABELS.get(k, k) for k in remaining)
+            self._log_event("HATA", f"Bağlantı kapandı; ECU'da şu override'lar AÇIK kalmış olabilir: {names}")
+            self.statusBar().showMessage(f"UYARI: override açık kalmış olabilir: {names}", 15000)
+        self._active_overrides.clear()
+        self.dashboard_tab.reset_actuators_unknown()
+
     def _teardown_connection(self, graceful: bool = True):
         """CAN bağlantısına bağlı her şeyi kapatır. graceful=False: adaptör
         gitmiş olduğu için CCP DISCONNECT gibi bus'a yazan adımlar ATLANIR
         (aksi halde zaman aşımlarında arayüz bloklanırdı)."""
+        self._release_overrides_on_teardown(graceful)
         if self.ccp_client is not None:
             if graceful:
                 self._on_ccp_disconnect()
@@ -717,12 +746,18 @@ class MainWindow(QMainWindow):
         self._after_connected(interface, channel, bitrate, reconnected=True)
 
     # ---- Alım (Receive) -----------------------------------------------
+    RX_DRAIN_MAX_FRAMES = 400     # tek tick'te işlenecek en çok kare
+    RX_DRAIN_MAX_SECONDS = 0.015  # ... ve en çok bu kadar süre (UI donmasın)
+
     def _drain_rx_queue(self):
-        while True:
+        deadline = time.monotonic() + self.RX_DRAIN_MAX_SECONDS
+        n = 0
+        while n < self.RX_DRAIN_MAX_FRAMES and time.monotonic() < deadline:
             try:
                 msg = self.connection.rx_queue.get_nowait()
             except queue.Empty:
                 break
+            n += 1
             self.monitor_tab.add_message(msg, direction="RX")
             self.control_panel_tab.on_can_frame(msg.arbitration_id, bytes(msg.data))
             self.performance_tab.on_can_frame(msg.arbitration_id, bytes(msg.data))
@@ -731,7 +766,8 @@ class MainWindow(QMainWindow):
                 self.can_logger.write(msg.timestamp, msg.arbitration_id, msg.dlc,
                                        msg.data, msg.is_extended_id)
                 self._logged_count += 1
-                self.log_tab.set_count(self._logged_count)
+        if n and self.can_logger.is_active:
+            self.log_tab.set_count(self._logged_count)
 
     # ---- Gönderim -------------------------------------------------------
     def _on_manual_send(self, can_id: int, data: bytes, extended: bool):
@@ -821,6 +857,7 @@ class MainWindow(QMainWindow):
             return False
 
         self.ccp_client = client
+        self.ccp_pool.reset()
         self._watch_fail_streak = 0
         self.ccp_tab.set_connected(True, f"(CCP v{major}.{minor})")
         self.watch_tab.set_connected(True)
@@ -1231,26 +1268,31 @@ class MainWindow(QMainWindow):
             self.watch_tab.set_write_result(False, "Yazılacak (değeri değiştirilmiş) satır yok.")
 
     # ---- Grafik (canlı Measurement çizimi) ---------------------------------
+    def _poll_items(self, names: list):
+        """Ölçüm adlarını [(ad, MeasurementInfo)] listesine çevirir (adresi olanlar)."""
+        summary = self.a2l_tab.db.summary
+        if summary is None:
+            return []
+        by_name = {m.name: m for m in summary.measurements}
+        return [(n, by_name[n]) for n in names if n in by_name and by_name[n].address is not None]
+
+    def _on_ccp_unresponsive(self, flag: bool):
+        if flag:
+            self._log_event("CCP", "ECU CCP isteklerine yanıt vermiyor; okuma kısa süre durduruldu.")
+            self.statusBar().showMessage("CCP: ECU yanıt vermiyor — okumalar duraklatıldı", 5000)
+        else:
+            self._log_event("CCP", "ECU yeniden yanıt veriyor.")
+
     def _on_graph_tick(self, names: list):
         if self.ccp_client is None:
             return
-        summary = self.a2l_tab.db.summary
-        if summary is None:
-            return
-        by_name = {m.name: m for m in summary.measurements}
-        for name in names:
-            m = by_name.get(name)
-            if m is None or m.address is None:
-                continue
+
+        def sink(name, value):
             try:
-                size = ccp_codec.datatype_size(m.datatype)
-                raw_bytes = self.ccp_client.read_memory(m.address, size, m.address_extension or 0)
-                raw_value = ccp_codec.decode_value(m.datatype, raw_bytes, m.byte_order)
-                phys_value = ccp_codec.raw_to_physical(m.compu_method, raw_value)
-            except (ccp_protocol.CCPError, ccp_protocol.CCPTimeoutError,
-                    ccp_codec.UnknownDatatypeError, ValueError):
-                continue
-            self.graph_tab.append_sample(name, float(phys_value))
+                self.graph_tab.append_sample(name, float(value))
+            except (TypeError, ValueError):
+                pass
+        self.ccp_pool.submit("graph", self.ccp_client, self._poll_items(names), sink)
 
     # ---- Diagnostics --------------------------------------------------------
     def _on_diag_test_requested(self):
@@ -1397,26 +1439,12 @@ class MainWindow(QMainWindow):
         self.workspace_tab.set_a2l_measurements(summary.measurements if summary is not None else [])
 
     def _on_workspace_tick(self, names: list):
-        """Çalışma Alanı'nda seçili A2L ölçümlerini CCP ile okuyup hub'a yazar."""
+        """Çalışma Alanı'nda seçili A2L ölçümlerini CCP ile (arka planda) okuyup hub'a yazar."""
         if self.ccp_client is None:
             return
-        summary = self.a2l_tab.db.summary
-        if summary is None:
-            return
-        by_name = {m.name: m for m in summary.measurements}
-        for name in names:
-            m = by_name.get(name)
-            if m is None or m.address is None:
-                continue
-            try:
-                size = ccp_codec.datatype_size(m.datatype)
-                raw_bytes = self.ccp_client.read_memory(m.address, size, m.address_extension or 0)
-                raw_value = ccp_codec.decode_value(m.datatype, raw_bytes, m.byte_order)
-                phys_value = ccp_codec.raw_to_physical(m.compu_method, raw_value)
-            except (ccp_protocol.CCPError, ccp_protocol.CCPTimeoutError,
-                    ccp_codec.UnknownDatatypeError, ValueError):
-                continue
-            self.workspace_tab.push(f"a2l:{name}", phys_value)
+        self.ccp_pool.submit(
+            "workspace", self.ccp_client, self._poll_items(names),
+            lambda name, value: self.workspace_tab.push(f"a2l:{name}", value))
 
     def _sync_dashboard_measurements(self):
         summary = self.a2l_tab.db.summary
@@ -1430,31 +1458,24 @@ class MainWindow(QMainWindow):
             return
         from app.dashboard_config import AMBIENT_KEYS, GAUGE_KEYS
 
-        by_name = {m.name: m for m in summary.measurements}
         name_to_key = {v: k for k, v in self.dashboard_tab.config.measurement_map().items()}
         graph_names = set(self.dashboard_tab.graph_measurement_names())
-        for name in names:
-            m = by_name.get(name)
+        wanted = [n for n in names if name_to_key.get(n) is not None or n in graph_names]
+        items = self._poll_items(wanted)
+        by_name = dict(items)
+
+        def sink(name, phys_value):
+            m = by_name[name]
             key = name_to_key.get(name)
-            graph_wanted = name in graph_names
-            if m is None or m.address is None or (key is None and not graph_wanted):
-                continue
-            try:
-                size = ccp_codec.datatype_size(m.datatype)
-                raw_bytes = self.ccp_client.read_memory(m.address, size, m.address_extension or 0)
-                raw_value = ccp_codec.decode_value(m.datatype, raw_bytes, m.byte_order)
-                phys_value = ccp_codec.raw_to_physical(m.compu_method, raw_value)
-            except (ccp_protocol.CCPError, ccp_protocol.CCPTimeoutError,
-                    ccp_codec.UnknownDatatypeError, ValueError):
-                continue
-            if graph_wanted and isinstance(phys_value, (int, float)):
+            if name in graph_names and isinstance(phys_value, (int, float)):
                 self.dashboard_tab.add_measurement_sample(name, float(phys_value))
             if key in GAUGE_KEYS:
                 self.dashboard_tab.set_gauge_value(key, float(phys_value))
             elif key in AMBIENT_KEYS:
                 unit = f" {m.unit}" if m.unit else ""
-                text = f"{phys_value:.4g}{unit}" if isinstance(phys_value, float) else f"{phys_value}{unit}"
+                text = f"{phys_value:.6g}{unit}" if isinstance(phys_value, float) else f"{phys_value}{unit}"
                 self.dashboard_tab.set_ambient_value(key, text)
+        self.ccp_pool.submit("dashboard", self.ccp_client, items, sink)
 
     # ---- Eyleyiciler (manuel override) --------------------------------------
     def _send_actuator_override(self, actuator_key: str, enable: bool, value: float):
@@ -1468,17 +1489,17 @@ class MainWindow(QMainWindow):
         cmd = self.dashboard_tab.config.actuators.get(actuator_key)
         label = ACTUATOR_LABELS.get(actuator_key, actuator_key)
         if cmd is not None and cmd.channel == "a2l":
-            self._send_actuator_override_a2l(actuator_key, cmd, label, enable, value)
-            return
+            return self._send_actuator_override_a2l(actuator_key, cmd, label, enable, value)
         if cmd is None or not cmd.message or not cmd.enable_signal:
             self.dashboard_tab.set_actuator_feedback(actuator_key, "DBC eşlemesi tanımsız")
-            return
+            return False
         if not self.connection.is_connected:
-            QMessageBox.warning(
-                self, "CAN bağlantısı yok",
-                f"{label} override göndermeden önce Bağlantı grubundan CAN hattına bağlanın."
-            )
-            return
+            if enable or actuator_key not in self._active_overrides:
+                QMessageBox.warning(
+                    self, "CAN bağlantısı yok",
+                    f"{label} override göndermeden önce Bağlantı grubundan CAN hattına bağlanın."
+                )
+            return False
         values = {cmd.enable_signal: 1.0 if enable else 0.0}
         if cmd.value_signal:
             values[cmd.value_signal] = value
@@ -1488,7 +1509,11 @@ class MainWindow(QMainWindow):
         except Exception as exc:  # cantools/python-can çeşitli hata tipleri fırlatabilir
             QMessageBox.critical(self, f"{label} override gönderilemedi", str(exc))
             self._log_event("HATA", f"{label} override gönderilemedi: {exc}")
-            return
+            return False
+        if enable:
+            self._active_overrides[actuator_key] = value
+        else:
+            self._active_overrides.pop(actuator_key, None)
         sent_msg = can.Message(arbitration_id=can_id, data=data, is_extended_id=extended,
                                 timestamp=time.time())
         self.monitor_tab.add_message(sent_msg, direction="TX")
@@ -1500,16 +1525,18 @@ class MainWindow(QMainWindow):
             "EYLEYICI",
             f"{label}: {state_text} ({self.current_user}/{self.current_role.value})"
         )
+        return True
 
     def _send_actuator_override_a2l(self, actuator_key, cmd, label, enable, value):
         """A2L kanalı: override-enable ve değer değişkenlerini CCP ile yazar."""
         if not cmd.a2l_enable:
             self.dashboard_tab.set_actuator_feedback(actuator_key, "A2L eşlemesi tanımsız")
-            return
+            return False
         if self.ccp_client is None:
-            QMessageBox.warning(self, "CCP bağlı değil",
-                                f"{label} A2L üzerinden yazılmadan önce CCP bağlantısı kurun.")
-            return
+            if enable or actuator_key not in self._active_overrides:
+                QMessageBox.warning(self, "CCP bağlı değil",
+                                    f"{label} A2L üzerinden yazılmadan önce CCP bağlantısı kurun.")
+            return False
         summary = self.a2l_tab.db.summary
         by_name = {m.name: m for m in summary.measurements} if summary is not None else {}
         steps = []
@@ -1521,17 +1548,23 @@ class MainWindow(QMainWindow):
                 info = by_name.get(name)
                 if info is None:
                     raise ValueError(f"A2L'de '{name}' bulunamadı")
-                cpanel.ccp_write_value(self.ccp_client, info, v)
+                # kapatma (enable=False) yazımı hiçbir A2L sınırı yüzünden engellenmemeli
+                cpanel.ccp_write_value(self.ccp_client, info, v, enforce_limits=enable)
         except Exception as exc:
             QMessageBox.critical(self, f"{label} override yazılamadı", str(exc))
             self._log_event("HATA", f"{label} A2L override yazılamadı: {exc}")
-            return
+            return False
+        if enable:
+            self._active_overrides[actuator_key] = value
+        else:
+            self._active_overrides.pop(actuator_key, None)
         self.dashboard_tab.set_actuator_feedback(
             actuator_key, f"%{value:g}" if enable else "Kapalı")
         self._log_event(
             "EYLEYICI",
             f"{label} [A2L]: {'override AÇIK, değer=%g' % value if enable else 'override KAPALI'} "
             f"({self.current_user}/{self.current_role.value})")
+        return True
 
     # ---- Kullanıcı / Profil -------------------------------------------------
     # ---- Kontrol Paneli ---------------------------------------------------
@@ -1614,14 +1647,16 @@ class MainWindow(QMainWindow):
         pt = self.performance_tab
         if self.ccp_client is None:
             return
-        for key, info in pt.ccp_poll_targets():
-            try:
-                pt.set_ccp_value(key, cpanel.ccp_read_value(self.ccp_client, info))
-            except ccp_protocol.CCPTimeoutError:
+        items = list(pt.ccp_poll_targets())
+
+        def err(key, exc):
+            if key is None:
+                return
+            if isinstance(exc, ccp_protocol.CCPTimeoutError):
                 pt.set_ccp_error(key, "ECU cevap vermedi")
-                break
-            except Exception as exc:
+            else:
                 pt.set_ccp_error(key, str(exc))
+        self.ccp_pool.submit("perf", self.ccp_client, items, pt.set_ccp_value, err)
 
     def _panel_tx_state(self):
         self.control_panel_tab.set_tx_running(
@@ -1692,23 +1727,24 @@ class MainWindow(QMainWindow):
         panel = self.control_panel_tab
         if self.ccp_client is None:
             return
-        for key, kind, info in panel.ccp_poll_targets():
-            try:
-                panel.set_ccp_value(key, kind, cpanel.ccp_read_value(self.ccp_client, info))
-            except ccp_protocol.CCPTimeoutError:
-                panel.set_ccp_error(key, "ECU cevap vermedi")
-                break
-            except Exception as exc:
-                panel.set_ccp_error(key, str(exc))
+        items = [((key, kind), info) for key, kind, info in panel.ccp_poll_targets()]
+
+        def err(tag, exc):
+            if tag is None:
+                return
+            if isinstance(exc, ccp_protocol.CCPTimeoutError):
+                panel.set_ccp_error(tag[0], "ECU cevap vermedi")
+            else:
+                panel.set_ccp_error(tag[0], str(exc))
+        self.ccp_pool.submit("panel", self.ccp_client, items,
+                             lambda tag, value: panel.set_ccp_value(tag[0], tag[1], value), err)
 
     def _on_panel_kill_overrides(self, infos: list):
         panel = self.control_panel_tab
         if self.ccp_client is None:
             panel._set_status("CCP bağlı değil: override kapatılamadı.", False)
             return
-        if not can_override_actuator(self.current_role):
-            panel._set_status("Yetki yok: Mühendis veya Yönetici rolü gerekir.", False)
-            return
+        # Override'ları KAPATMAK güvenlik eylemidir: hiçbir rol kısıtına takılmamalı.
         bad = 0
         for info in infos:
             try:
@@ -1742,6 +1778,16 @@ class MainWindow(QMainWindow):
         self._log_event("KULLANICI", f"Rol uygulandı: {user_name} ({role_value})")
 
     def _on_profile_save(self, name: str):
+        if not can_manage_profiles(self.current_role):
+            QMessageBox.warning(self, "Yetki yok", "Profil kaydetmek için Mühendis veya Yönetici rolü gerekir.")
+            return
+        if self.profile_store.get(name) is not None:
+            ans = QMessageBox.question(
+                self, "Profil üzerine yazılsın mı?",
+                f"'{name}' profili zaten var; mevcut ayarlarla üzerine yazılacak.",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if ans != QMessageBox.Yes:
+                return
         profile = ConfigProfile(
             name=name,
             interface=self.connection_tab.interface_combo.currentText(),
@@ -1779,12 +1825,19 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, "A2L yüklenemedi", str(exc))
                 return
             self.a2l_tab.status_label.setText(
-                f"Yüklü: {profile.a2l_path.split('/')[-1]}  |  Proje: {summary.project_name}"
+                f"Yüklü: {os.path.basename(profile.a2l_path)}  |  Proje: {summary.project_name}"
             )
             self.a2l_tab._populate_tree(summary)
             self.a2l_tab.a2l_loaded.emit()
 
     def _on_profile_delete(self, name: str):
+        if not can_manage_profiles(self.current_role):
+            QMessageBox.warning(self, "Yetki yok", "Profil silmek için Mühendis veya Yönetici rolü gerekir.")
+            return
+        ans = QMessageBox.question(self, "Profil silinsin mi?", f"'{name}' profili silinecek.",
+                                   QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if ans != QMessageBox.Yes:
+            return
         self.profile_store.delete(name)
         self.user_tab.set_profiles(self.profile_store.names())
         self._log_event("PROFIL", f"Profil silindi: {name}")
@@ -1801,7 +1854,11 @@ class MainWindow(QMainWindow):
         self.log_tab.set_active(False)
 
     def closeEvent(self, event):
-        self.workspace_tab.shutdown()
+        try:
+            self.workspace_tab.shutdown()
+        except Exception:  # noqa: BLE001
+            logging.getLogger(__name__).exception("workspace shutdown hatası")
+        self.ccp_pool.shutdown()
         self._on_disconnect()
         self.can_logger.stop()
         super().closeEvent(event)
