@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout, QLabel, QPushButton, QScrollArea, QSlider, QVBoxLayout, QWidget,
 )
 
+from app.ui.noscroll import no_wheel
 from app.sim_interface import INPUT_BY_KEY, INPUT_DEFS, SimConfig, auto_match, list_sources
 
 GROUP_TITLES = {"control": "Kontrol (Kullanıcı)", "aircraft": "Uçak", "const": "Sabit değerler (şimdilik)"}
@@ -223,14 +224,14 @@ class SimInputsPanel(QFrame):
         name.setStyleSheet("font-weight:600; font-size:11px;")
         warn = QLabel("")
         warn.setStyleSheet("color:#B9790F; font-size:11px;")
-        spin = QDoubleSpinBox()
+        spin = no_wheel(QDoubleSpinBox())
         spin.setRange(d.minimum, d.maximum)
         spin.setDecimals(3 if d.kind == "const" else 1)
         spin.setSingleStep(0.1 if d.kind == "const" else 1.0)
         spin.setFixedWidth(88 if d.kind != "const" else 110)
         entry = {"kind": d.kind, "w": spin, "warn": warn, "label": name}
         if d.kind == "slider":
-            sl = QSlider(Qt.Horizontal)
+            sl = no_wheel(QSlider(Qt.Horizontal))
             sl.setRange(int(d.minimum * 10), int(d.maximum * 10))
             sl.sliderReleased.connect(lambda k=d.key: self._emit_one(k))
             sl.valueChanged.connect(lambda v, k=d.key: self._slider_moved(k, v))

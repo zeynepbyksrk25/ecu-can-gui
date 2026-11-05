@@ -32,6 +32,13 @@ def can_run_diagnostics(role: Role) -> bool:
     return role in (Role.ENGINEER, Role.ADMIN)
 
 
+def can_transmit_frames(role: Role) -> bool:
+    """Gönderim sekmesinden serbest (ham veya DBC) CAN çerçevesi gönderme /
+    periyodik gönderim başlatma. Bus'a rastgele çerçeve yazmak ECU'yu
+    etkileyebileceğinden Operatör rolüne kapalıdır."""
+    return role in (Role.ENGINEER, Role.ADMIN)
+
+
 def can_manage_profiles(role: Role) -> bool:
     return role in (Role.ENGINEER, Role.ADMIN)
 

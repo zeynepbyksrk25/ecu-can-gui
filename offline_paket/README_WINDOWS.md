@@ -241,6 +241,9 @@ Sol menüde **Çalışma Alanı**. Tek ekranda istediğiniz pencereleri kurarsı
 - **Rol yükseltme** onay ister; profil kaydetme/silme rol gerektirir ve üzerine yazma/silme onaylanır. (Roller kimlik doğrulama değil, kaza önleme amaçlıdır.)
 - **Kayıt dayanıklılığı:** Tüm ayar/geçmiş/yerleşim dosyaları atomik yazılır (önce geçici dosya, sonra yer değiştirme) ve her kayıtta bir `.bak` yedeği tutulur. Bozuk bir dosya açılışı engellemez: `*.corrupt-<zaman>` adıyla **saklanır** (sonraki kayıt onu ezmez), son iyi yedek (`.bak`) kullanılır. Tek bozuk kayıt/profil/panel atlanır, geri kalanı yüklenir. Yazılamayan kayıtlar loglanır ve ilgili ekranda uyarı verilir.
 - **Denetim günlüğü:** Satır sonu/sekme içeren metinlerle sahte kayıt oluşturulamaz; yazma hatası sayılır ve loglanır.
+- **Gönderim sekmesi:** Çerçeve göndermek ve periyodik gönderim başlatmak Mühendis/Yönetici rolü ister; her gönderim, başlatma ve durdurma denetim günlüğüne (`GÖNDERİM`) yazılır. Ham modda DLC (0-8) seçilebilir, çakışan bit alanları reddedilir, 5 ms'den kısa periyot onay ister. Reddedilen/başarısız bir periyodik satır "çalışıyor" görünmez. Satır silmek diğer satırların onay kutularını karıştırmaz.
+- **DBC:** Aralık dışı değer artık sessizce kaybolmaz, anlaşılır hata verir. Girilmeyen sinyaller en küçük değerle değil DBC başlangıç değeri (yoksa 0, aralığa kırpılmış) ile gider. Fare tekerleği odakta olmayan sayı kutusu/kaydırıcıyı değiştirmez.
+- **CAN kaydı:** Aynı saniyede başlatılsa da dosya ezilmez, her 200 satırda diske işlenir, disk hatasında kayıt durur ve uyarı verilir.
 - **Günlük:** Beklenmeyen hatalar `openecu.log` dosyasına yazılır ve ekranda gösterilir. Aynı veri klasörünü iki program kopyası birlikte kullanamaz.
 - **Testler:** `python -m pytest tests -q` (geliştirme ortamında; `pytest`, `PySide6`, `pya2ldb`, `python-can` gerekir).
 

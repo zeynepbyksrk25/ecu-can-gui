@@ -28,8 +28,9 @@ class MonitorTab(QWidget):
         self._direction_filter: str = DIRECTION_ALL
         self._errors_only = False
         self._t0 = None
-        self._row_by_id: dict[int, int] = {}
-        self._counts: dict[int, int] = {}
+        # Anahtar (id, extended): aynı sayısal standard ve extended ID'ler ayrı satırdır.
+        self._row_by_id: dict[tuple, int] = {}
+        self._counts: dict[tuple, int] = {}
 
         self.filter_edit = QLineEdit()
         self.filter_edit.setPlaceholderText("ID filtrele (hex, örn. 1A0) - boş = tümü")
@@ -110,6 +111,8 @@ class MonitorTab(QWidget):
         if self.dbc and self.dbc.is_loaded:
             self.name_filter_combo.addItems(self.dbc.message_names())
         self.name_filter_combo.blockSignals(False)
+        # Combo "Tümü"ne döndü; eski isim filtresi etkin kalırsa tüm kareler gizlenirdi.
+        self._name_filter = None
 
     def set_bitrate(self, bitrate: int | None):
         self.stats.set_bitrate(bitrate)
@@ -147,13 +150,14 @@ class MonitorTab(QWidget):
         relative_ms = (msg.timestamp - self._t0) * 1000.0
 
         can_id = msg.arbitration_id
-        self._counts[can_id] = self._counts.get(can_id, 0) + 1
+        key = (can_id, bool(msg.is_extended_id))
+        self._counts[key] = self._counts.get(key, 0) + 1
 
-        row = self._row_by_id.get(can_id)
+        row = self._row_by_id.get(key)
         if row is None:
             row = self.table.rowCount()
             self.table.insertRow(row)
-            self._row_by_id[can_id] = row
+            self._row_by_id[key] = row
             self.table.setItem(row, 2, QTableWidgetItem(f"0x{can_id:X}"))
 
         signal_text = ""
@@ -167,7 +171,7 @@ class MonitorTab(QWidget):
         self.table.setItem(row, 5, QTableWidgetItem(msg.data.hex(sep=" ").upper()))
         self.table.setItem(row, 6, QTableWidgetItem(signal_text))
         self.table.setItem(row, 7, QTableWidgetItem("EVET" if is_error else ""))
-        self.table.setItem(row, 8, QTableWidgetItem(str(self._counts[can_id])))
+        self.table.setItem(row, 8, QTableWidgetItem(str(self._counts[key])))
 
     def _update_stats_label(self):
         bus_load = self.stats.bus_load_percent()

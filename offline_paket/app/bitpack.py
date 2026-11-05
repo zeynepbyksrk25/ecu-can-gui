@@ -14,8 +14,11 @@ class BitFieldError(ValueError):
 def pack_fields(fields, byte_count: int = 8) -> bytes:
     """fields: [{"name": str, "start": int, "length": int, "signed": bool,
     "value": int}, ...] -> byte_count uzunluğunda bytes döner."""
+    if not 0 <= byte_count <= 8:
+        raise BitFieldError("DLC 0-8 arasında olmalı.")
     total_bits = byte_count * 8
     accumulator = 0
+    used_mask = 0
 
     for field in fields:
         label = field.get("name") or f"bit{field['start']}"
@@ -48,7 +51,13 @@ def pack_fields(fields, byte_count: int = 8) -> bytes:
                     f"(0..{mask}) sığmıyor."
                 )
 
-        raw = value & mask  # negatif değer de iki's complement olarak maskeleniyor
+        if isinstance(value, bool) or int(value) != value:
+            raise BitFieldError(f"'{label}': değer tamsayı olmalı.")
+        field_mask = mask << start
+        if used_mask & field_mask:
+            raise BitFieldError(f"'{label}': bit alanı başka bir alanla çakışıyor.")
+        used_mask |= field_mask
+        raw = int(value) & mask  # negatif değer de iki's complement olarak maskeleniyor
         accumulator |= raw << start
 
     return accumulator.to_bytes(byte_count, byteorder="little")

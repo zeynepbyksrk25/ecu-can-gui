@@ -19,6 +19,12 @@ class PeriodicManager:
               extended: bool, period_ms: int):
         """Verilen satır için periyodik gönderimi başlatır. Aynı row_id
         zaten çalışıyorsa önce durdurur (data/periyot güncellemesi için)."""
+        if not isinstance(period_ms, int) or not 1 <= period_ms <= 60_000:
+            raise ValueError(f"Periyot 1-60000 ms arasında olmalı (verilen: {period_ms!r}).")
+        if len(data) > 8:
+            raise ValueError("Klasik CAN çerçevesi en fazla 8 bayt taşır.")
+        if not 0 <= arbitration_id <= (0x1FFFFFFF if extended else 0x7FF):
+            raise ValueError(f"CAN ID aralık dışı: 0x{arbitration_id:X}")
         self.stop(row_id)
         msg = can.Message(
             arbitration_id=arbitration_id,
@@ -31,7 +37,10 @@ class PeriodicManager:
     def stop(self, row_id: str):
         task = self._tasks.pop(row_id, None)
         if task is not None:
-            task.stop()
+            try:
+                task.stop()
+            except Exception:  # noqa: BLE001 - bus kapanmış olabilir; kayıt zaten silindi
+                pass
 
     def stop_all(self):
         for row_id in list(self._tasks.keys()):

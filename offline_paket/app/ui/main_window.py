@@ -41,7 +41,7 @@ from app.ui.tanilama_tab import TanilamaTab
 from app.ui.user_tab import UserTab
 from app.ui.watch_tab import parse_value_text
 from app.user_roles import (
-    Role, can_manage_profiles, can_override_actuator, can_run_diagnostics, can_write_calibration,
+    Role, can_manage_profiles, can_override_actuator, can_transmit_frames, can_run_diagnostics, can_write_calibration,
     can_write_flash,
 )
 
@@ -768,35 +768,69 @@ class MainWindow(QMainWindow):
                 self._logged_count += 1
         if n and self.can_logger.is_active:
             self.log_tab.set_count(self._logged_count)
+        if self.can_logger.error and not self.can_logger.is_active and not getattr(self, "_log_err_shown", False):
+            self._log_err_shown = True
+            self.log_tab.set_active(False, "")
+            self._log_event("HATA", f"CAN kaydı yazma hatasıyla DURDU: {self.can_logger.error}")
+            QMessageBox.warning(self, "CAN kaydı durdu", f"Yazma hatası: {self.can_logger.error}")
+        elif self.can_logger.is_active:
+            self._log_err_shown = False
 
     # ---- Gönderim -------------------------------------------------------
+    @staticmethod
+    def _frame_text(can_id: int, data: bytes, extended: bool) -> str:
+        return f"ID=0x{can_id:X}{' (ext)' if extended else ''} DLC={len(data)} DATA={data.hex(' ').upper()}"
+
     def _on_manual_send(self, can_id: int, data: bytes, extended: bool):
+        if not can_transmit_frames(self.current_role):
+            QMessageBox.warning(self, "Yetki yok",
+                                "CAN çerçevesi göndermek için Mühendis veya Yönetici rolü gerekir "
+                                "(Kullanıcı / Profil sekmesinden rol seçin).")
+            return
         try:
             self.connection.send(can_id, data, extended)
         except Exception as exc:
             QMessageBox.critical(self, "Gönderim hatası", str(exc))
+            self._log_event("HATA", f"Manuel gönderim başarısız: {exc}")
             return
+        self._log_event("GÖNDERİM", "Manuel çerçeve gönderildi: " + self._frame_text(can_id, data, extended))
         sent_msg = can.Message(arbitration_id=can_id, data=data, is_extended_id=extended,
                                 timestamp=time.time())
         self.monitor_tab.add_message(sent_msg, direction="TX")
 
     def _on_periodic_start(self, row_key: str, can_id: int, data: bytes,
                             extended: bool, period_ms: int):
+        if not can_transmit_frames(self.current_role):
+            self.transmit_tab.mark_start_failed(row_key)
+            QMessageBox.warning(self, "Yetki yok",
+                                "Periyodik gönderim için Mühendis veya Yönetici rolü gerekir "
+                                "(Kullanıcı / Profil sekmesinden rol seçin).")
+            return
         if self.periodic_manager is None:
+            self.transmit_tab.mark_start_failed(row_key)
             QMessageBox.warning(self, "Bağlantı yok", "Önce CAN hattına bağlanın.")
             return
         try:
             self.periodic_manager.start(row_key, can_id, data, extended, period_ms)
         except Exception as exc:
+            self.transmit_tab.mark_start_failed(row_key)
             QMessageBox.critical(self, "Periyodik gönderim hatası", str(exc))
+            self._log_event("HATA", f"Periyodik gönderim başlatılamadı: {exc}")
             return
+        self._log_event("GÖNDERİM", f"Periyodik gönderim BAŞLADI [{period_ms} ms]: "
+                                    + self._frame_text(can_id, data, extended))
         sent_msg = can.Message(arbitration_id=can_id, data=data, is_extended_id=extended,
                                 timestamp=time.time())
         self.monitor_tab.add_message(sent_msg, direction="TX")
 
     def _on_periodic_stop(self, row_key: str):
         if self.periodic_manager is not None:
-            self.periodic_manager.stop(row_key)
+            try:
+                self.periodic_manager.stop(row_key)
+            except Exception as exc:  # noqa: BLE001
+                self._log_event("HATA", f"Periyodik gönderim durdurulamadı: {exc}")
+                return
+            self._log_event("GÖNDERİM", "Periyodik gönderim durduruldu")
 
     # ---- CCP (kalibrasyon) ------------------------------------------------
     def _on_ccp_connect(self, cro_id: int, dto_id: int, station_address: int):
@@ -1852,7 +1886,12 @@ class MainWindow(QMainWindow):
 
     # ---- Log --------------------------------------------------------------
     def _on_log_start(self, directory: str):
-        path = self.can_logger.start(directory)
+        try:
+            path = self.can_logger.start(directory)
+        except OSError as exc:
+            QMessageBox.warning(self, "Kayıt başlatılamadı", f"Klasöre yazılamıyor: {exc}")
+            self._log_event("HATA", f"CAN kaydı başlatılamadı: {exc}")
+            return
         self._logged_count = 0
         self.log_tab.set_active(True, path)
         self.log_tab.set_count(0)
