@@ -43,9 +43,28 @@ class CCPSlaveSimulator:
         self.force_error_on: dict[int, int] = {}  # command_code -> return_code
         # Test hook: komut ÇALIŞTIRILIR ama ilk N cevap (DTO) hatta gönderilmez
         # (kayıp DTO senaryosu: master timeout olur ve yeniden dener).
+        self.unified_memory = False       # True: flaşa yazılan adresler UPLOAD ile de okunur (geri okuma doğrulaması)
         self.drop_dto_count: dict[int, int] = {}
         self.executed: list[int] = []     # çalıştırılan komut kodları (test için)
         self._current_cmd: int | None = None
+
+        # Güç döngüsü simülasyonu: kapalıyken hiçbir komuta cevap verilmez; açılışta CCP oturumu
+        # unutulur. strict_session=True iken CONNECT'ten önceki komutlar ACCESS_DENIED alır
+        # (gerçek ECU davranışı).
+        self.online = True
+        self.strict_session = False
+        self.response_delay_s = 0.0
+        self.requests_seen = 0
+
+    def power_off(self):
+        """ECU gücü kesildi: komutlara cevap yok."""
+        self.online = False
+
+    def power_on(self):
+        """ECU güç geldi: bellek korunur ama CCP oturumu unutulur (yeniden CONNECT gerekir)."""
+        self._connected = False
+        self._mta_address = 0
+        self.online = True
 
     def start(self):
         self._notifier = can.Notifier(self.bus, [self._listener], timeout=0.1)
@@ -62,6 +81,8 @@ class CCPSlaveSimulator:
     def read_memory_bytes(self, address: int, length: int) -> bytes:
         # Flaşa yazılmış adresler (PROGRAM) okumada RAM'in önüne geçer: gerçek
         # ECU'da bellek tek adres uzayıdır; geri okuma doğrulaması için gerekli.
+        if not self.unified_memory:
+            return bytes(self.memory.get(address + i, 0) for i in range(length))
         return bytes(self.flash[address + i] if (address + i) in self.flash
                      else self.memory.get(address + i, 0) for i in range(length))
 
@@ -76,10 +97,19 @@ class CCPSlaveSimulator:
     def _on_message(self, msg: can.Message):
         if msg.arbitration_id != self.cro_id or not msg.data:
             return
+        if not self.online:
+            return
+        self.requests_seen += 1
+        if self.response_delay_s:
+            import time as _t
+            _t.sleep(self.response_delay_s)
         cmd = msg.data[0]
         ctr = msg.data[1] if len(msg.data) > 1 else 0
         self._current_cmd = cmd
         self.executed.append(cmd)
+        if self.strict_session and not self._connected and cmd not in (ccp.CONNECT, ccp.GET_CCP_VERSION):
+            self._reply(ccp.RC_ACCESS_DENIED, ctr)
+            return
 
         if cmd in self.force_error_on:
             self._reply(self.force_error_on[cmd], ctr)

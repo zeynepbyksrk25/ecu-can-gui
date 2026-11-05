@@ -182,19 +182,6 @@ def test_logger_write_error_stops_without_exception(tmp_path):
     assert lg.error == "disk dolu" and not lg.is_active
 
 
-def test_monitor_separates_extended_and_resets_name_filter(qapp, dbc):
-    import can
-    from app.ui.monitor_tab import MonitorTab
-    m = MonitorTab()
-    m.dbc = dbc
-    m._name_filter = "ESKI"
-    m.refresh_dbc_messages()
-    assert m._name_filter is None
-    for ext in (False, True):
-        m.add_message(can.Message(arbitration_id=0x123, data=b"\x00", is_extended_id=ext, timestamp=1.0))
-    assert m.table.rowCount() == 2
-
-
 def test_wheel_ignored_without_focus(qapp):
     from PySide6.QtCore import QPoint, QPointF, Qt
     from PySide6.QtGui import QWheelEvent

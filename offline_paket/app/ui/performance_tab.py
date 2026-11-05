@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 from app.sim_interface import (
     INPUT_BY_KEY, PERF_BY_KEY, PERF_DEFS, SimConfig, auto_match, list_sources, threshold_level,
 )
+from app.ui.dark_theme import style_plot
 from app.ui.dashboard_tab import GaugeWidget
 from app.ui.sim_widgets import ColorCard, DigitalBox, SignalPickerDialog, ThresholdDialog
 
@@ -23,12 +24,14 @@ UI_MS = 500
 STALE_S = 3.0
 HIST_MAX_S = 600
 
-GRAPH_COLORS = ["#1B6FB5", "#C2410C", "#15803D", "#7C3AED", "#B45309", "#0E7490",
-                "#BE185D", "#4D7C0F", "#475569"]
+GRAPH_COLORS = ["#35c6f4", "#ff9a52", "#4ade80", "#b48cff", "#f0c040", "#2dd4bf",
+                "#ff6b9d", "#a3e635", "#9fb3c4"]
 
 
 class PerfGauge(GaugeWidget):
-    ZONES = [(0.0, 1.0, "#2F7FB8")]
+    ZONES = [(0.0, 1.0, "#35c6f4")]
+    C_ARC, C_TICK, C_NEEDLE, C_SCALE, C_PILL, C_VALUE, C_UNIT, C_LABEL = (
+        "#1a3049", "#4d6a86", "#e8f0f8", "#8fa6bd", "#0a1626", "#ffffff", "#8fa6bd", "#cfe0f1")
     bind_requested = Signal(str)
     unbind_requested = Signal(str)
     range_requested = Signal(str)
@@ -59,16 +62,14 @@ class _GraphBox(QFrame):
         self.index = index
         self.spec = spec
         self.setObjectName("graphBox")
-        self.setStyleSheet("QFrame#graphBox { background:#FFFFFF; border:1px solid #DDE5EC; border-radius:10px; }")
+        self.setStyleSheet("QFrame#graphBox { background:#0f2034; border:1px solid #1f3853; border-radius:10px; }")
         lay = QVBoxLayout(self)
         lay.setContentsMargins(8, 6, 8, 8)
         head = QHBoxLayout()
         self.title = QLabel(spec["title"])
-        self.title.setStyleSheet("font-weight:700; color:#14202C;")
+        self.title.setStyleSheet("font-weight:700; color:#cfe0f1; background:transparent;")
         self.norm = QCheckBox("Normalize")
         self.norm.setChecked(bool(spec.get("normalize")))
-        self.norm.setToolTip("Her seri kendi min–max aralığına göre 0–1'e ölçeklenir "
-                             "(farklı birimleri tek eksende karşılaştırmak için).")
         self.norm.toggled.connect(lambda v: on_norm(index, v))
         btn = QPushButton("Seç…")
         btn.setFixedHeight(24)
@@ -77,7 +78,8 @@ class _GraphBox(QFrame):
         head.addWidget(self.norm)
         head.addWidget(btn)
         lay.addLayout(head)
-        self.plot = pg.PlotWidget(background="#FFFFFF")
+        self.plot = pg.PlotWidget(background="#0b1a2b")
+        style_plot(self.plot)
         self.plot.setMinimumHeight(190)
         self.plot.showGrid(x=True, y=True, alpha=0.25)
         self.plot.addLegend(offset=(6, 6))
@@ -125,9 +127,9 @@ class PerformanceTab(QWidget):
 
         top = QHBoxLayout()
         title = QLabel("Motor Performansı")
-        title.setStyleSheet("font-size:18px; font-weight:800; color:#14202C;")
+        title.setObjectName("pageTitle")
         self.status_label = QLabel("")
-        self.status_label.setStyleSheet("color:#5B6B79;")
+        self.status_label.setObjectName("mutedSmall")
         self.pause_button = QPushButton("⏸  Grafikleri durdur")
         self.pause_button.setCheckable(True)
         self.pause_button.toggled.connect(self._on_pause)
@@ -143,8 +145,8 @@ class PerformanceTab(QWidget):
             b = QPushButton(label)
             b.setCheckable(True)
             b.setFixedHeight(28)
-            b.setStyleSheet("QPushButton { border:1px solid #C5D0DA; background:#FFFFFF; padding:0 14px; font-weight:600; }"
-                            "QPushButton:checked { background:#0E6E8C; color:#FFFFFF; border-color:#0E6E8C; }")
+            b.setStyleSheet("QPushButton { border:1px solid #1f3853; background:#0f2034; color:#cfe0f1; padding:0 14px; font-weight:600; }"
+                            "QPushButton:checked { background:#35c6f4; color:#08121f; border-color:#35c6f4; }")
             self._win_group.addButton(b)
             self._win_buttons[sec] = b
             wl.addWidget(b)
@@ -159,21 +161,17 @@ class PerformanceTab(QWidget):
         root.addLayout(top)
 
         self.banner = QLabel("")
-        self.banner.setStyleSheet("background:#FDF1EF; color:#A8231A; font-weight:700; padding:6px 10px; border-radius:6px;")
+        self.banner.setStyleSheet("background:#3a1620; color:#ff8a8a; font-weight:700; padding:6px 10px; border-radius:6px;")
         self.banner.setVisible(False)
         root.addWidget(self.banner)
 
         # A: uçuş koşulları (girişlerin geri okunuşu)
         card_a = ColorCard("A")
-        sub = QLabel("Ana Sayfa'dan gönderilen değerin geri okunuşu")
-        sub.setStyleSheet("color:#4A6A8A; font-size:12px; background:transparent;")
-        card_a.outer.insertWidget(1, sub)
         for i, key in enumerate(("altitude", "ma", "p_total", "p_amb", "t_amb", "alfa", "beta")):
             d = INPUT_BY_KEY[key]
             b = DigitalBox("flight:" + key, d.label, d.unit)
             b.setContextMenuPolicy(Qt.NoContextMenu)
             b.bound_label.setText("")
-            b.setToolTip("Ana Sayfa'dan gönderilen değerin geri okunuşu")
             self._flight_boxes[key] = b
             card_a.body.addWidget(b, 0, i)
         root.addWidget(card_a)
@@ -266,7 +264,7 @@ class PerformanceTab(QWidget):
                 n += 1
             elif skey:
                 self._boxes.get(key) and self._boxes[key].bound_label.setText("yok!")
-        self.status_label.setText(f"{n}/{len(PERF_DEFS)} sinyal bağlı  ·  kutuya sağ tık: Sinyal bağla / Eşik")
+        self.status_label.setText(f"{n}/{len(PERF_DEFS)} sinyal bağlı")
 
     def _pick(self, key: str):
         d = PERF_BY_KEY[key]

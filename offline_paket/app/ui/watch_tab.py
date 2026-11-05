@@ -15,32 +15,37 @@ import json
 import math
 import os
 import re
+import time
 from dataclasses import dataclass
 
-from PySide6.QtCore import QTimer, Qt, Signal
+from PySide6.QtCore import QEvent, QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QFontDatabase, QGuiApplication, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
     QFormLayout, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QListWidget,
     QListWidgetItem, QMessageBox, QPushButton, QTableWidget,
-    QTableWidgetItem, QVBoxLayout, QWidget,
+    QTableWidgetItem, QVBoxLayout, QWidget, QStyledItemDelegate, QAbstractItemDelegate,
 )
 
 from app.persist import atomic_write_json, load_json
 from app.ccp import codec
 
-POLL_INTERVAL_MS = 500
+POLL_INTERVAL_MS = 250          # canlı okuma: önbellekten (bloklamaz), bkz. app/ccp/worker.py
+VERIFY_WINDOW_S = 1.5           # yazılan değerin ECU'dan geri okunarak doğrulanma süresi
+FLASH_S = 0.9                   # başarıyla yazılan satırın yeşil yanma süresi
 ROLE_OBJECT = Qt.UserRole
 
 # Sütun sırası
 COL_ADDR, COL_HEX, COL_VALUE, COL_NAME, COL_UNIT, COL_TYPE, COL_DESC = range(7)
 HEADERS = ["Adres", "Hex", "Değer (Value)", "İsim (Name)", "Birim", "Tip", "Açıklama"]
 
-PENDING_BG = QColor("#fff3b0")   # yazılmayı bekleyen değer (map_editor MODIFIED_BG ile aynı)
-PENDING_FG = QColor("#5a3a00")
-INVALID_BG = QColor("#ffb3b3")   # ayrıştırılamayan sayı
-INVALID_FG = QColor("#5c0000")
-ERROR_FG = QColor("#b00020")
+OK_BG = QColor("#12452a")        # yazma doğrulandı (kısa süre)
+OK_FG = QColor("#7dffb0")
+PENDING_BG = QColor("#4d3f0e")   # yazılmayı bekleyen değer (map_editor MODIFIED_BG ile aynı)
+PENDING_FG = QColor("#ffd166")
+INVALID_BG = QColor("#5a1c24")   # ayrıştırılamayan sayı
+INVALID_FG = QColor("#ffb3b3")
+ERROR_FG = QColor("#ff6b6b")
 
 _HEX_RE = re.compile(r"[+-]?0[xX][0-9a-fA-F]+")
 
@@ -104,6 +109,10 @@ class WatchEntry:
     # ama A2L yok / nesne bulunamadı). MainWindow bu satırları okumamalı.
     resolved: bool = True
     description: str = ""      # A2L LONGIDENTIFIER (açıklama), salt okunur
+    # Yazma doğrulaması: yazılan ham baytlar ECU'dan geri okunup eşleşmeli
+    verify_raw: bytes | None = None
+    verify_deadline: float = 0.0
+    flash_until: float = 0.0
 
 
 def format_hex_bytes(raw: bytes | None) -> str:
@@ -157,7 +166,7 @@ class A2LPickerDialog(QDialog):
         hint = QLabel("İpucu: Dizi/tablo (ARRAY / CURVE / MAP) nesneleri burada "
                       "listelenmez; onlar için Harita Editörü'nü kullanın.")
         hint.setWordWrap(True)
-        hint.setStyleSheet("color: gray; font-size: 11px;")
+        hint.setStyleSheet("color: #8fa6bd; font-size: 11px;")
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.button(QDialogButtonBox.Ok).setText("Seçilenleri Ekle")
@@ -235,7 +244,7 @@ class ManualEntryDialog(QDialog):
 
         self.warn_label = QLabel("")
         self.warn_label.setWordWrap(True)
-        self.warn_label.setStyleSheet("color: #b00020;")
+        self.warn_label.setStyleSheet("color: #ff6b6b;")
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.button(QDialogButtonBox.Ok).setText("Ekle")
@@ -273,6 +282,17 @@ class ManualEntryDialog(QDialog):
 # ---------------------------------------------------------------------------
 # Tablo
 # ---------------------------------------------------------------------------
+class _ValueDelegate(QStyledItemDelegate):
+    """Değer hücresi düzenleyicisi: Enter = yazılacak değeri onayla, Esc = iptal, ODAK KAYBI = iptal
+    (başka yere tıklayınca yanlışlıkla ECU'ya yazılmasın)."""
+
+    def eventFilter(self, editor, event):  # noqa: N802
+        if event.type() == QEvent.FocusOut:
+            self.closeEditor.emit(editor, QAbstractItemDelegate.RevertModelCache)
+            return True
+        return super().eventFilter(editor, event)
+
+
 class _WatchTable(QTableWidget):
     viewport_resized = Signal()
 
@@ -344,37 +364,26 @@ class WatchTab(QWidget):
         self.add_manual_button = QPushButton("Manuel Ekle…")
         self.delete_button = QPushButton("Seçili Satırları Sil")
         self.clear_button = QPushButton("Listeyi Temizle")
-        self.read_button = QPushButton("Şimdi Oku")
-        self.poll_checkbox = QCheckBox("Sürekli oku (500 ms)")
-        self.write_selected_button = QPushButton("Seçilenleri RAM'e Yaz")
-        self.write_all_button = QPushButton("Değişenlerin Tümünü RAM'e Yaz")
-        self.write_all_button.setProperty("primary", True)
+        self.live_label = QLabel("● CCP bağlı değil")
+        self.live_label.setStyleSheet("color: #ff6b6b; font-weight: bold;")
+        self.hint_label = QLabel("Değerler canlı izlenir · değiştirmek için Değer hücresine yazıp Enter'a basın (Esc iptal)")
+        self.hint_label.setStyleSheet("color: #8fa6bd;")
 
         self.add_a2l_button.clicked.connect(self._on_add_a2l)
         self.add_manual_button.clicked.connect(self._on_add_manual)
         self.delete_button.clicked.connect(self._on_delete_selected)
         self.clear_button.clicked.connect(self.clear_list)
-        self.read_button.clicked.connect(self.read_requested.emit)
-        self.poll_checkbox.toggled.connect(self._on_poll_toggled)
-        self.write_selected_button.clicked.connect(self._on_write_selected)
-        self.write_all_button.clicked.connect(self._on_write_all)
 
         row1 = QHBoxLayout()
         for w in (self.add_a2l_button, self.add_manual_button,
                   self.delete_button, self.clear_button):
             row1.addWidget(w)
         row1.addStretch()
-        row1.addWidget(self.read_button)
-        row1.addWidget(self.poll_checkbox)
-
-        row2 = QHBoxLayout()
-        row2.addWidget(self.write_selected_button)
-        row2.addWidget(self.write_all_button)
-        row2.addStretch()
+        row1.addWidget(self.live_label)
 
         outer = QVBoxLayout()
         outer.addLayout(row1)
-        outer.addLayout(row2)
+        outer.addWidget(self.hint_label)
         return outer
 
     def _build_table(self) -> _WatchTable:
@@ -399,6 +408,7 @@ class WatchTab(QWidget):
         header.sectionResized.connect(self._on_section_resized)
         table.viewport_resized.connect(self._fit_name_column)
         table.itemChanged.connect(self._on_item_changed)
+        table.setItemDelegateForColumn(COL_VALUE, _ValueDelegate(table))
         return table
 
     # İsim sütunu esnemesi: boş alan varsa İsim sütunu doldurur; yoksa kullanıcının
@@ -507,6 +517,9 @@ class WatchTab(QWidget):
         else:
             if not self._is_editing(row):
                 self._set_text(item, format_phys(e.phys))
+            if e.flash_until and time.monotonic() < e.flash_until:
+                bg, fg = OK_BG, OK_FG
+                tips.append("Yazıldı ve ECU'dan doğrulandı.")
         item.setBackground(bg) if bg else item.setData(Qt.BackgroundRole, None)
         item.setForeground(fg) if fg else item.setData(Qt.ForegroundRole, None)
         item.setToolTip("\n".join(tips))
@@ -603,30 +616,36 @@ class WatchTab(QWidget):
         self._save()
 
     # ---- Okuma ---------------------------------------------------------------
-    def _on_poll_toggled(self, checked: bool):
-        if checked:
-            self.poll_timer.start()
-        else:
-            self.poll_timer.stop()
-
+    # Okuma ARTIK her zaman canlı: CCP çevrimiçiyken liste boş değilse zamanlayıcı kendiliğinden
+    # çalışır (önbellekten okur, arayüzü bekletmez). "Şimdi oku / Sürekli oku" kalktı.
     def _on_poll_tick(self):
-        if self._entries:
+        if self._entries and self._connected:
             self.read_requested.emit()
+        self._expire_flash_and_verify()
 
     def stop_polling(self):
-        self.poll_checkbox.setChecked(False)
         self.poll_timer.stop()
+
+    def start_polling(self):
+        if not self.poll_timer.isActive():
+            self.poll_timer.start()
 
     def is_polling(self) -> bool:
         return self.poll_timer.isActive()
 
     def set_connected(self, connected: bool):
         self._connected = connected
-        if not connected:
+        if connected:
+            self.start_polling()
+        else:
             self.stop_polling()
-        for w in (self.read_button, self.poll_checkbox,
-                  self.write_selected_button, self.write_all_button):
-            w.setEnabled(connected)
+
+    def set_live_state(self, state: str, text: str):
+        """CCP oturum durumu (idle/connecting/online/lost) -> araç çubuğundaki canlı etiketi."""
+        color = {"idle": "#ff6b6b", "connecting": "#f0b04a", "online": "#4ade80", "lost": "#ff6b6b"}.get(state, "#ff6b6b")
+        dot = "●" if state in ("online", "lost", "connecting") else "○"
+        self.live_label.setText(f"{dot} {text}")
+        self.live_label.setStyleSheet(f"color: {color}; font-weight: bold;")
 
     # ---- MainWindow'un kullandığı erişimciler -----------------------------
     def entries(self) -> list[WatchEntry]:
@@ -640,6 +659,16 @@ class WatchTab(QWidget):
         e.raw = bytes(raw)
         e.phys = phys
         e.error = None
+        if e.verify_raw is not None:
+            if bytes(raw) == e.verify_raw:               # yazılan değer ECU'dan aynen geri okundu
+                e.verify_raw = None
+                e.flash_until = time.monotonic() + FLASH_S
+                self._set_status(f"'{e.name}': yazıldı ve ECU'dan doğrulandı.", True)
+            elif time.monotonic() > e.verify_deadline:   # ECU başka bir değer okuyor
+                e.verify_raw = None
+                self._set_status(
+                    f"'{e.name}': yazıldı ama ECU {format_phys(phys)} {e.unit} okuyor (beklenen değer tutmadı; "
+                    "ECU değeri geri alıyor olabilir).", False)
         self._filling = True
         try:
             self._render_row(row)   # pending varsa Değer metnine dokunmaz
@@ -661,9 +690,28 @@ class WatchTab(QWidget):
         try:   # Hex hücresi yazılan değeri yansıtsın (yeniden okuma gelene dek)
             raw_value = codec.physical_to_raw(e.compu_method, phys)
             e.raw = codec.encode_value(e.datatype, raw_value, e.byte_order)
+            e.verify_raw = bytes(e.raw)
+            e.verify_deadline = time.monotonic() + VERIFY_WINDOW_S
         except Exception:
             pass
         self._render_row(row)
+
+    def discard_pending(self, rows):
+        """Yazılamayan (yetki yok, ECU yok, geçersiz...) satırlarda bekleyen metni at: hücre canlı
+        değere döner."""
+        for row in rows:
+            if 0 <= row < len(self._entries):
+                self._entries[row].pending_text = None
+                self._render_row(row)
+
+    def _expire_flash_and_verify(self):
+        now = time.monotonic()
+        for row, e in enumerate(self._entries):
+            if e.flash_until and now > e.flash_until:
+                e.flash_until = 0.0
+                self._render_row(row)
+            if e.verify_raw is not None and now > e.verify_deadline and not self._connected:
+                e.verify_raw = None
 
     def set_write_result(self, ok: bool, message: str):
         self._set_status(message, ok)
@@ -673,7 +721,7 @@ class WatchTab(QWidget):
         if ok is None:
             self.status_label.setStyleSheet("")
         else:
-            self.status_label.setStyleSheet("color: green;" if ok else "color: #b00020;")
+            self.status_label.setStyleSheet("color: #4ade80;" if ok else "color: #ff6b6b;")
 
     # ---- Düzenleme / yazma ---------------------------------------------------
     def _on_item_changed(self, item: QTableWidgetItem):
@@ -693,9 +741,11 @@ class WatchTab(QWidget):
             return
         try:
             parse_value_text(text)
-            self._set_status(f"'{e.name}': değer yazılmayı bekliyor (henüz ECU'ya yazılmadı).", None)
         except ValueError as exc:
             self._set_status(f"'{e.name}': geçersiz sayı — {exc}", False)
+            return
+        self._set_status(f"'{e.name}': ECU'ya yazılıyor…", None)
+        self.write_requested.emit([row])        # Enter = anında RAM'e yaz
 
     def _render_value_cell_guarded(self, row: int):
         self._filling = True

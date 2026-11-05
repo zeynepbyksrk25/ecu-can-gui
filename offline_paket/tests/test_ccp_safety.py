@@ -215,3 +215,16 @@ def test_a2l_default_byte_order_and_index_mode():
     finally:
         os.remove(bad)
     assert db.is_loaded and db.summary is s
+
+
+def test_no_compu_method_object_is_identity_not_error():
+    """pya2l bazı sürümlerde NO_COMPU_METHOD için .evaluator'sız bir NoCompuMethod nesnesi verir;
+    bu hata değil birebir dönüşümdür (aksi halde 'sw' bayrağı yazımı engellenirdi)."""
+    class NoCompu:
+        @staticmethod
+        def int_to_physical(x): return x
+        @staticmethod
+        def physical_to_int(x): return x
+    assert codec.physical_to_raw(NoCompu(), 1.0) == 1.0
+    assert codec.raw_to_physical(NoCompu(), 7) == 7.0
+    assert codec.encode_for_write(info(compu_method=NoCompu(), datatype="UBYTE", maximum=1.0), 1.0) == b"\x01"

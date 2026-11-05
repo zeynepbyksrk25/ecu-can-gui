@@ -5,7 +5,7 @@ setlocal
 cd /d "%~dp0"
 title Paketler indiriliyor
 echo ============================================================
-echo  Paketler indiriliyor (yaklasik 290 MB, internet gerekir)
+echo  Paketler indiriliyor (yaklasik 340 MB, internet gerekir)
 echo ============================================================
 set "PY="
 py -3.11 -c "import sys; sys.exit(0 if sys.maxsize>2**32 else 1)" >nul 2>nul

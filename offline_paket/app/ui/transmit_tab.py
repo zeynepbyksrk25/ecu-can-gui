@@ -2,7 +2,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QGroupBox, QHBoxLayout,
     QHeaderView, QLabel, QLineEdit, QListWidget, QMessageBox, QPushButton,
-    QSizePolicy, QSpinBox, QStackedWidget, QTableWidget, QTableWidgetItem,
+    QSizePolicy, QSpinBox, QStackedWidget, QTabWidget, QTableWidget, QTableWidgetItem,
     QVBoxLayout, QWidget,
 )
 
@@ -13,7 +13,7 @@ from app.ui.bitfield_dialog import BitFieldDialog
 from app.ui.signal_dialog import SignalInputDialog
 from app.validators import validate_can_id
 
-MODE_RAW = "Ham (hex ID + bit alanları)"
+MODE_RAW = "Ham (ID + bit)"
 MODE_DBC = "DBC mesajı"
 
 PERIODIC_COLUMNS = ["Aktif", "Mod", "ID / Mesaj", "Frame Type / Sinyaller",
@@ -21,6 +21,29 @@ PERIODIC_COLUMNS = ["Aktif", "Mod", "ID / Mesaj", "Frame Type / Sinyaller",
 
 
 MIN_SAFE_PERIOD_MS = 5   # bunun altındaki periyotlarda kullanıcıdan onay istenir
+
+
+class _Pages(QWidget):
+    """QStackedWidget yerine: yalnızca SEÇİLİ sayfa yer kaplar (QStackedWidget en uzun sayfanın
+    yüksekliğini alıp kısa sayfayı dikeyde ortalıyordu)."""
+
+    def __init__(self):
+        super().__init__()
+        self._lay = QVBoxLayout(self)
+        self._lay.setContentsMargins(0, 0, 0, 0)
+        self._pages: list = []
+
+    def addWidget(self, w: QWidget):
+        self._pages.append(w)
+        self._lay.addWidget(w)
+        w.setVisible(len(self._pages) == 1)
+
+    def setCurrentIndex(self, i: int):
+        for k, w in enumerate(self._pages):
+            w.setVisible(k == i)
+
+    def currentIndex(self) -> int:
+        return next((k for k, w in enumerate(self._pages) if not w.isHidden()), 0)
 
 
 def _empty_row_state() -> dict:
@@ -42,25 +65,23 @@ class TransmitTab(QWidget):
 
         self.dbc = DbcDatabase()
 
+        # DBC yükleme düğmesi/etiketi artık CAN Monitor üst şeridinde (can_monitor_tab.py);
+        # burada yalnızca durum metni için gizli bir etiket ve load_dbc_dialog() kalır.
+        self._build_dbc_group()
+        self.tabs = QTabWidget()
+        self.tabs.addTab(self._build_manual_group(), "Manuel")
+        self.tabs.addTab(self._build_periodic_group(), "Periyodik")
         layout = QVBoxLayout(self)
-        layout.addWidget(self._build_dbc_group())
-        layout.addWidget(self._build_manual_group())
-        layout.addWidget(self._build_periodic_group())
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.tabs)
 
     # ---- DBC dosyası yükleme -----------------------------------------
-    def _build_dbc_group(self) -> QGroupBox:
-        box = QGroupBox("DBC dosyası")
-        self.dbc_status_label = QLabel(
-            "Yüklü DBC yok"
-        )
-        load_button = QPushButton("DBC Yükle...")
-        load_button.clicked.connect(self._on_load_dbc)
+    def _build_dbc_group(self):
+        self.dbc_status_label = QLabel("Yüklü DBC yok")   # üst şerit bu metni gösterir
 
-        row = QHBoxLayout()
-        row.addWidget(load_button)
-        row.addWidget(self.dbc_status_label, stretch=1)
-        box.setLayout(row)
-        return box
+    def load_dbc_dialog(self):
+        """Üst şeritteki "DBC Yükle" düğmesi çağırır."""
+        self._on_load_dbc()
 
     def _on_load_dbc(self):
         path, _ = QFileDialog.getOpenFileName(self, "DBC dosyası seç", "", "DBC dosyaları (*.dbc)")
@@ -80,7 +101,7 @@ class TransmitTab(QWidget):
 
     # ---- Manuel gönderim -------------------------------------------------
     def _build_manual_group(self) -> QGroupBox:
-        box = QGroupBox("Manuel gönderim")
+        box = QWidget()
 
         self.manual_mode_combo = QComboBox()
         self.manual_mode_combo.addItems([MODE_RAW, MODE_DBC])
@@ -88,7 +109,7 @@ class TransmitTab(QWidget):
 
         # -- Ham mod alanları --
         self.manual_id_edit = QLineEdit()
-        self.manual_id_edit.setPlaceholderText("CAN ID (hex, örn. 100)")
+        self.manual_id_edit.setPlaceholderText("CAN ID (hex)")
         self.manual_frame_combo = QComboBox()
         self.manual_frame_combo.addItems(["Standard", "Extended"])
         manual_bitfields_button = QPushButton("Bit alanları...")
@@ -114,7 +135,7 @@ class TransmitTab(QWidget):
         self.manual_message_combo.currentTextChanged.connect(self._on_manual_message_changed)
 
         self.manual_signal_list = QListWidget()
-        self.manual_signal_list.setMaximumHeight(90)
+        self.manual_signal_list.setMaximumHeight(110)
         self.manual_signal_list.setToolTip("Eklemek için bir sinyale tıklayın.")
         self.manual_signal_list.itemClicked.connect(self._on_manual_signal_picked)
 
@@ -137,16 +158,20 @@ class TransmitTab(QWidget):
         dbc_widget = QWidget()
         dbc_widget.setLayout(dbc_layout)
 
-        self.manual_stack = QStackedWidget()
+        self.manual_stack = _Pages()
         self.manual_stack.addWidget(raw_widget)   # index 0 = Ham
         self.manual_stack.addWidget(dbc_widget)   # index 1 = DBC
         # QStackedWidget varsayılan olarak dikeyde büyüyebilir (Grow) ve
         # kutuda kalan tüm boş alanı kendine çeker; bunu Fixed yaparak
         # engelliyoruz ki fazla boşluk periyodik tabloya gitsin.
-        self.manual_stack.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
 
         send_button = QPushButton("Gönder")
+        send_button.setProperty("tone", "go")
         send_button.clicked.connect(self._on_manual_send)
+        self.manual_note = QLabel("")
+        self.manual_note.setObjectName("warnSmall")
+        self.manual_note.setWordWrap(True)
+        dbc_layout.addWidget(self.manual_note)
 
         top = QHBoxLayout()
         top.addWidget(QLabel("Mod:"))
@@ -155,13 +180,16 @@ class TransmitTab(QWidget):
         top.addWidget(send_button)
 
         layout = QVBoxLayout()
+        layout.setContentsMargins(0, 8, 0, 0)
         layout.addLayout(top)
         layout.addWidget(self.manual_stack)
+        layout.addStretch(1)            # içerik üstte toplanır
         box.setLayout(layout)
         return box
 
     def _on_manual_mode_changed(self, mode: str):
         self.manual_stack.setCurrentIndex(1 if mode == MODE_DBC else 0)
+        self._update_manual_note()
 
     def _on_manual_message_changed(self, name: str):
         self._manual_state["message"] = name
@@ -172,6 +200,23 @@ class TransmitTab(QWidget):
         if message:
             for signal in message.signals:
                 self.manual_signal_list.addItem(signal.name)
+        self._update_manual_note()
+
+    def _update_manual_note(self):
+        """DBC modunda girilmeyen sinyaller varsayılan (minimum/0) ile gider: önceden göster."""
+        if self.manual_mode_combo.currentText() != MODE_DBC:
+            self.manual_note.setText("")
+            return
+        message = self.dbc.get_message(self._manual_state.get("message") or "")
+        if message is None:
+            self.manual_note.setText("")
+            return
+        missing = [s.name for s in message.signals if s.name not in self._manual_state["values"]]
+        if missing:
+            shown = ", ".join(missing[:4]) + (f" …(+{len(missing) - 4})" if len(missing) > 4 else "")
+            self.manual_note.setText(f"⚠ {len(missing)} sinyal girilmedi, varsayılan (minimum/0) değerle gidecek: {shown}")
+        else:
+            self.manual_note.setText("")
 
     def _on_manual_signal_picked(self, item):
         signal_name = item.text()
@@ -201,9 +246,12 @@ class TransmitTab(QWidget):
         self.manual_selected_table.setCellWidget(row, 1, value_spin)
 
         remove_button = QPushButton("×")
-        remove_button.setFixedWidth(28)
+        remove_button.setProperty("compact", True)
+        remove_button.setFixedWidth(30)
+        remove_button.setStyleSheet("padding: 0px; font-size: 15px;")
         remove_button.clicked.connect(lambda _=False, name=signal_name: self._remove_manual_signal(name))
         self.manual_selected_table.setCellWidget(row, 2, remove_button)
+        self._update_manual_note()
 
     def _remove_manual_signal(self, signal_name: str):
         self._manual_state["values"].pop(signal_name, None)
@@ -211,6 +259,7 @@ class TransmitTab(QWidget):
             if self.manual_selected_table.item(row, 0).text() == signal_name:
                 self.manual_selected_table.removeRow(row)
                 break
+        self._update_manual_note()
 
     def _on_manual_bitfields_clicked(self):
         dialog = BitFieldDialog(self._manual_state["bitfields"], parent=self)
@@ -255,21 +304,23 @@ class TransmitTab(QWidget):
 
     # ---- Periyodik gönderim ----------------------------------------------
     def _build_periodic_group(self) -> QGroupBox:
-        box = QGroupBox("Periyodik gönderim")
+        box = QWidget()
 
         self.periodic_table = QTableWidget(0, len(PERIODIC_COLUMNS))
         self.periodic_table.setHorizontalHeaderLabels(PERIODIC_COLUMNS)
         header = self.periodic_table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.Interactive)
         header.setStretchLastSection(False)
-        header.setMinimumSectionSize(110)
+        header.setMinimumSectionSize(64)
         header.setTextElideMode(Qt.ElideNone)
         self.periodic_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.periodic_table.resizeColumnsToContents()
 
         add_button = QPushButton("Satır ekle")
+        add_button.setProperty("compact", True)
         add_button.clicked.connect(self.add_row)
         remove_button = QPushButton("Satırı sil")
+        remove_button.setProperty("compact", True)
         remove_button.clicked.connect(self._remove_selected_row)
 
         buttons = QHBoxLayout()
@@ -278,6 +329,7 @@ class TransmitTab(QWidget):
         buttons.addStretch()
 
         layout = QVBoxLayout()
+        layout.setContentsMargins(0, 8, 0, 0)
         layout.addLayout(buttons)
         layout.addWidget(self.periodic_table)
         box.setLayout(layout)
@@ -295,14 +347,12 @@ class TransmitTab(QWidget):
         self.periodic_table.setItem(row, 0, key_item)
 
         active_checkbox = QCheckBox()
-        active_checkbox.toggled.connect(
-            lambda checked, k=row_key: self._on_row_toggled(self._row_of(k), checked))
+        active_checkbox.toggled.connect(lambda checked, k=row_key: self._on_row_toggled(self._find_row(k), checked))
         self.periodic_table.setCellWidget(row, 0, active_checkbox)
 
         mode_combo = QComboBox()
         mode_combo.addItems([MODE_RAW, MODE_DBC])
-        mode_combo.currentTextChanged.connect(
-            lambda mode, k=row_key: self._set_row_mode(self._row_of(k), mode))
+        mode_combo.currentTextChanged.connect(lambda mode, k=row_key: self._set_row_mode(self._find_row(k), mode))
         self.periodic_table.setCellWidget(row, 1, mode_combo)
 
         period_spin = no_wheel(QSpinBox())
@@ -320,14 +370,36 @@ class TransmitTab(QWidget):
     def _row_key(self, row: int) -> str:
         return self.periodic_table.item(row, 0).data(Qt.UserRole)
 
-    def _row_of(self, row_key: str) -> int:
-        """Satırın GÜNCEL indeksi. Satır silinince indeksler kayar; bu yüzden
-        widget bağlantıları sabit indeks değil satır anahtarı taşır. -1: yok."""
+    def _find_row(self, row_key: str) -> int:
+        """Satır anahtarından GÜNCEL satır indeksi (satır silinince indeksler kayar)."""
         for r in range(self.periodic_table.rowCount()):
-            item = self.periodic_table.item(r, 0)
-            if item is not None and item.data(Qt.UserRole) == row_key:
+            it = self.periodic_table.item(r, 0)
+            if it is not None and it.data(Qt.UserRole) == row_key:
                 return r
         return -1
+
+    def _resolve_row(self, row: int):
+        """Periyodik satırın (can_id, data, extended) üçlüsü; geçersizse ValueError."""
+        state = self._periodic_state[self._row_key(row)]
+        mode = self.periodic_table.cellWidget(row, 1).currentText()
+        if mode == MODE_DBC:
+            return self._resolve_frame(mode=MODE_DBC, id_edit=None, frame_combo=None, state=state)
+        return self._resolve_frame(mode=MODE_RAW, id_edit=self.periodic_table.cellWidget(row, 2),
+                                   frame_combo=self.periodic_table.cellWidget(row, 3), state=state)
+
+    def _restart_if_running(self, row: int):
+        """Çalışan satırın sinyal/bit değerleri değişince yeni veriyle gönderimi günceller."""
+        cb = self.periodic_table.cellWidget(row, 0)
+        if cb is None or not cb.isChecked():
+            return
+        try:
+            can_id, data, extended = self._resolve_row(row)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Geçersiz girdi", str(exc))
+            return
+        self.periodic_start_requested.emit(self._row_key(row), can_id, data, extended,
+                                           self.periodic_table.cellWidget(row, 5).value())
+        self.periodic_table.cellWidget(row, 6).setText("Çalışıyor (güncellendi)")
 
     def _set_row_mode(self, row: int, mode: str):
         """'ID / Mesaj', 'Frame Type / Sinyaller' ve 'Data' hücrelerini
@@ -348,15 +420,14 @@ class TransmitTab(QWidget):
             bitfields_button = QPushButton("Bit alanları...")
             bitfields_button.setObjectName("bitfields_button")
             bitfields_button.clicked.connect(
-                lambda _=False, k=row_key: self._on_periodic_bitfields_clicked(self._row_of(k)))
+                lambda _=False, k=row_key: self._on_periodic_bitfields_clicked(self._find_row(k)))
             dlc_spin = no_wheel(QSpinBox())
             dlc_spin.setObjectName("dlc_spin")
             dlc_spin.setRange(0, 8)
             dlc_spin.setValue(self._periodic_state[row_key].get("dlc", 8))
             dlc_spin.setPrefix("DLC ")
             dlc_spin.setToolTip("Veri uzunluğu (bayt). ECU mesajı kısa tanımlıysa ona göre ayarlayın.")
-            dlc_spin.valueChanged.connect(
-                lambda v, k=row_key: self._periodic_state.get(k, {}).__setitem__("dlc", int(v)))
+            dlc_spin.valueChanged.connect(lambda v, k=row_key: self._on_dlc_changed(k, int(v)))
             cell = QWidget()
             cell_lay = QHBoxLayout(cell)
             cell_lay.setContentsMargins(0, 0, 0, 0)
@@ -367,13 +438,12 @@ class TransmitTab(QWidget):
             message_combo = QComboBox()
             message_combo.addItems(self.dbc.message_names())
             message_combo.currentTextChanged.connect(
-                lambda name, k=row_key: self._on_periodic_message_changed(self._row_of(k), name)
+                lambda name, k=row_key: self._on_periodic_message_changed(self._find_row(k), name)
             )
             self.periodic_table.setCellWidget(row, 2, message_combo)
 
             signals_button = QPushButton("Sinyaller...")
-            signals_button.clicked.connect(
-                lambda _=False, k=row_key: self._on_periodic_signals_clicked(self._row_of(k)))
+            signals_button.clicked.connect(lambda _=False, k=row_key: self._on_periodic_signals_clicked(self._find_row(k)))
             self.periodic_table.setCellWidget(row, 3, signals_button)
 
             preview_label = QLabel("DBC'den otomatik")
@@ -402,23 +472,25 @@ class TransmitTab(QWidget):
         dialog = SignalInputDialog(message, state["values"], parent=self)
         if dialog.exec():
             state["values"] = dialog.values()
+            self._restart_if_running(row)
+
+    def _on_dlc_changed(self, row_key: str, dlc: int):
+        if row_key in self._periodic_state:
+            self._periodic_state[row_key]["dlc"] = dlc
+            self._restart_if_running(self._find_row(row_key))
 
     def _on_periodic_bitfields_clicked(self, row: int):
         if row < 0:
             return
         row_key = self._row_key(row)
         state = self._periodic_state[row_key]
-        row_cb = self.periodic_table.cellWidget(row, 0)
-        if row_cb is not None and row_cb.isChecked():
-            QMessageBox.information(self, "Satır çalışıyor",
-                                    "Çalışan satırın bit alanları değiştirilemez; önce satırı durdurun.")
-            return
         dialog = BitFieldDialog(state["bitfields"], parent=self)
         if dialog.exec():
             state["bitfields"] = dialog.fields()
             button = self.periodic_table.cellWidget(row, 4).findChild(QPushButton, "bitfields_button")
             count = len(state["bitfields"])
             button.setText(f"Bit alanları... ({count})" if count else "Bit alanları...")
+            self._restart_if_running(row)
 
     def _on_row_toggled(self, row: int, checked: bool):
         if row < 0:
@@ -430,18 +502,7 @@ class TransmitTab(QWidget):
 
         if checked:
             try:
-                mode = mode_combo.currentText()
-                state = self._periodic_state[row_key]
-                if mode == MODE_DBC:
-                    can_id, data, extended = self._resolve_frame(
-                        mode=MODE_DBC, id_edit=None, frame_combo=None, state=state,
-                    )
-                else:
-                    id_edit = self.periodic_table.cellWidget(row, 2)
-                    frame_combo = self.periodic_table.cellWidget(row, 3)
-                    can_id, data, extended = self._resolve_frame(
-                        mode=MODE_RAW, id_edit=id_edit, frame_combo=frame_combo, state=state,
-                    )
+                can_id, data, extended = self._resolve_row(row)
             except ValueError as exc:
                 QMessageBox.warning(self, "Geçersiz girdi", str(exc))
                 self.periodic_table.cellWidget(row, 0).setChecked(False)

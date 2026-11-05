@@ -51,7 +51,8 @@ def datatype_size(datatype: str) -> int:
     code = _STRUCT_CODES.get((datatype or "").upper())
     if code is None:
         raise UnknownDatatypeError(f"Bilinmeyen A2L veri tipi: {datatype!r}")
-    return struct.calcsize(code)
+    # Standart boyut (önek ile): "L" öneksiz native 8 bayt olabilir (Linux/macOS), A2L ULONG her zaman 4 bayttır.
+    return struct.calcsize("<" + code)
 
 
 def _endian_char(byte_order: str | None) -> str:
@@ -93,10 +94,16 @@ def decode_value(datatype: str, data: bytes, byte_order: str | None = None):
     code = _STRUCT_CODES.get((datatype or "").upper())
     if code is None:
         raise UnknownDatatypeError(f"Bilinmeyen A2L veri tipi: {datatype!r}")
-    size = struct.calcsize(code)
+    size = struct.calcsize("<" + code)
     if len(data) < size:
         raise ValueError(f"{datatype} için {size} bayt gerekir, {len(data)} bayt geldi.")
     return struct.unpack(_endian_char(byte_order) + code, bytes(data[:size]))[0]
+
+
+def _converter(compu_method):
+    """pya2l sürümlerine göre dönüştürücü nesne: CompuMethod.evaluator; NoCompuMethod
+    (NO_COMPU_METHOD) için nesnenin kendisi birebir (identity) int_to_physical/physical_to_int sunar."""
+    return getattr(compu_method, "evaluator", compu_method)
 
 
 def raw_to_physical(compu_method, raw):
@@ -106,7 +113,7 @@ def raw_to_physical(compu_method, raw):
     if compu_method is None:
         return raw
     try:
-        return float(compu_method.evaluator.int_to_physical(raw))
+        return float(_converter(compu_method).int_to_physical(raw))
     except Exception as exc:
         log.warning("COMPU_METHOD ham->fiziksel dönüşümü başarısız (%s); ham değer gösteriliyor.", exc)
         return raw
@@ -119,7 +126,7 @@ def physical_to_raw(compu_method, phys):
     if compu_method is None:
         return phys
     try:
-        return float(compu_method.evaluator.physical_to_int(phys))
+        return float(_converter(compu_method).physical_to_int(phys))
     except Exception as exc:
         raise UnsupportedConversionError(
             f"COMPU_METHOD ters dönüşümü desteklenmiyor veya değer aralık dışı ({exc}); yazma yapılmadı."

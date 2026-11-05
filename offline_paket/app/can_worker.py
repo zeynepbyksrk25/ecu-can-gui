@@ -25,6 +25,12 @@ _PCAN_BUS_LEVEL_BITS = (
     | 0x40000  # BUSPASSIVE
 )
 
+# Hat toparlama (bus-off kurtarma) zamanlamaları
+SILENT_S = 1.5                  # bu kadar süre hiç mesaj gelmediyse hat "sessiz" sayılır
+RESET_INTERVAL_S = 2.0          # kurtarma denemeleri arası en az süre
+MAX_RESETS_BEFORE_REOPEN = 3    # bu kadar reset işe yaramazsa adaptör yeniden açılır
+RECOVERY_PROBE_S = 1.0          # toparlanırken en çok saniyede 1 kare gönderilir (hattı boğma)
+
 # Alım döngüsünde art arda bu kadar HATA (boş-kuyruk zaman aşımı değil, gerçek
 # okuma hatası) görülürse adaptör kaybolmuş sayılır.
 RX_ERROR_STREAK_LIMIT = 3
@@ -32,6 +38,11 @@ RX_ERROR_STREAK_LIMIT = 3
 
 RX_QUEUE_MAX = 50000
 CCP_QUEUE_MAX = 2000
+
+
+class BusRecovering(RuntimeError):
+    """Hat bus-off/hata durumundan toparlanırken gönderim geçici olarak yavaşlatıldı."""
+
 
 class CanConnection:
     """Tek bir CAN bus bağlantısını yönetir.
@@ -41,7 +52,18 @@ class CanConnection:
     gerçek PCAN-USB donanımı için).
     """
 
-    def __init__(self):
+    def __init__(self, bus_factory=None):
+        self._bus_factory = bus_factory or can.Bus     # testlerde sahte bus enjekte edilir
+        self._params: dict | None = None
+        self.on_reopen: list = []                      # bus yeniden açılınca çağrılacak geri çağrılar
+        self.last_rx_mono = time.monotonic()           # son alınan mesajın zamanı (hat sessiz tespiti)
+        self.recovering = False
+        self._last_status_code: int | None = None
+        self._last_recovery = 0.0
+        self._last_probe_send = 0.0
+        self._reset_attempts = 0
+        self.reset_count = 0
+        self.reopen_count = 0
         self.bus: can.BusABC | None = None
         self._recv_thread: threading.Thread | None = None
         self._stop_event = threading.Event()
@@ -74,10 +96,21 @@ class CanConnection:
             kwargs["bitrate"] = bitrate
         elif interface == "udp_multicast":
             kwargs["bitrate"] = bitrate  # udp_multicast bitrate kabul eder (bilgi amaçlı)
+        if interface == "pcan":
+            # ECU kapalıyken hattı kimse ACK'lemez; kontrolcü BUS-OFF'a düşer ve PCAN-USB
+            # kendiliğinden çıkmaz. Sürücünün otomatik bus-off kurtarmasını aç.
+            kwargs["auto_reset"] = True
+        self._params = dict(kwargs)
+        self._open_bus_and_thread()
 
-        self.bus = can.Bus(**kwargs)
+    def _open_bus_and_thread(self):
+        self.bus = self._bus_factory(**self._params)
         self.rx_error_streak = 0
         self.last_rx_error = None
+        self.last_rx_mono = time.monotonic()
+        self.recovering = False
+        self._last_status_code = None
+        self._reset_attempts = 0
         self._stop_event.clear()
         self._recv_thread = threading.Thread(target=self._receive_loop, daemon=True)
         self._recv_thread.start()
@@ -99,6 +132,13 @@ class CanConnection:
     def send(self, arbitration_id: int, data: bytes, extended: bool):
         if not self.is_connected:
             raise RuntimeError("Bağlantı yok.")
+        if self.recovering:
+            # Hat toparlanırken gönderimi saniyede 1 kareye indir (hattı daha da hataya sokma);
+            # hat dönünce (alım başlayınca) otomatik tam hıza çıkılır.
+            now = time.monotonic()
+            if now - self._last_probe_send < RECOVERY_PROBE_S:
+                raise BusRecovering("Hat toparlanıyor (bus-off kurtarma); gönderim geçici olarak bekletildi.")
+            self._last_probe_send = now
         msg = can.Message(
             arbitration_id=arbitration_id,
             data=data,
@@ -152,6 +192,86 @@ class CanConnection:
             return "bus_warning", getattr(self.bus, "status_string", lambda: None)() or "Bilinmeyen hata"
         return "ok", "OK (bu arayüzde donanım durum sorgusu yok)"
 
+    # ---- Bus-off kurtarma bekçisi ------------------------------------------------
+    def silent_for(self) -> float:
+        """Son mesajdan bu yana geçen süre (sn)."""
+        return time.monotonic() - self.last_rx_mono
+
+    def _status_code(self):
+        if self.bus is not None and hasattr(self.bus, "status"):
+            try:
+                return int(self.bus.status())
+            except Exception:
+                return None
+        return None
+
+    def watchdog(self) -> list:
+        """MainWindow tarafından ~500 ms'de bir çağrılır. Hat hatalı (bus-off/ağır hata) VE
+        sessizse önce ``bus.reset()`` dener, işe yaramazsa adaptörü AYNI parametrelerle yeniden
+        açar (Bağlantıyı kes + Bağlan'ın otomatiği). Günlüğe yazılacak olayların listesini döner
+        (PCAN durum kodu geçişleri dahil — gerçek donanımda teşhis içindir)."""
+        events: list = []
+        if not self.is_connected:
+            return events
+        now = time.monotonic()
+        state, message = self.link_state()
+        code = self._status_code()
+        if code is not None and code != self._last_status_code:
+            if self._last_status_code is not None or code != 0:
+                events.append(f"PCAN durum kodu 0x{code:X} ({message}); son mesaj {self.silent_for():.1f} sn önce")
+            self._last_status_code = code
+
+        self.recovering = state == "bus_warning" and self.silent_for() > SILENT_S
+        if not self.recovering:
+            return events
+        if self.last_rx_mono > self._last_recovery:
+            self._reset_attempts = 0          # son denemeden sonra mesaj geldi: hat düzeldi
+        if now - self._last_recovery < RESET_INTERVAL_S:
+            return events
+        self._last_recovery = now
+        if self._reset_attempts < MAX_RESETS_BEFORE_REOPEN:
+            self._reset_attempts += 1
+            ok = False
+            if hasattr(self.bus, "reset"):
+                try:
+                    ok = bool(self.bus.reset())
+                except Exception as exc:
+                    events.append(f"Bus-off kurtarma: reset() hata verdi: {exc}")
+            self.reset_count += 1
+            events.append(f"Bus-off kurtarma: reset() {'tamam' if ok else 'başarısız'} "
+                          f"({self._reset_attempts}/{MAX_RESETS_BEFORE_REOPEN})")
+        else:
+            self._reset_attempts = 0
+            try:
+                self.reopen()
+                events.append("Bus-off kurtarma: reset işe yaramadı, adaptör yeniden açıldı")
+            except Exception as exc:
+                events.append(f"Bus-off kurtarma: adaptör yeniden açılamadı: {exc}")
+        return events
+
+    def reopen(self):
+        """Bus'ı aynı parametrelerle kapatıp yeniden açar; dinleyicilere (periyodik gönderim,
+        CCP) yeni bus'a geçmeleri için haber verir."""
+        if self._params is None:
+            raise RuntimeError("Önce connect() çağrılmalı.")
+        self._stop_event.set()
+        if self._recv_thread is not None:
+            self._recv_thread.join(timeout=1.0)
+            self._recv_thread = None
+        if self.bus is not None:
+            try:
+                self.bus.shutdown()
+            except Exception:
+                pass
+            self.bus = None
+        self._open_bus_and_thread()
+        self.reopen_count += 1
+        for cb in list(self.on_reopen):
+            try:
+                cb()
+            except Exception:
+                pass
+
     def is_healthy(self) -> tuple[bool, str]:
         """Geriye uyumluluk: link_state() "ok" ise True."""
         state, message = self.link_state()
@@ -161,8 +281,12 @@ class CanConnection:
         """Ayrı thread'de çalışır: bus.recv() bloklasa bile UI donmaz,
         çünkü bu thread UI thread'inden bağımsızdır."""
         while not self._stop_event.is_set():
+            bus = self.bus
+            if bus is None:
+                time.sleep(0.05)
+                continue
             try:
-                msg = self.bus.recv(timeout=0.2)
+                msg = bus.recv(timeout=0.2)
             except Exception as exc:  # CanError ve sürücü/OS düzeyindeki beklenmedik hatalar
                 self.rx_error_streak += 1
                 self.last_rx_error = str(exc)
@@ -170,6 +294,7 @@ class CanConnection:
                 continue
             self.rx_error_streak = 0  # hatasız bir okuma (mesaj ya da temiz zaman aşımı)
             if msg is not None:
+                self.last_rx_mono = time.monotonic()
                 msg.timestamp = time.time()
                 try:
                     self.rx_queue.put_nowait(msg)

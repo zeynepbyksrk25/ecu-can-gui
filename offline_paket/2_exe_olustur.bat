@@ -50,6 +50,7 @@ REM --collect-all pya2l:
 REM   pya2l, A2L dosyalarini SQLAlchemy uzerinden calisma aninda olusan
 REM   bir semaya yukler; guvenli tarafta kalmak icin tum alt modulleri
 REM   dahil ediyoruz.
+REM --collect-all asammdf / --collect-submodules scipy.io: trend disa aktarma (MDF/MAT).
 REM --add-data app\fonts: PDF raporu icin Turkce karakterli yazi tipi.
 venv\Scripts\pyinstaller.exe main.py ^
     --name ECU_CAN_Arayuzu ^
@@ -63,6 +64,8 @@ venv\Scripts\pyinstaller.exe main.py ^
     --collect-all pya2l ^
     --collect-all pyqtgraph ^
     --collect-all reportlab ^
+    --collect-all asammdf ^
+    --collect-submodules scipy.io ^
     --clean
 
 if errorlevel 1 (

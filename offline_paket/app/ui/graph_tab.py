@@ -24,10 +24,12 @@ from PySide6.QtWidgets import (
     QPushButton, QScrollArea, QVBoxLayout, QWidget,
 )
 
+from app.ui.dark_theme import style_plot  # noqa: E402
+
 POLL_INTERVAL_MS = 250
 MAX_POINTS = 800  # ~200 saniyelik pencere (250ms * 800)
 
-_PALETTE = ["#00c2b8", "#e5484d", "#3ecf8e", "#9467bd", "#f0a020", "#17becf"]
+_PALETTE = ["#35c6f4", "#ff6b6b", "#4ade80", "#b48cff", "#f0b04a", "#2dd4bf"]
 
 
 class _GraphTile(QWidget):
@@ -64,7 +66,7 @@ class _GraphTile(QWidget):
         self.remove_button = QPushButton("Bu Paneli Kaldır")
         self.remove_button.clicked.connect(lambda: self.remove_requested.emit(self))
         side.addWidget(self.remove_button)
-        self.crosshair_label = QLabel("Sensör takibi: fareyi grafik üzerine getirin")
+        self.crosshair_label = QLabel("")
         self.crosshair_label.setWordWrap(True)
         side.addWidget(self.crosshair_label)
         side.addStretch()
@@ -72,7 +74,8 @@ class _GraphTile(QWidget):
         outer.addLayout(top_row)
 
         pg.setConfigOptions(antialias=True)
-        self.plot_widget = pg.PlotWidget(background="#1a222c")
+        self.plot_widget = pg.PlotWidget(background="#0b1a2b")
+        style_plot(self.plot_widget)
         self.plot_widget.addLegend()
         self.plot_widget.showGrid(x=True, y=True, alpha=0.3)
         self.plot_widget.setLabel("bottom", "Zaman (s)")
@@ -170,7 +173,7 @@ class _GraphTile(QWidget):
             # en yakın örneği bul (basit doğrusal arama; MAX_POINTS küçük olduğu için yeterli)
             closest_i = min(range(len(series["x"])), key=lambda i: abs(series["x"][i] - x))
             lines.append(f"{name}: {series['y'][closest_i]:.4g}  (t={series['x'][closest_i]:.1f}s)")
-        self.crosshair_label.setText("\n".join(lines) if lines else "Sensör takibi: veri yok")
+        self.crosshair_label.setText("\n".join(lines) if lines else "")
 
 
 class GraphTab(QWidget):
@@ -203,7 +206,7 @@ class GraphTab(QWidget):
         self._add_tile()  # en az bir panelle başla
 
     def _build_controls(self) -> QGroupBox:
-        box = QGroupBox("Canlı grafik — her panelde ayrı sinyaller işaretlenebilir (CCP bağlantısı gerekir)")
+        box = QGroupBox("Canlı grafik")
         self.add_tile_button = QPushButton("+ Grafik Paneli Ekle")
         self.add_tile_button.clicked.connect(self._add_tile)
 
@@ -231,7 +234,7 @@ class GraphTab(QWidget):
     def refresh_objects(self):
         self._measurement_names = []
         if self.a2l_db is not None and self.a2l_db.summary is not None:
-            self._measurement_names = [m.name for m in self.a2l_db.summary.measurements]
+            self._measurement_names = [m.name for m in self.a2l_db.summary.readable()]
         for tile in self._tiles:
             tile.populate_measurements(self._measurement_names)
 

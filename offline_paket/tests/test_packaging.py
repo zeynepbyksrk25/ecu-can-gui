@@ -37,7 +37,7 @@ def test_cmd_files_are_thin_wrappers():
 def test_exe_build_bundles_fonts_and_keeps_can_flags():
     s = read("2_exe_olustur.bat")
     for flag in ("--noconfirm", '--add-data "app\\fonts;app\\fonts"', "--collect-submodules can",
-                 "--collect-submodules cantools", "--collect-all pya2l"):
+                 "--collect-submodules cantools", "--collect-all pya2l", "--collect-all asammdf"):
         assert flag in s, flag
     assert os.path.isfile(os.path.join(ROOT, "app", "fonts", "DejaVuSans.ttf"))
     assert os.path.isfile(os.path.join(ROOT, "app", "fonts", "LICENSE-DejaVu.txt"))
@@ -51,10 +51,10 @@ def test_requirements_are_pinned_and_lock_has_hashes():
     lock = read("requirements.lock.txt")
     pins = re.findall(r"^[A-Za-z0-9_.\-]+==", lock, re.M)
     hashes = re.findall(r"--hash=sha256:[0-9a-f]{64}", lock)
-    assert len(pins) >= 30 and len(pins) == len(hashes)
+    assert len(pins) >= 45 and len(pins) == len(hashes)
     names = {p.rstrip("=").lower() for p in pins}
     for needed in ("pyside6", "python-can", "cantools", "pya2ldb", "pyqtgraph", "reportlab",
-                   "pyinstaller", "numpy", "pywin32-ctypes", "pefile", "altgraph", "colorama"):
+                   "pyinstaller", "numpy", "scipy", "asammdf", "pywin32-ctypes", "pefile", "altgraph", "colorama"):
         assert needed in names, needed
     direct = {l.split("==")[0].lower() for l in read("requirements_build.txt").splitlines() if "==" in l}
     assert direct <= names

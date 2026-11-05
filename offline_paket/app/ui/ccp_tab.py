@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
 )
 
 ROLE_OBJECT = Qt.UserRole
-POLL_INTERVAL_MS = 500
+POLL_INTERVAL_MS = 250   # seçili nesne HER ZAMAN canlı okunur (önbellekten; bloklamaz)
 
 
 class CCPTab(QWidget):
@@ -41,6 +41,7 @@ class CCPTab(QWidget):
         browser_row.addWidget(self._build_value_panel(), stretch=1)
         layout.addLayout(browser_row, stretch=1)
 
+        self._session_active = False
         self.poll_timer = QTimer(self)
         self.poll_timer.setInterval(POLL_INTERVAL_MS)
         self.poll_timer.timeout.connect(self.read_requested.emit)
@@ -62,7 +63,7 @@ class CCPTab(QWidget):
         self.disconnect_button.clicked.connect(self.disconnect_requested.emit)
 
         self.status_label = QLabel("● CCP bağlı değil")
-        self.status_label.setStyleSheet("color: red; font-weight: bold;")
+        self.status_label.setStyleSheet("color: #ff6b6b; font-weight: bold;")
 
         # CAN hattına bağlanınca CCP'yi de otomatik bağlamak için. Manuel
         # "CCP Bağlan" / "CCP Bağlantıyı Kes" düğmeleri bundan bağımsız
@@ -131,15 +132,30 @@ class CCPTab(QWidget):
         self.station_edit.setEnabled(not connected)
         if connected:
             self.status_label.setText(f"● CCP bağlı  {info}".rstrip())
-            self.status_label.setStyleSheet("color: green; font-weight: bold;")
+            self.status_label.setStyleSheet("color: #4ade80; font-weight: bold;")
         else:
             self.status_label.setText("● CCP bağlı değil")
-            self.status_label.setStyleSheet("color: red; font-weight: bold;")
-            self.poll_checkbox.setChecked(False)
+            self.status_label.setStyleSheet("color: #ff6b6b; font-weight: bold;")
+            self._session_active = False
+            self._update_live()
+
+    def set_session_state(self, state: str, text: str):
+        """Arka plan CCP oturumunun durumu (idle/connecting/online/lost; bkz. app/ccp/worker.py):
+        düğmeler ve durum etiketi buna göre. Bağlanırken 'Bağlantıyı kes' aynı zamanda iptaldir."""
+        active = state != "idle"
+        self._session_active = state in ("online", "lost")
+        self.connect_button.setEnabled(not active)
+        self.disconnect_button.setEnabled(active)
+        for w in (self.cro_edit, self.dto_edit, self.station_edit):
+            w.setEnabled(not active)
+        color = {"idle": "#ff6b6b", "connecting": "#f0b04a", "online": "#4ade80", "lost": "#ff6b6b"}[state]
+        self.status_label.setText(f"● {text}")
+        self.status_label.setStyleSheet(f"color: {color}; font-weight: bold;")
+        self._update_live()
 
     def set_auto_connect_failed(self, message: str):
         self.status_label.setText(f"● CCP otomatik bağlanamadı: {message}")
-        self.status_label.setStyleSheet("color: #b06a00; font-weight: bold;")
+        self.status_label.setStyleSheet("color: #f0b04a; font-weight: bold;")
 
     # ---- Nesne tarayıcı ---------------------------------------------------
     def _build_tree_panel(self) -> QGroupBox:
@@ -231,22 +247,23 @@ class CCPTab(QWidget):
         form.addRow("Birim:", self.sel_unit)
 
         self.value_display = QLabel("-")
-        self.value_display.setStyleSheet("font-size: 16px; font-weight: bold;")
+        self.value_display.setStyleSheet("font-size: 16px; font-weight: bold; color: #ffffff;")
         form.addRow("Okunan değer:", self.value_display)
 
+        # "Oku" ve "Sürekli oku" kaldırıldı: nesne seçilince ve CCP çevrimiçiyken değer sürekli güncellenir.
         self.read_button = QPushButton("Oku")
-        self.read_button.clicked.connect(self.read_requested.emit)
-        self.poll_checkbox = QCheckBox("Sürekli oku (500 ms)")
-        self.poll_checkbox.toggled.connect(self._on_poll_toggled)
-
+        self.poll_checkbox = QCheckBox("Sürekli oku")
+        for hidden in (self.read_button, self.poll_checkbox):
+            hidden.setVisible(False)
+        self.live_hint = QLabel("● Canlı: seçili değer sürekli okunur")
+        self.live_hint.setStyleSheet("color: #8fa6bd;")
         read_row = QHBoxLayout()
-        read_row.addWidget(self.read_button)
-        read_row.addWidget(self.poll_checkbox)
+        read_row.addWidget(self.live_hint)
         read_row.addStretch()
 
         self.array_hint_label = QLabel("")
         self.array_hint_label.setWordWrap(True)
-        self.array_hint_label.setStyleSheet("color: #b06a00;")
+        self.array_hint_label.setStyleSheet("color: #f0b04a;")
         self.array_hint_label.setVisible(False)
         self.open_map_button = QPushButton("Harita Editörü'nde Aç (tüm elemanları gör/düzenle)")
         self.open_map_button.setVisible(False)
@@ -292,8 +309,6 @@ class CCPTab(QWidget):
         box.setLayout(layout)
 
         self._set_write_enabled(False)
-        self.read_button.setEnabled(False)
-        self.poll_checkbox.setEnabled(False)
         return box
 
     def _set_write_enabled(self, enabled: bool):
@@ -305,10 +320,12 @@ class CCPTab(QWidget):
     def _on_flash_enable_toggled(self, checked: bool):
         self.write_flash_button.setEnabled(checked and self.write_edit.isEnabled())
 
-    def _on_poll_toggled(self, checked: bool):
-        if checked:
+    def _update_live(self):
+        """Seçili nesne + çevrimiçi/ECU-yok oturumu varsa canlı okuma zamanlayıcısı çalışır."""
+        want = self._selected is not None and self._session_active
+        if want and not self.poll_timer.isActive():
             self.poll_timer.start()
-        else:
+        elif not want and self.poll_timer.isActive():
             self.poll_timer.stop()
 
     def _on_write_flash_clicked(self):
@@ -345,8 +362,7 @@ class CCPTab(QWidget):
         payload = item.data(0, ROLE_OBJECT)
         if payload is None:
             self._selected = None
-            self.read_button.setEnabled(False)
-            self.poll_checkbox.setEnabled(False)
+            self._update_live()
             self._set_write_enabled(False)
             return
         kind, obj = payload
@@ -379,8 +395,7 @@ class CCPTab(QWidget):
 
         self.value_display.setText("-")
         self.op_status_label.setText("")
-        self.read_button.setEnabled(True)
-        self.poll_checkbox.setEnabled(True)
+        self._update_live()
 
     # ---- MainWindow'un kullandığı erişimciler ----------------------------
     def selected_object(self):
@@ -396,4 +411,4 @@ class CCPTab(QWidget):
         # Her yazma denemesinden sonra flaş izni kapanır (tek seferlik izin).
         self.flash_enable_checkbox.setChecked(False)
         self.op_status_label.setText(message)
-        self.op_status_label.setStyleSheet("color: green;" if ok else "color: #b00020;")
+        self.op_status_label.setStyleSheet("color: #4ade80;" if ok else "color: #ff6b6b;")
