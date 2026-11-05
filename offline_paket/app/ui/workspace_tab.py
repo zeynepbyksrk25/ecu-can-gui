@@ -16,8 +16,8 @@ from __future__ import annotations
 import json
 import os
 
-from PySide6.QtCore import QRect, Qt, QTimer, Signal
-from PySide6.QtGui import QColor
+from PySide6.QtCore import QPoint, QRect, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QGuiApplication
 from PySide6.QtWidgets import (
     QCompleter, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFileDialog,
     QFormLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMdiArea, QMdiSubWindow,
@@ -91,6 +91,29 @@ class WorkspaceLayoutStore:
 
 class _Sub(QMdiSubWindow):
     closed = Signal(object)
+
+    def closeEvent(self, ev):  # noqa: N802
+        self.closed.emit(self)
+        super().closeEvent(ev)
+
+
+class _Float(QWidget):
+    """Ana pencereden ayrılmış panel penceresi (ikinci monitöre taşınabilir)."""
+    closed = Signal(object)
+    dock_requested = Signal(object)
+
+    def __init__(self, panel, title: str):
+        super().__init__(None, Qt.Window)
+        self.panel = panel
+        self.mdi_geom = None            # geri yerleştirirken kullanılacak MDI konumu
+        self.setWindowTitle(title)
+        self.setAttribute(Qt.WA_DeleteOnClose, True)
+        btn = QPushButton("⤓  Çalışma alanına geri yerleştir")
+        btn.clicked.connect(lambda: self.dock_requested.emit(self))
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(4, 4, 4, 4)
+        lay.addWidget(btn, 0, Qt.AlignLeft)
+        lay.addWidget(panel, 1)
 
     def closeEvent(self, ev):  # noqa: N802
         self.closed.emit(self)
@@ -288,6 +311,11 @@ class WorkspaceTab(QWidget):
         row2.addSpacing(10)
         row2.addWidget(b_math)
         row2.addSpacing(10)
+        b_detach = QPushButton("⧉ Paneli ayır")
+        b_detach.setToolTip("Seçili paneli ayrı bir pencereye alır (ikinci monitöre taşınabilir). "
+                            "Ayrı penceredeki düğmeyle geri yerleştirilir.")
+        b_detach.clicked.connect(self._on_detach_clicked)
+        row2.addWidget(b_detach)
         b_tile = QPushButton("Döşe")
         b_tile.clicked.connect(lambda: self.mdi.tileSubWindows())
         b_casc = QPushButton("Kademeli")
@@ -402,6 +430,10 @@ class WorkspaceTab(QWidget):
 
     def shutdown(self):
         self._autosave(force=True)
+        for sub in list(self._subs.values()):
+            if isinstance(sub, _Float):
+                sub.closed.disconnect()
+                sub.close()
 
     # ====================================================================
     # Zamanlayıcı
@@ -428,7 +460,8 @@ class WorkspaceTab(QWidget):
     # ====================================================================
     # Paneller
     # ====================================================================
-    def add_panel(self, kind: str, state: dict | None = None, geometry=None, title: str | None = None):
+    def add_panel(self, kind: str, state: dict | None = None, geometry=None, title: str | None = None,
+                  floating_geometry=None):
         cls = PANEL_TYPES[kind]
         if kind == "control":
             panel = cls(self.hub, self._input_defs, self.send_input.emit, lambda: dict(self._input_values))
@@ -458,6 +491,8 @@ class WorkspaceTab(QWidget):
             panel.set_frozen(True)
         panel.refresh(self._span(), False)
         self.mdi.setActiveSubWindow(sub)
+        if floating_geometry:
+            self._detach(panel, floating_geometry)
         self._on_changed()
         return panel
 
@@ -465,6 +500,70 @@ class WorkspaceTab(QWidget):
         if panel in self._panels:
             self._panels.remove(panel)
         self._subs.pop(panel, None)
+        self._on_changed()
+
+    # ---- ayrı pencere ------------------------------------------------
+    def _on_detach_clicked(self):
+        p = self.active_panel()
+        if p is None:
+            QMessageBox.information(self, "Paneli ayır", "Önce ayrılacak paneli seçin (başlığına tıklayın).")
+            return
+        self._detach(p)
+
+    @staticmethod
+    def _visible_geometry(geom):
+        """Kayıtlı ekran konumu artık geçerli bir ekranda değilse birincil ekrana al."""
+        x, y, w, h = [int(v) for v in geom]
+        if QGuiApplication.screenAt(QPoint(x + 20, y + 20)) is None:
+            scr = QGuiApplication.primaryScreen()
+            if scr is not None:
+                a = scr.availableGeometry()
+                x, y = a.x() + 60, a.y() + 60
+        return QRect(x, y, w, h)
+
+    def _detach(self, panel, geometry=None):
+        sub = self._subs.get(panel)
+        if not isinstance(sub, _Sub):
+            return
+        mdi_geom = sub.geometry()
+        title = sub.windowTitle()
+        fl = _Float(panel, title)
+        fl.mdi_geom = mdi_geom
+        panel.setParent(fl)               # panel MDI alt penceresiyle birlikte silinmesin
+        fl.layout().addWidget(panel, 1)
+        sub.closed.disconnect()
+        sub.close()
+        if geometry:
+            fl.setGeometry(self._visible_geometry(geometry))
+        else:
+            gp = self.mapToGlobal(self.rect().center())
+            fl.resize(max(mdi_geom.width(), 480), max(mdi_geom.height(), 320))
+            fl.move(gp.x() - fl.width() // 2, gp.y() - fl.height() // 2)
+        self._subs[panel] = fl
+        fl.closed.connect(lambda _f, p=panel: self._on_closed(p))
+        fl.dock_requested.connect(lambda f, p=panel: self._dock(p, f))
+        fl.show()
+        panel.show()
+        self._on_changed()
+
+    def _dock(self, panel, fl):
+        geom = fl.mdi_geom
+        title = fl.windowTitle()
+        fl.closed.disconnect()
+        sub = _Sub()
+        panel.setParent(None)
+        sub.setWidget(panel)
+        sub.setWindowTitle(title)
+        sub.setAttribute(Qt.WA_DeleteOnClose, True)
+        self.mdi.addSubWindow(sub)
+        if geom:
+            sub.setGeometry(geom)
+        sub.show()
+        panel.show()
+        sub.closed.connect(lambda _s, p=panel: self._on_closed(p))
+        self._subs[panel] = sub
+        fl.close()
+        self.mdi.setActiveSubWindow(sub)
         self._on_changed()
 
     def clear_panels(self):
@@ -714,10 +813,15 @@ class WorkspaceTab(QWidget):
             sub = self._subs.get(p)
             if sub is None:
                 continue
-            g = sub.geometry()
-            panels.append({"kind": p.kind, "title": sub.windowTitle(),
-                           "geometry": [g.x(), g.y(), g.width(), g.height()],
-                           "state": p.to_state()})
+            floating = isinstance(sub, _Float)
+            g = (sub.mdi_geom or sub.geometry()) if floating else sub.geometry()
+            d = {"kind": p.kind, "title": sub.windowTitle(),
+                 "geometry": [g.x(), g.y(), g.width(), g.height()],
+                 "state": p.to_state()}
+            if floating:
+                fg = sub.geometry()
+                d["floating"] = [fg.x(), fg.y(), fg.width(), fg.height()]
+            panels.append(d)
         return {"version": 1, "span": self.span_combo.currentIndex(),
                 "derived": self.hub.derived, "panels": panels}
 
@@ -733,7 +837,8 @@ class WorkspaceTab(QWidget):
             self.span_combo.setCurrentIndex(int(state.get("span", 1)))
             for pd in state.get("panels", []):
                 if pd.get("kind") in PANEL_TYPES:
-                    self.add_panel(pd["kind"], pd.get("state"), pd.get("geometry"), pd.get("title"))
+                    self.add_panel(pd["kind"], pd.get("state"), pd.get("geometry"), pd.get("title"),
+                                   floating_geometry=pd.get("floating"))
             if not state.get("panels"):
                 self.add_panel("plot")
         finally:
