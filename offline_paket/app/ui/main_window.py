@@ -1960,6 +1960,15 @@ class MainWindow(QMainWindow):
         self.log_tab.set_active(False)
 
     def closeEvent(self, event):
+        # Ayrı pencerelerdeki Grafik/Trend geri yerleşsin; aksi halde uygulama
+        # son pencere kapanana kadar çıkmaz.
+        for det in (getattr(self.graph_tab, "detacher", None),
+                    getattr(self.dashboard_tab.trend, "detacher", None)):
+            try:
+                if det is not None:
+                    det.dock()
+            except Exception:  # noqa: BLE001
+                logging.getLogger(__name__).exception("ayrı pencere kapatma hatası")
         try:
             self.workspace_tab.shutdown()
         except Exception:  # noqa: BLE001
