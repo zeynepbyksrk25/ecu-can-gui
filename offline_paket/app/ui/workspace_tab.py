@@ -137,8 +137,10 @@ class _Float(QWidget):
     dock_requested = Signal(object)
 
     def __init__(self, panel, title: str, owner=None):
-        # owner verilirse pencere ana pencerenin "sahip olduğu" üst düzey pencere
-        # olur: ana pencerenin arkasında kaybolmaz, birlikte küçülür/kapanır.
+        # Varsayılan: sahipsiz, bağımsız üst düzey pencere. Böylece ana pencereden
+        # ayrı taşınabilir (ikinci monitör), ayrı görev çubuğu girdisi alır ve ana
+        # pencere küçülünce onunla birlikte gizlenmez. Kapanışta WorkspaceTab.shutdown()
+        # ayrılmış pencereleri zaten kapatır.
         super().__init__(owner, Qt.Window)
         self.panel = panel
         self.mdi_geom = None            # geri yerleştirirken kullanılacak MDI konumu
@@ -564,6 +566,11 @@ class WorkspaceTab(QWidget):
     def _on_detach_clicked(self):
         p = self.active_panel()
         if p is None:
+            # seçili panel yoksa ama MDI'da tek panel varsa onu ayır
+            docked = [q for q, h in self._subs.items() if isinstance(h, _Sub) and q in self._panels]
+            if len(docked) == 1:
+                p = docked[0]
+        if p is None:
             QMessageBox.information(self, "Paneli ayır", "Önce ayrılacak paneli seçin (başlığına tıklayın).")
             return
         self._detach(p)
@@ -574,7 +581,15 @@ class WorkspaceTab(QWidget):
         monitör takılı değil) birincil ekrana alır; pencere ekrandan büyükse
         küçültür ve tamamen görünür olacak şekilde kaydırır."""
         x, y, w, h = [int(v) for v in geom]
-        scr = QGuiApplication.screenAt(QPoint(x + 20, y + 20)) or QGuiApplication.primaryScreen()
+        scr = QGuiApplication.screenAt(QPoint(x + 20, y + 20))
+        if scr is None:
+            # sol-üst köşe ekran dışında: pencereyle kesişen herhangi bir ekranı bul
+            r = QRect(x, y, w, h)
+            for s in QGuiApplication.screens():
+                if s.geometry().intersects(r):
+                    scr = s
+                    break
+        scr = scr or QGuiApplication.primaryScreen()
         if scr is None:
             return QRect(x, y, w, h)
         a = scr.availableGeometry()
@@ -589,7 +604,7 @@ class WorkspaceTab(QWidget):
             return
         mdi_geom = sub.geometry()
         title = sub.windowTitle()
-        fl = _Float(panel, title, owner=self.window())
+        fl = _Float(panel, title)
         fl.mdi_geom = mdi_geom
         panel.setParent(fl)               # panel MDI alt penceresiyle birlikte silinmesin
         fl.layout().addWidget(panel, 1)

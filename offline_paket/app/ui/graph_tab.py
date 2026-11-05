@@ -199,6 +199,9 @@ class GraphTab(QWidget):
         scroll.setWidget(self.tiles_container)
         layout.addWidget(scroll, stretch=1)
 
+        from app.ui.detach import PanelDetacher
+        self.detacher = PanelDetacher(self, "Canlı grafik", self.detach_button)
+
         self.timer = QTimer(self)
         self.timer.setInterval(POLL_INTERVAL_MS)
         self.timer.timeout.connect(self._on_tick)
@@ -217,6 +220,9 @@ class GraphTab(QWidget):
         self.stop_button.setEnabled(False)
         self.clear_button = QPushButton("Temizle")
         self.clear_button.clicked.connect(self._on_clear)
+        self.detach_button = QPushButton("⧉  Ayrı pencere")
+        self.detach_button.setToolTip("Grafikleri ana pencereden ayırıp ayrı bir pencerede (ör. ikinci monitör) aç")
+        self.detach_button.clicked.connect(lambda: self.detacher.detach())
 
         self.status_label = QLabel("")
 
@@ -225,6 +231,7 @@ class GraphTab(QWidget):
         button_row.addWidget(self.start_button)
         button_row.addWidget(self.stop_button)
         button_row.addWidget(self.clear_button)
+        button_row.addWidget(self.detach_button)
         button_row.addStretch()
         button_row.addWidget(self.status_label)
 

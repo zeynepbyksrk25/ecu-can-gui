@@ -175,8 +175,13 @@ class TrendPanel(QFrame):
         menu.addAction("MAT (.mat)", lambda: self.export("mat"))
         menu.addAction("MDF (.mf4)", lambda: self.export("mdf"))
         self.btn_export.setMenu(menu)
+        self.btn_detach = IconButton("detach", 28)
+        self.btn_detach.setToolTip("Trend grafiğini ayrı pencerede aç (ör. ikinci monitör)")
+        self.btn_detach.clicked.connect(lambda: self.detacher.detach())
+        from app.ui.detach import PanelDetacher
+        self.detacher = PanelDetacher(self, "Trend", self.btn_detach)
         for w in (self.btn_pick, self.btn_zoom_in, self.btn_zoom_out, self.btn_live, self.btn_cursor,
-                  self.btn_compare, self.btn_export):
+                  self.btn_compare, self.btn_export, self.btn_detach):
             head.addWidget(w)
         root.addLayout(head)
 
