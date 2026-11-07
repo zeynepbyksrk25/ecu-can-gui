@@ -29,8 +29,8 @@ from PySide6.QtWidgets import (
 )
 
 ROLE_OBJECT = Qt.UserRole
-MODIFIED_BG = QColor("#4d3f0e")   # değişen hücre (ısı haritası kapalıyken)
-MODIFIED_FG = QColor("#ffd166")   # değişen hücrede kalın/turuncu yazı (ısı haritası açıkken)
+MODIFIED_BG = QColor("#FFE8A8")   # değişen hücre (ısı haritası kapalıyken)
+MODIFIED_FG = QColor("#7A4F00")   # değişen hücrede kalın/turuncu yazı (ısı haritası açıkken)
 PLACEHOLDER = "-"                 # ECU'dan okunmamış hücre yer tutucusu
 
 
@@ -102,7 +102,7 @@ class MapDocument(QWidget):
             "gerçek donanımla kullanmadan önce PCAN-View trace'iyle kontrol edin."
         )
         self.caveat_label.setWordWrap(True)
-        self.caveat_label.setStyleSheet("color: #f0b04a;")
+        self.caveat_label.setStyleSheet("color: #9A6208;")
         self.caveat_label.setVisible(
             c.kind in ("CURVE", "MAP") and any(a.attribute != "FIX_AXIS" for a in c.axes)
         )
@@ -262,7 +262,7 @@ class MapDocument(QWidget):
         else:
             self.online_label.setText("OFFLINE")
             self.online_label.setStyleSheet(
-                "background:#3b5068; color:#243442; font-weight:bold; border-radius:4px; padding:3px 8px;")
+                "background:#9AA8B5; color:#243442; font-weight:bold; border-radius:4px; padding:3px 8px;")
 
     def set_online(self, online: bool):
         self._online = bool(online)
@@ -288,7 +288,7 @@ class MapDocument(QWidget):
             return
         cols = len(vals[0])
         xs = self._axis_x_values(cols)
-        palette = ["#0E6E8C", "#ff6b6b", "#4ade80", "#f0b04a", "#b48cff", "#2dd4bf", "#cfd8e3"]
+        palette = ["#0E6E8C", "#C22A1D", "#1B8A4C", "#9A6208", "#7B3FD1", "#0E8C7C", "#51616F"]
         for r, row in enumerate(vals):
             pts = [(x, v) for x, v in zip(xs, row) if v is not None]
             if not pts:
@@ -439,7 +439,7 @@ class MapDocument(QWidget):
 
     def _set_status(self, message: str, ok: bool = True, warn: bool = False):
         self.status_label.setText(message)
-        color = "#f0b04a" if warn else ("#4ade80" if ok else "#ff6b6b")
+        color = "#9A6208" if warn else ("#1B8A4C" if ok else "#C22A1D")
         self.status_label.setStyleSheet(f"color: {color};")
 
     def _on_write_clicked(self):

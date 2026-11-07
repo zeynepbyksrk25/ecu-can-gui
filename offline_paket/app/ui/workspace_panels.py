@@ -23,9 +23,9 @@ from PySide6.QtWidgets import (
 
 from app.signal_hub import label_of
 
-PALETTE = ["#0E6E8C", "#ff6b6b", "#4ade80", "#b48cff", "#f0b04a",
-           "#2dd4bf", "#ff6b9d", "#a3e635", "#5aa9ff", "#ff9a52",
-           "#cfd8e3", "#e879f9"]
+PALETTE = ["#0E6E8C", "#C22A1D", "#1B8A4C", "#7B3FD1", "#9A6208",
+           "#0E8C7C", "#D6336C", "#5B8A00", "#1F6FE0", "#C2570F",
+           "#51616F", "#B02FC4"]
 
 
 def fmt(v) -> str:

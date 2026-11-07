@@ -29,7 +29,7 @@ from app.ui.dark_theme import style_plot  # noqa: E402
 POLL_INTERVAL_MS = 250
 MAX_POINTS = 800  # ~200 saniyelik pencere (250ms * 800)
 
-_PALETTE = ["#0E6E8C", "#ff6b6b", "#4ade80", "#b48cff", "#f0b04a", "#2dd4bf"]
+_PALETTE = ["#0E6E8C", "#C22A1D", "#1B8A4C", "#7B3FD1", "#9A6208", "#0E8C7C"]
 
 
 class _GraphTile(QWidget):

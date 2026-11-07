@@ -24,8 +24,8 @@ UI_MS = 500
 STALE_S = 3.0
 HIST_MAX_S = 600
 
-GRAPH_COLORS = ["#0E6E8C", "#ff9a52", "#4ade80", "#b48cff", "#f0c040", "#2dd4bf",
-                "#ff6b9d", "#a3e635", "#9fb3c4"]
+GRAPH_COLORS = ["#0E6E8C", "#C2570F", "#1B8A4C", "#7B3FD1", "#B58900", "#0E8C7C",
+                "#D6336C", "#5B8A00", "#6B7C8A"]
 
 
 class PerfGauge(GaugeWidget):
@@ -161,7 +161,7 @@ class PerformanceTab(QWidget):
         root.addLayout(top)
 
         self.banner = QLabel("")
-        self.banner.setStyleSheet("background:#3a1620; color:#ff8a8a; font-weight:700; padding:6px 10px; border-radius:6px;")
+        self.banner.setStyleSheet("background:#FBE3E0; color:#C22A1D; font-weight:700; padding:6px 10px; border-radius:6px;")
         self.banner.setVisible(False)
         root.addWidget(self.banner)
 
