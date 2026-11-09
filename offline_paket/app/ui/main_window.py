@@ -415,6 +415,7 @@ class MainWindow(QMainWindow):
                 layout.addWidget(sep)
                 layout.addSpacing(6)
             layout.addWidget(btn)
+        layout.addWidget(self.dashboard_tab.estop_warn)
 
         layout.addStretch()
         self.ccp_chip = QLabel("CCP bağlı değil")
@@ -1505,11 +1506,14 @@ class MainWindow(QMainWindow):
 
     def _send_motor_command(self, command_name: str, cmd) -> bool:
         if not cmd.binding.is_set:
+            self._log_event("HATA", f"{command_name} GÖNDERİLEMEDİ: eşleme tanımlı değil")
             return False
         # Komutlar tek sinyallik darbedir: diğer sinyallerin eski değerleri taşınmaz.
         ok = self._write_binding(cmd.binding, cmd.value, command_name, merge=False)
         if ok:
             self._log_event("MOTOR", f"{command_name} gönderildi ({cmd.binding.text}={cmd.value:g})")
+        else:
+            self._log_event("HATA", f"{command_name} GÖNDERİLEMEDİ ({cmd.binding.text})")
         return ok
 
     def _on_motor_start(self):
@@ -1519,7 +1523,17 @@ class MainWindow(QMainWindow):
         self._send_motor_command("Motor Stop", self.dashboard_tab.config.motor_stop)
 
     def _on_estop(self):
-        self._send_motor_command("ACİL DURDURMA", self.dashboard_tab.config.estop)
+        cmd = self.dashboard_tab.config.estop
+        if not cmd.binding.is_set:
+            # Sessizce dönme: operatör komutun GİTMEDİĞİNİ açıkça görmeli.
+            self._log_event("HATA", "ACİL DURDURMA GÖNDERİLEMEDİ: eşleme tanımlı değil")
+            QMessageBox.critical(
+                self, "ACİL DURDURMA GÖNDERİLEMEDİ",
+                "Acil Durdurma için DBC sinyali veya A2L değişkeni TANIMLI DEĞİL; komut ECU'ya gitmedi.\n\n"
+                "Motoru manuel / fiziksel olarak hemen durdurun. Sonra ⚙ Eşleşmeler penceresinden "
+                "Acil Durdurma eşlemesini tanımlayın.")
+            return
+        self._send_motor_command("ACİL DURDURMA", cmd)
 
     def _on_dashboard_config_saved(self, cfg):
         if not self.dashboard_config_store.save(cfg):

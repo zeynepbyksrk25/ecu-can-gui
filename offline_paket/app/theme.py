@@ -456,6 +456,13 @@ QFrame#actionStatusRow QFrame#cmdSep {{
     min-width: 1px;
 }}
 
+QLabel#estopWarn {{
+    color: #C22A1D;
+    font-size: 13px;
+    font-weight: 700;
+    background: transparent;
+}}
+
 QLabel#ccpChip {{
     background: #FFFFFF;
     border: 1px solid #D6DEE6;

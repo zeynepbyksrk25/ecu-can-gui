@@ -171,8 +171,19 @@ class DashboardTab(QWidget):
         self.start_button.clicked.connect(self.motor_start_requested.emit)
         self.stop_button.clicked.connect(self.motor_stop_requested.emit)
         self.estop_button.clicked.connect(self._on_estop_clicked)
+        # Eşleme yokken Acil Durdurma ÇALIŞMAZ; bunu operatör fark etmeli (düğme gri/tıklanamaz bırakılmaz,
+        # yanında kalıcı bir uyarı gösterilir).
+        self.estop_warn = QLabel("⚠ Acil Durdurma eşlenmemiş")
+        self.estop_warn.setObjectName("estopWarn")
+        self.estop_warn.setToolTip("Acil Durdurma için DBC sinyali veya A2L değişkeni tanımlı değil: düğme komut GÖNDEREMEZ. "
+                                   "⚙ Eşleşmeler penceresinden tanımlayın; o zamana dek motoru manuel/fiziksel olarak durdurun.")
+        self.estop_warn.setVisible(True)
 
     def _on_estop_clicked(self):
+        if not self.config.estop.binding.is_set:
+            # Onay sorusu anlamsız: gönderilecek bir şey yok. MainWindow hatayı açıkça bildirir ve günlüğe yazar.
+            self.estop_requested.emit()
+            return
         confirm = QMessageBox.warning(
             self, "ACİL DURDURMA gönderilsin mi?",
             "Motoru derhal durdurmak üzere ACİL DURDURMA komutu gönderilecek. Devam edilsin mi?",
@@ -703,11 +714,15 @@ class DashboardTab(QWidget):
         self.map_warn_button.setVisible(bool(miss))
         self.start_button.setEnabled(cfg.motor_start.binding.is_set)
         self.stop_button.setEnabled(cfg.motor_stop.binding.is_set)
-        self.estop_button.setEnabled(cfg.estop.binding.is_set)
+        # Acil Durdurma HER ZAMAN tıklanabilir kalır: eşleme yoksa basınca açık bir hata verir (gri/sessiz değil).
+        self.estop_button.setEnabled(True)
+        self.estop_warn.setVisible(not cfg.estop.binding.is_set)
         for btn, cmd, label in ((self.start_button, cfg.motor_start, "Motoru Başlat"),
-                                 (self.stop_button, cfg.motor_stop, "Motoru Durdur"),
-                                 (self.estop_button, cfg.estop, "Acil Durdurma")):
+                                 (self.stop_button, cfg.motor_stop, "Motoru Durdur")):
             btn.setToolTip("" if btn.isEnabled() else f"{label} için ⚙ Eşleşmeler penceresinden DBC sinyali veya A2L değişkeni seçin.")
+        self.estop_button.setToolTip(
+            "" if cfg.estop.binding.is_set else
+            "UYARI: Acil Durdurma için eşleme tanımlı DEĞİL; basınca komut gönderilemez. ⚙ Eşleşmeler penceresinden tanımlayın.")
         for key in GAUGE_KEYS:
             if key not in cfg.gauge_a2l_map() and key not in cfg.gauge_can_map():
                 self._values.pop(key, None)
