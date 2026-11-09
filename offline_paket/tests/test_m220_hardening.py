@@ -34,6 +34,15 @@ def can_out(win, monkeypatch):
     return sent
 
 
+def _wait_until(cond, timeout_ms=5000):
+    """Sabit süre yerine koşul sağlanana dek olay döngüsünü işler (yüklü makinede zamanlama oynar)."""
+    waited = 0
+    while not cond() and waited < timeout_ms:
+        QTest.qWait(20)
+        waited += 20
+    return cond()
+
+
 def _decode(win, msg, frame):
     return win.transmit_tab.dbc.get_message(msg).decode(frame[1], decode_choices=False)
 
@@ -77,10 +86,9 @@ def test_safety_command_sends_identical_frame_series_without_blocking(win, can_o
     win.dashboard_tab.set_config(cfg)
     win._on_estop()
     assert len(can_out) == 1                                   # ilk kare ANINDA, arayüz beklemedi
-    QTest.qWait(250)
+    assert _wait_until(lambda: any("5 kare gönderildi" in m for m in _log(win, "MOTOR")))
     assert len(can_out) == 5 and len(set(can_out)) == 1        # 1 + 4 aynı kare
     assert _decode(win, "CMD", can_out[-1])["estop_req"] == 1
-    assert any("5 kare gönderildi" in m for m in _log(win, "MOTOR"))
 
 
 def test_normal_motor_command_is_not_repeated(win, can_out):
@@ -88,7 +96,7 @@ def test_normal_motor_command_is_not_repeated(win, can_out):
     cfg.motor_start = MotorCommand(Binding(SOURCE_CAN, "CMD", "start_req"), 1.0)
     win.dashboard_tab.set_config(cfg)
     win._on_motor_start()
-    QTest.qWait(150)
+    QTest.qWait(300)                                           # tekrar OLMAMASI beklenir: yalnızca üst sınır beklenebilir
     assert len(can_out) == 1
 
 
@@ -105,7 +113,7 @@ def test_safety_series_reports_failure_if_link_drops_mid_series(win, monkeypatch
     cfg.estop = MotorCommand(Binding(SOURCE_CAN, "CMD", "estop_req"), 1.0)
     win.dashboard_tab.set_config(cfg)
     win._on_estop()
-    QTest.qWait(250)
+    assert _wait_until(lambda: any("tekrar karesi gönderilemedi" in m for m in _log(win, "HATA")))
     assert len(calls) == 3
     assert any("tekrar karesi gönderilemedi" in m and "hat koptu" in m for m in _log(win, "HATA"))
 
