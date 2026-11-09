@@ -20,14 +20,9 @@ def _host(widget, stretch=10):
     return host, lay
 
 
-@pytest.mark.parametrize("kind", ["trend", "graph"])
-def test_detach_and_dock_restores_slot(qapp, kind):
-    if kind == "trend":
-        from app.ui.trend_panel import TrendPanel
-        w = TrendPanel()
-    else:
-        from app.ui.graph_tab import GraphTab
-        w = GraphTab()
+def test_detach_and_dock_restores_slot(qapp):
+    from app.ui.trend_panel import TrendPanel
+    w = TrendPanel()
     host, lay = _host(w)
     idx = lay.indexOf(w)
     assert w.detacher.detach()

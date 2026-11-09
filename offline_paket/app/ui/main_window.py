@@ -36,7 +36,6 @@ from app.ui.a2l_tab import A2LTab
 from app.ui.can_monitor_tab import CanMonitorTab
 from app.ui.dashboard_tab import DashboardTab
 from app.ui.analiz_tab import AnalizTab
-from app.ui.graph_tab import GraphTab
 from app.ui.workspace_tab import WorkspaceLayoutStore, WorkspaceTab
 from app.ui.kalibrasyon_tab import KalibrasyonTab
 from app.ui.tanilama_tab import TanilamaTab
@@ -127,11 +126,12 @@ class MainWindow(QMainWindow):
         self.map_editor_tab = self.kalibrasyon_tab.map_editor
         self.history_tab = self.kalibrasyon_tab.history
 
-        self.graph_tab = GraphTab()
         self.workspace_tab = WorkspaceTab(WorkspaceLayoutStore(data_path("workspace_layouts.json")))
-        # Grafik + Çalışma Alanı + Performans tek "Analiz" sayfasında iç sekmeler olarak yaşar;
-        # graph_tab/workspace_tab/performance_tab takma adları değişmeden kullanılır.
-        self.analiz_tab = AnalizTab(self.graph_tab, self.workspace_tab, self.performance_tab)
+        # Çalışma Alanı + Performans tek "Analiz" sayfasında iç sekmeler olarak yaşar;
+        # workspace_tab/performance_tab takma adları değişmeden kullanılır. (Eski Grafik sekmesi kaldırıldı:
+        # Çalışma Alanı'nın grafik paneli A2L ölçümleri, ayarlanabilir skalerler ve ayrı pencere dahil
+        # aynı işi daha kapsamlı yapıyor.)
+        self.analiz_tab = AnalizTab(self.workspace_tab, self.performance_tab)
 
         self.tanilama_tab = TanilamaTab()
         self.diagnostics_tab = self.tanilama_tab.diagnostics
@@ -167,7 +167,7 @@ class MainWindow(QMainWindow):
         self.stack = QStackedWidget()
         self._page_scrolls: dict[QWidget, QScrollArea] = {}
         # Koyu temaya geçirilmiş sayfalar (koyu gövdeye sarılır); diğerleri henüz açık temada.
-        self._dark_pages = {self.tanilama_tab, self.session_tab, self.kalibrasyon_tab, self.analiz_tab, self.graph_tab, self.performance_tab, self.workspace_tab, self.control_panel_tab}
+        self._dark_pages = {self.tanilama_tab, self.session_tab, self.kalibrasyon_tab, self.analiz_tab, self.performance_tab, self.workspace_tab, self.control_panel_tab}
         for _icon, _label, page in self._nav_pages:
             # Ana Sayfa kaydırılmaz: 16" ekrana tamamen sığar (bkz. DashboardTab)
             self.stack.addWidget(page if page is self.dashboard_tab else self._make_scrollable_page(page))
@@ -195,9 +195,6 @@ class MainWindow(QMainWindow):
         self.a2l_tab.a2l_loaded.connect(self.watch_tab.refresh_objects)
         self.watch_tab.refresh_objects()
 
-        self.graph_tab.a2l_db = self.a2l_tab.db
-        self.a2l_tab.a2l_loaded.connect(self.graph_tab.refresh_objects)
-
         # Çalışma Alanı: A2L/DBC listeleri, CCP okuma isteği, giriş/gösterge beslemesi.
         self.a2l_tab.a2l_loaded.connect(self._sync_workspace_a2l)
         self.transmit_tab.dbc_loaded.connect(lambda *_: self.workspace_tab.set_dbc(self.transmit_tab.dbc))
@@ -219,7 +216,6 @@ class MainWindow(QMainWindow):
         self.dashboard_tab.estop_requested.connect(self._on_estop)
         self.dashboard_tab.config_saved.connect(self._on_dashboard_config_saved)
         self.dashboard_tab.tick.connect(self._on_dashboard_tick)
-        self.dashboard_tab.open_graph_requested.connect(self._open_graph_page)
         self.dashboard_tab.writer = self._write_binding
         self.transmit_tab.dbc_loaded.connect(self._on_dashboard_sources_changed)
         self.a2l_tab.a2l_loaded.connect(self._on_dashboard_sources_changed)
@@ -507,17 +503,11 @@ class MainWindow(QMainWindow):
 
     def setCurrentWidget(self, widget):
         """Eski QTabWidget tabanlı kodun `self.setCurrentWidget(...)`
-        çağrılarının (bkz. open_graph_requested bağlantısı) değişmeden
-        çalışmaya devam etmesi için ince bir uyumluluk katmanı: hem sayfa
-        yığınını hem de üst sekme çubuğunu günceller."""
+        çağrılarının değişmeden çalışmaya devam etmesi için ince bir uyumluluk
+        katmanı: hem sayfa yığınını hem de üst sekme çubuğunu günceller."""
         index = self.stack.indexOf(self._page_scrolls.get(widget, widget))
         if index != -1:
             self.nav_bar.setCurrentIndex(index)
-
-    def _open_graph_page(self):
-        """Ana Sayfa'daki 'Grafik' isteği: Analiz sayfası > Grafik iç sekmesi."""
-        self.analiz_tab.select(self.graph_tab)
-        self.setCurrentWidget(self.analiz_tab)
 
     def _wire_signals(self):
         self.connection_tab.connect_requested.connect(self._on_connect)
@@ -558,8 +548,6 @@ class MainWindow(QMainWindow):
         self.map_editor_tab.write_requested.connect(self._on_map_write)
         self.map_editor_tab.read_all_requested.connect(self._on_map_read_all)
         self.map_editor_tab.write_all_requested.connect(self._on_map_write_all)
-
-        self.graph_tab.read_requested.connect(self._on_graph_tick)
 
         self.diagnostics_tab.test_requested.connect(self._on_diag_test_requested)
         self.diagnostics_tab.diag_requested.connect(self._on_diag_requested)
@@ -1344,10 +1332,6 @@ class MainWindow(QMainWindow):
                 continue
             yield name, m, reading
 
-    def _on_graph_tick(self, names: list):
-        for name, _m, reading in self._iter_a2l_samples(names):
-            self.graph_tab.append_sample(name, float(reading.phys))
-
     # ---- Diagnostics --------------------------------------------------------
     def _on_diag_test_requested(self):
         if self.ccp_client is None:
@@ -1975,10 +1959,9 @@ class MainWindow(QMainWindow):
         self.log_tab.set_active(False)
 
     def closeEvent(self, event):
-        # Ayrı pencerelerdeki Grafik/Trend geri yerleşsin; aksi halde uygulama
+        # Ayrı penceredeki Trend geri yerleşsin; aksi halde uygulama
         # son pencere kapanana kadar çıkmaz.
-        for det in (getattr(self.graph_tab, "detacher", None),
-                    getattr(self.dashboard_tab.trend, "detacher", None)):
+        for det in (getattr(self.dashboard_tab.trend, "detacher", None),):
             try:
                 if det is not None:
                     det.dock()

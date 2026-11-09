@@ -77,7 +77,6 @@ class DashboardTab(QWidget):
     estop_requested = Signal()
     config_saved = Signal(object)        # DashboardConfig
     tick = Signal(list)                  # o an okunması gereken A2L ölçüm adları
-    open_graph_requested = Signal()
     gauge_sample = Signal(str, float)    # gösterge anahtarı, değer (Çalışma Alanı için)
     mappings_requested = Signal()        # "Eşleşmeler" penceresini aç
 
