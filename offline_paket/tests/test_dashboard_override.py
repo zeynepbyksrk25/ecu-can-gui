@@ -52,16 +52,17 @@ def test_lock_again_writes_sw_zero_and_disables(tab):
     assert tab.calls == [("OVR.valf_cmd_sw", 0.0)]
 
 
-def test_toggle_actuator_sends_0_or_1_only_when_unlocked(tab):
-    sw = tab._act_rows["pompa_fuel"]["control"]
-    sw.setChecked(True)
+def test_actuator_sends_0_to_100_value_only_when_unlocked(tab):
+    spin = tab._act_rows["pompa_fuel"]["control"]
+    spin.setValue(40.0)
     assert tab.calls == []                   # kilitli: gönderim yok
-    sw.setChecked(False)
+    spin.setValue(0.0)
     tab._on_actuator_lock("pompa_fuel", True)
     tab.calls.clear()
-    sw.setChecked(True)
-    sw.setChecked(False)
-    assert tab.calls == [("OVR.pump", 1.0), ("OVR.pump", 0.0)]
+    spin.setValue(55.5)
+    spin.setValue(100.0)
+    spin.setValue(0.0)
+    assert tab.calls == [("OVR.pump", 55.5), ("OVR.pump", 100.0), ("OVR.pump", 0.0)]
 
 
 def test_operator_role_cannot_unlock(tab):
