@@ -1441,18 +1441,23 @@ class MainWindow(QMainWindow):
     # Her değişken bir Binding ile tanımlıdır: CAN (DBC mesaj.sinyal) ya da A2L (CCP).
     _can_tx_values: dict = {}
 
-    def _write_binding(self, binding: Binding, value: float, label: str, merge: bool = True) -> bool:
+    def _write_binding(self, binding: Binding, value: float, label: str, merge: bool = True,
+                       safety: bool = False) -> bool:
         """Bir Binding'e değer yazar (DashboardTab.writer). Başarısızlıkta kullanıcıyı
         bilgilendirir ve False döner. ``merge``: aynı CAN mesajına daha önce yazılan
-        diğer sinyallerin son değerleri korunur (değer + anahtar aynı mesajda olabilir)."""
+        diğer sinyallerin son değerleri korunur (değer + anahtar aynı mesajda olabilir).
+        ``safety``: güvenlik komutu (Acil Durdurma): A2L min/max + READ_ONLY ve DBC min/max denetimi
+        komutu ENGELLEMEZ (sınır dışıysa günlüğe not düşülür); değer veri tipine / bit genişliğine
+        sığmıyorsa yine gönderilmez."""
         if not binding.is_set:
             QMessageBox.warning(self, "Eşleşme yok", f"{label} için eşleşme tanımlı değil (⚙ Eşleşmeler).")
             return False
         if binding.source == SOURCE_A2L:
-            return self._write_a2l(binding, value, label)
-        return self._write_can(binding, value, label, merge)
+            return self._write_a2l(binding, value, label, safety)
+        return self._write_can(binding, value, label, merge, safety)
 
-    def _write_can(self, binding: Binding, value: float, label: str, merge: bool = True) -> bool:
+    def _write_can(self, binding: Binding, value: float, label: str, merge: bool = True,
+                   safety: bool = False) -> bool:
         if not self.connection.is_connected:
             QMessageBox.warning(self, "CAN bağlantısı yok",
                                 f"{label} göndermeden önce CAN hattına bağlanın.")
@@ -1460,10 +1465,19 @@ class MainWindow(QMainWindow):
         vals = self._can_tx_values.setdefault(binding.message, {}) if merge else {}
         vals[binding.signal] = value
         try:
-            can_id, data, extended = self.transmit_tab.dbc.encode(binding.message, dict(vals))
+            if safety:
+                try:
+                    self.transmit_tab.dbc.encode(binding.message, dict(vals))
+                except ValueError as exc:
+                    # Sınır (min/max) dışı olabilir: güvenlik komutu engellenmez. Gerçekten kodlanamıyorsa
+                    # (bit genişliği) aşağıdaki strict=False kodlama da hata verir ve gönderilmez.
+                    self._log_event("MOTOR", f"{label}: DBC sınır denetimi güvenlik komutu olduğu için atlandı ({exc})")
+            can_id, data, extended = self.transmit_tab.dbc.encode(binding.message, dict(vals), strict=not safety)
             self.connection.send(can_id, data, extended)
         except Exception as exc:  # cantools/python-can çeşitli hata tipleri fırlatabilir
-            QMessageBox.critical(self, f"{label} gönderilemedi", str(exc))
+            hint = ("\n\nDeğer sinyalin bit genişliğine sığmıyor: yapılandırılmış komut değerini "
+                    "(⚙ Eşleşmeler) düzeltin.") if safety else ""
+            QMessageBox.critical(self, f"{label} gönderilemedi", f"{exc}{hint}")
             self._log_event("HATA", f"{label} gönderilemedi: {exc}")
             return False
         sent_msg = can.Message(arbitration_id=can_id, data=data, is_extended_id=extended,
@@ -1483,7 +1497,7 @@ class MainWindow(QMainWindow):
                     return m
         return None
 
-    def _write_a2l(self, binding: Binding, value: float, label: str) -> bool:
+    def _write_a2l(self, binding: Binding, value: float, label: str, safety: bool = False) -> bool:
         if self.ccp_client is None:
             QMessageBox.warning(self, "CCP bağlı değil",
                                 f"{label} A2L üzerinden yazılmadan önce CCP bağlantısı kurun.")
@@ -1494,22 +1508,32 @@ class MainWindow(QMainWindow):
                 raise ValueError(f"A2L'de '{binding.a2l_name}' bulunamadı")
             if info.address is None:
                 raise ValueError(f"'{binding.a2l_name}' için ECU adresi yok")
-            # 0 = kapat/güvenli yön: A2L alt sınırı kapatmayı engellemesin (yine de sonlu/tür kontrolü var)
-            cpanel.ccp_write_value(self.ccp_client, info, value, enforce_limits=(float(value) != 0.0))
+            if safety:
+                try:
+                    ccp_codec.validate_write(info, value)
+                except ccp_codec.WriteValidationError as exc:
+                    self._log_event("MOTOR", f"{label}: A2L sınır/READ_ONLY denetimi güvenlik komutu olduğu için "
+                                             f"atlandı ({exc})")
+            # 0 = kapat/güvenli yön: A2L alt sınırı kapatmayı engellemesin (yine de sonlu/tür kontrolü var).
+            # Güvenlik komutunda (safety) değer ne olursa olsun sınır/READ_ONLY denetimi atlanır.
+            cpanel.ccp_write_value(self.ccp_client, info, value,
+                                   enforce_limits=(not safety and float(value) != 0.0))
         except Exception as exc:
-            QMessageBox.critical(self, f"{label} yazılamadı", str(exc))
+            hint = ("\n\nDeğer veri tipine sığmıyor: yapılandırılmış komut değerini "
+                    "(⚙ Eşleşmeler) düzeltin.") if safety else ""
+            QMessageBox.critical(self, f"{label} yazılamadı", f"{exc}{hint}")
             self._log_event("HATA", f"{label} A2L yazılamadı: {exc}")
             return False
         self._log_event("EYLEYICI", f"{label} [A2L {binding.a2l_name}] = {value:g} "
                                     f"({self.current_user}/{self.current_role.value})")
         return True
 
-    def _send_motor_command(self, command_name: str, cmd) -> bool:
+    def _send_motor_command(self, command_name: str, cmd, safety: bool = False) -> bool:
         if not cmd.binding.is_set:
             self._log_event("HATA", f"{command_name} GÖNDERİLEMEDİ: eşleme tanımlı değil")
             return False
         # Komutlar tek sinyallik darbedir: diğer sinyallerin eski değerleri taşınmaz.
-        ok = self._write_binding(cmd.binding, cmd.value, command_name, merge=False)
+        ok = self._write_binding(cmd.binding, cmd.value, command_name, merge=False, safety=safety)
         if ok:
             self._log_event("MOTOR", f"{command_name} gönderildi ({cmd.binding.text}={cmd.value:g})")
         else:
@@ -1533,7 +1557,8 @@ class MainWindow(QMainWindow):
                 "Motoru manuel / fiziksel olarak hemen durdurun. Sonra ⚙ Eşleşmeler penceresinden "
                 "Acil Durdurma eşlemesini tanımlayın.")
             return
-        self._send_motor_command("ACİL DURDURMA", cmd)
+        # Güvenlik komutu: A2L/DBC sınırı ya da READ_ONLY yüzünden reddedilmez (bkz. _write_binding).
+        self._send_motor_command("ACİL DURDURMA", cmd, safety=True)
 
     def _on_dashboard_config_saved(self, cfg):
         if not self.dashboard_config_store.save(cfg):

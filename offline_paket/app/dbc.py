@@ -92,12 +92,15 @@ class DbcDatabase:
             return None
         return msg.name, decoded
 
-    def encode(self, name: str, signal_values: dict) -> tuple[int, bytes, bool]:
+    def encode(self, name: str, signal_values: dict, strict: bool = True) -> tuple[int, bytes, bool]:
         """Sinyal ismi -> mühendislik değeri sözlüğünü, doğru CAN ID,
         data byte'ları ve frame type (extended?) üçlüsüne çevirir.
         Kullanıcı mesajdaki TÜM sinyalleri girmek zorunda değildir;
         girilmeyen sinyaller mesajın tanımlı minimumuna (yoksa 0'a)
-        varsayılan olarak ayarlanır."""
+        varsayılan olarak ayarlanır.
+
+        ``strict=False``: DBC min/max dışındaki değerler de kodlanır (yalnızca güvenlik komutları için,
+        ör. Acil Durdurma). Sinyalin BİT GENİŞLİĞİNE sığmayan değer yine hata verir."""
         msg = self.get_message(name)
         if msg is None:
             raise ValueError(f"'{name}' yüklü DBC dosyasında bulunamadı.")
@@ -114,7 +117,7 @@ class DbcDatabase:
         # cantools aralık dışı değerde OverflowError/EncodeError (ValueError DEĞİL)
         # fırlatır; arayüzün tek bir hata türüyle çalışması için ValueError'a çevrilir.
         try:
-            data = msg.encode(complete_values)
+            data = msg.encode(complete_values, strict=strict)
         except (ValueError, OverflowError, KeyError, TypeError, cantools.database.errors.Error) as exc:
             raise ValueError(f"{name} kodlanamadı: {exc}") from exc
         return msg.frame_id, bytes(data), msg.is_extended_frame

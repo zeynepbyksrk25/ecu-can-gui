@@ -164,6 +164,83 @@ def test_motor_commands_work_over_a2l_too(win, ccp):
     assert ccp.read_memory_bytes(_addr(win, "clbc_Fuel_pump_dc_perc_sw"), 1) == b"\x01"
 
 
+def _hata(win):
+    return [e.message for e in win.event_log.entries if e.category == "HATA"]
+
+
+def _motor_notes(win):
+    return [e.message for e in win.event_log.entries if e.category == "MOTOR"]
+
+
+def test_estop_over_a2l_is_not_blocked_by_a2l_limits_but_normal_commands_are(win, ccp):
+    """clbc_Fuel_pump_dc_perc_sw: UBYTE, A2L sınırı 0..1. Acil Durdurma değeri 5 sınır dışı olsa da yazılmalı;
+    aynı değerle normal komut (Motor Başlat) sınırda reddedilmeli."""
+    name = "clbc_Fuel_pump_dc_perc_sw"
+    addr = _addr(win, name)
+    cfg = DashboardConfig()
+    cfg.estop = MotorCommand(Binding(SOURCE_A2L, a2l_name=name), 5.0)
+    cfg.motor_start = MotorCommand(Binding(SOURCE_A2L, a2l_name=name), 5.0)
+    win.dashboard_tab.set_config(cfg)
+
+    assert win._send_motor_command("Motor Başlat", cfg.motor_start) is False       # normal komut: sınır açık
+    assert ccp.read_memory_bytes(addr, 1) == b"\x00"
+    assert any("Motor Başlat GÖNDERİLEMEDİ" in m for m in _hata(win))
+
+    win._on_estop()                                                                # güvenlik komutu: sınır atlanır
+    assert ccp.read_memory_bytes(addr, 1) == b"\x05"
+    assert any("güvenlik komutu olduğu için atlandı" in m for m in _motor_notes(win))
+    assert any("ACİL DURDURMA gönderildi" in m for m in _motor_notes(win))
+
+
+def test_estop_over_a2l_still_rejects_value_that_does_not_fit_the_datatype(win, ccp):
+    name = "clbc_Fuel_pump_dc_perc_sw"                  # UBYTE: 300 sığmaz
+    addr = _addr(win, name)
+    cfg = DashboardConfig()
+    cfg.estop = MotorCommand(Binding(SOURCE_A2L, a2l_name=name), 300.0)
+    win.dashboard_tab.set_config(cfg)
+    win._on_estop()
+    assert ccp.read_memory_bytes(addr, 1) == b"\x00"
+    assert any("ACİL DURDURMA GÖNDERİLEMEDİ" in m for m in _hata(win))
+
+
+def test_estop_over_can_is_not_blocked_by_dbc_limits_but_normal_commands_are(win, can_out):
+    """OVERRIDE.valf_cmd: 16 bit, DBC sınırı 0..100. 150 bit genişliğine sığar: Acil Durdurma gider, normal komut gitmez."""
+    b = Binding(SOURCE_CAN, "OVERRIDE", "valf_cmd")
+    cfg = DashboardConfig()
+    cfg.estop = MotorCommand(b, 150.0)
+    cfg.motor_start = MotorCommand(b, 150.0)
+    win.dashboard_tab.set_config(cfg)
+
+    assert win._send_motor_command("Motor Başlat", cfg.motor_start) is False
+    assert can_out == []
+    assert any("Motor Başlat GÖNDERİLEMEDİ" in m for m in _hata(win))
+
+    win._on_estop()
+    assert len(can_out) == 1
+    vals = win.transmit_tab.dbc.get_message("OVERRIDE").decode(can_out[0][1], decode_choices=False)
+    assert vals["valf_cmd"] == pytest.approx(150.0, abs=0.1)
+    assert any("DBC sınır denetimi güvenlik komutu olduğu için atlandı" in m for m in _motor_notes(win))
+
+
+def test_estop_over_can_still_rejects_value_that_does_not_fit_the_bit_width(win, can_out):
+    cfg = DashboardConfig()
+    cfg.estop = MotorCommand(Binding(SOURCE_CAN, "CMD", "estop_req"), 5.0)      # 1 bit
+    win.dashboard_tab.set_config(cfg)
+    win._on_estop()
+    assert can_out == []
+    assert any("ACİL DURDURMA GÖNDERİLEMEDİ" in m for m in _hata(win))
+
+
+def test_dbc_encode_strict_default_rejects_out_of_range_and_non_strict_allows_it(win):
+    dbc = win.transmit_tab.dbc
+    with pytest.raises(ValueError):
+        dbc.encode("OVERRIDE", {"valf_cmd": 150.0})                  # varsayılan strict: davranış aynı
+    can_id, data, _ext = dbc.encode("OVERRIDE", {"valf_cmd": 150.0}, strict=False)
+    assert can_id == 0x200 and len(data) > 0
+    with pytest.raises(ValueError):
+        dbc.encode("CMD", {"estop_req": 5.0}, strict=False)          # bit genişliği her halde denetlenir
+
+
 def test_actuator_override_mixed_sources_value_a2l_sw_can(win, ccp, can_out, monkeypatch):
     """Kullanıcı örneği: clbc_Fuel_pump_dc_perc (A2L) + _sw (CAN) bağımsız kaynaklar."""
     from app.user_roles import Role
