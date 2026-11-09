@@ -1,6 +1,6 @@
 """Çalışma Alanı (Concerto / Data Inspector tarzı) sayfası.
 
-  - Serbest yerleşim: grafik, gösterge, tablo ve kontrol pencereleri sürüklenip
+  - Serbest yerleşim: grafik, gösterge ve tablo pencereleri sürüklenip
     boyutlandırılır (QMdiArea); "Döşe" / "Kademeli" ile otomatik düzenlenir.
   - Yerleşimler isimle kaydedilir/yüklenir; son düzen otomatik hatırlanır.
   - Sinyal tarayıcı: A2L ölçümleri (CCP), DBC sinyalleri (CAN), göstergeler,
@@ -8,8 +8,8 @@
   - Dondur: ekran sabitlenir, veri arka planda kaydedilmeye devam eder.
   - Matematik sinyalleri: ölçekle (a·x+b), A+B / A−B / A×B / A÷B, hareketli ortalama.
 
-Gerçek CCP okuması / CAN gönderimi burada YAPILMAZ; MainWindow'a sinyal verilir
-(read_requested, send_input) ve veri push() / on_can_frame() ile geri beslenir.
+Gerçek CCP okuması burada YAPILMAZ; MainWindow'a sinyal verilir (read_requested)
+ve veri push() / on_can_frame() ile geri beslenir. Giriş gönderimi yoktur (bkz. Ana Sayfa / Kontrol Paneli).
 """
 from __future__ import annotations
 
@@ -28,11 +28,11 @@ from PySide6.QtWidgets import (
 
 from app.persist import atomic_write_json, load_json
 from app.signal_hub import OP_LABELS, SignalHub, kind_of, label_of
-from app.ui.workspace_panels import ControlPanel, GaugePanel, PlotPanel, TablePanel
+from app.ui.workspace_panels import GaugePanel, PlotPanel, TablePanel
 
 ROLE_ID = Qt.UserRole + 1
-PANEL_TYPES = {"plot": PlotPanel, "gauge": GaugePanel, "table": TablePanel, "control": ControlPanel}
-DEFAULT_SIZES = {"plot": (720, 520), "gauge": (290, 300), "table": (460, 260), "control": (320, 360)}
+PANEL_TYPES = {"plot": PlotPanel, "gauge": GaugePanel, "table": TablePanel}
+DEFAULT_SIZES = {"plot": (720, 520), "gauge": (290, 300), "table": (460, 260)}
 SPANS = [("10 sn", 10.0), ("30 sn", 30.0), ("60 sn", 60.0), ("2 dk", 120.0),
          ("5 dk", 300.0), ("10 dk", 600.0), ("Tümü", None)]
 GROUPS = [("a2l", "A2L ölçümleri"), ("dbc", "DBC sinyalleri"), ("gauge", "Göstergeler"),
@@ -284,7 +284,6 @@ class MathDialog(QDialog):
 
 class WorkspaceTab(QWidget):
     read_requested = Signal(list)       # CCP ile okunacak A2L ölçüm adları
-    send_input = Signal(str, float)     # Kontrol paneli -> Simülasyon Girişleri
 
     def __init__(self, store: WorkspaceLayoutStore | None = None, hub: SignalHub | None = None):
         super().__init__()
@@ -342,8 +341,7 @@ class WorkspaceTab(QWidget):
 
         row2 = QHBoxLayout()
         row2.addWidget(QLabel("Ekle:"))
-        for kind, text in (("plot", "+ Grafik"), ("gauge", "+ Gösterge"),
-                           ("table", "+ Tablo"), ("control", "+ Kontrol")):
+        for kind, text in (("plot", "+ Grafik"), ("gauge", "+ Gösterge"), ("table", "+ Tablo")):
             b = QPushButton(text)
             b.clicked.connect(lambda _c=False, k=kind: self.add_panel(k))
             row2.addWidget(b)
@@ -478,6 +476,13 @@ class WorkspaceTab(QWidget):
             self._autosave(force=True)
         except Exception:  # noqa: BLE001
             logging.getLogger(__name__).exception("workspace son kayıt hatası")
+        # Kapanıştan sonra zamanlayıcılar çalışmaya devam etmesin (silinmiş pencerelere dokunur,
+        # otomatik kayıt bozuk durumda hata fırlatır).
+        for t in (self.timer, self.autosave):
+            try:
+                t.stop()
+            except RuntimeError:
+                pass
         for sub in list(self._subs.values()):
             if isinstance(sub, _Float):
                 try:
@@ -508,14 +513,19 @@ class WorkspaceTab(QWidget):
                 self.read_requested.emit(names)
         tab_visible = self.isVisible()
         span = self._span()
-        for p in self._panels:
+        for p in list(self._panels):
             holder = self._subs.get(p)
             # Ayrılmış paneller ayrı pencerede görünür kaldığı sürece (başka sekme
             # seçili olsa bile) canlı güncellenmeye devam eder.
-            floating_visible = (isinstance(holder, _Float) and holder.isVisible()
-                                and not holder.isMinimized())
-            if tab_visible or floating_visible:
-                p.refresh(span, self.frozen)
+            try:
+                floating_visible = (isinstance(holder, _Float) and holder.isVisible()
+                                    and not holder.isMinimized())
+                if tab_visible or floating_visible:
+                    p.refresh(span, self.frozen)
+            except RuntimeError:
+                # Pencere/panelin C++ nesnesi kapanırken silinmiş (zamanlayıcı yarışı):
+                # bu turu atla, sonraki tikte kayıt zaten temizlenmiş olur.
+                continue
 
     # ====================================================================
     # Paneller
@@ -523,10 +533,7 @@ class WorkspaceTab(QWidget):
     def add_panel(self, kind: str, state: dict | None = None, geometry=None, title: str | None = None,
                   floating_geometry=None):
         cls = PANEL_TYPES[kind]
-        if kind == "control":
-            panel = cls(self.hub, self._input_defs, self.send_input.emit, lambda: dict(self._input_values))
-        else:
-            panel = cls(self.hub)
+        panel = cls(self.hub)
         self._counter[kind] += 1
         title = title or f"{cls.title} {self._counter[kind]}"
         sub = _Sub()
@@ -662,7 +669,7 @@ class WorkspaceTab(QWidget):
 
     def _target_panel(self):
         p = self.active_panel()
-        if p is not None and p.kind != "control":
+        if p is not None:
             return p
         for q in reversed(self._panels):
             if q.kind == "plot":
@@ -890,18 +897,21 @@ class WorkspaceTab(QWidget):
     # ====================================================================
     def to_state(self) -> dict:
         panels = []
-        for p in self._panels:
+        for p in list(self._panels):
             sub = self._subs.get(p)
             if sub is None:
                 continue
-            floating = isinstance(sub, _Float)
-            g = (sub.mdi_geom or sub.geometry()) if floating else sub.geometry()
-            d = {"kind": p.kind, "title": sub.windowTitle(),
-                 "geometry": [g.x(), g.y(), g.width(), g.height()],
-                 "state": p.to_state()}
-            if floating:
-                fg = sub.geometry()
-                d["floating"] = [fg.x(), fg.y(), fg.width(), fg.height()]
+            try:
+                floating = isinstance(sub, _Float)
+                g = (sub.mdi_geom or sub.geometry()) if floating else sub.geometry()
+                d = {"kind": p.kind, "title": sub.windowTitle(),
+                     "geometry": [g.x(), g.y(), g.width(), g.height()],
+                     "state": p.to_state()}
+                if floating:
+                    fg = sub.geometry()
+                    d["floating"] = [fg.x(), fg.y(), fg.width(), fg.height()]
+            except RuntimeError:
+                continue        # pencere kapanırken C++ nesnesi silinmiş (otomatik kayıt yarışı)
             panels.append(d)
         return {"version": STATE_VERSION, "span": self.span_combo.currentIndex(),
                 "derived": self.hub.derived, "panels": panels}

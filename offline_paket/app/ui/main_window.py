@@ -203,7 +203,6 @@ class MainWindow(QMainWindow):
         self.transmit_tab.dbc_loaded.connect(lambda *_: self.workspace_tab.set_dbc(self.transmit_tab.dbc))
         self.workspace_tab.set_dbc(self.transmit_tab.dbc)
         self.workspace_tab.read_requested.connect(self._on_workspace_tick)
-        self.workspace_tab.send_input.connect(self.dashboard_tab.sim_inputs.send_value)
         self.dashboard_tab.gauge_sample.connect(lambda k, v: self.workspace_tab.push(f"gauge:{k}", v))
         self.workspace_tab.set_input_values(self.dashboard_tab.sim_inputs.values())
         self.dashboard_tab.sim_inputs.values_changed.connect(self.workspace_tab.set_input_values)

@@ -274,8 +274,8 @@ haberleşmeyi test edebilirsiniz.
 - Grafik sayfasındaki her panelde de **İsme göre ara...** kutusu vardır.
 
 ## Çalışma Alanı (Concerto / Data Inspector tarzı)
-Sol menüde **Çalışma Alanı**. Tek ekranda istediğiniz pencereleri kurarsınız:
-- **+ Grafik / + Gösterge / + Tablo / + Kontrol** düğmeleriyle pencere ekleyin; başlıklarından sürükleyip kenarlarından boyutlandırın. **Döşe / Kademeli** otomatik düzenler.
+**Analiz → Çalışma Alanı** iç sekmesi. Tek ekranda istediğiniz pencereleri kurarsınız:
+- **+ Grafik / + Gösterge / + Tablo** düğmeleriyle pencere ekleyin (giriş gönderimi için Ana Sayfa veya Kontrol Paneli kullanılır; eski yerleşimlerdeki "Kontrol" pencereleri açılışta atlanır); başlıklarından sürükleyip kenarlarından boyutlandırın. **Döşe / Kademeli** otomatik düzenler.
 - **Yerleşimi kaydet** ile düzeni isimle saklayın, listeden seçince yüklenir. Son düzen program kapanırken otomatik hatırlanır (workspace_layouts.json).
 - Soldaki **Sinyaller** listesi: A2L ölçümleri (CCP ile okunur), DBC sinyalleri (CAN'den çözülür), göstergeler, girişler, matematik ve içe aktarılan kayıtlar. **İsme göre ara...** ile süzün, çift tıklayıp etkin pencereye ekleyin.
 - **Dondur:** ekran sabitlenir, veri arka planda kaydedilmeye devam eder; fareyle yakınlaştırıp kaydırabilirsiniz. **Devam** canlı akışa döner.
