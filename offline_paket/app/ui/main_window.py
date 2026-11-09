@@ -39,7 +39,6 @@ from app.ui.analiz_tab import AnalizTab
 from app.ui.graph_tab import GraphTab
 from app.ui.workspace_tab import WorkspaceLayoutStore, WorkspaceTab
 from app.ui.kalibrasyon_tab import KalibrasyonTab
-from app.ui.session_tab import SessionTab
 from app.ui.tanilama_tab import TanilamaTab
 from app.ui.user_tab import UserTab
 from app.ui.watch_tab import parse_value_text
@@ -137,7 +136,7 @@ class MainWindow(QMainWindow):
         self.diagnostics_tab = self.tanilama_tab.diagnostics
         self.errors_tab = self.tanilama_tab.errors
 
-        self.session_tab = SessionTab()
+        self.session_tab = self.tanilama_tab.session      # Tanılama ve Oturum sayfasının parçası
         self.user_tab = UserTab()
 
         # ---- Sol kenar çubuğu navigasyonu + sayfa yığını (QStackedWidget).
@@ -154,8 +153,7 @@ class MainWindow(QMainWindow):
             ("⚙", "Kalibrasyon", self.kalibrasyon_tab),
             ("📈", "Analiz", self.analiz_tab),
             ("🎛", "Kontrol Paneli", self.control_panel_tab),
-            ("🛡", "Tanılama", self.tanilama_tab),
-            ("🗓", "Test Oturumu", self.session_tab),
+            ("🛡", "Tanılama ve Oturum", self.tanilama_tab),
             ("👤", "Profil", self.user_tab),
         ]
         # Her sayfa kendi QScrollArea'sı içinde yaşar: pencere sayfa
@@ -563,8 +561,6 @@ class MainWindow(QMainWindow):
     def _log_event(self, category: str, message: str):
         self.event_log.add(category, message, user=self.current_user, role=self.current_role.value)
         self.session_tab.refresh_log()
-        if category == "HATA":
-            self.errors_tab.set_errors([e for e in self.event_log.entries if e.category == "HATA"])
 
     # ---- Bağlantı ----------------------------------------------------
     def _on_connect(self, interface: str, channel: str, bitrate: int):

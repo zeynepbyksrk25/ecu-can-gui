@@ -84,8 +84,7 @@ Sürücü kurulduktan sonra adaptörü takıp Aygıt Yöneticisi'nde
 | A2L | A2L dosyası yükleyip Measurement/Characteristic nesnelerini gezme |
 | **Kalibrasyon** | İç sekmeler (4): **CCP** (canlı değer okuma, RAM'e geçici yazma, **Yönetici rolüyle flaşa kalıcı yazma**), **Harita Editörü** (1D/2D kalibrasyon tabloları, geri al/yinele, ısı haritası), **Parametre Listesi** (adres/hex ile serbest satırlar, toplu yaz/oku), **Geçmiş** (RAM ve FLAŞ yazımlarının eski/yeni değerleri, geri alma — FLAŞ kaydı uygulama kapansa bile kalıcıdır) |
 | Grafik | Birden fazla bağımsız grafik paneli ekleyip her birinde ayrı sinyaller izleme; fareyle "sensör takibi" (crosshair) |
-| **Tanılama** | CCP bağlantı testi + ham DIAG_SERVICE isteği, CAN bağlantı sağlığı + tüm CAN/CCP/kalibrasyon hatalarının tek listesi — birleşik |
-| Test Oturumu | Oturum başlat/bitir, olay günlüğü, PDF test raporu |
+| **Tanılama ve Oturum** | CCP bağlantı testi + ham DIAG_SERVICE isteği, CAN bağlantı sağlığı, test oturumu (başlat/bitir, PDF test raporu) ve TEK olay günlüğü ("Tümü / Yalnız hatalar" süzgeci) — birleşik |
 | Kullanıcı / Profil | Rol seçimi (Operatör/Mühendis/Yönetici) ve bağlantı+CCP ayarlarını profil olarak kaydetme |
 
 ### Eyleyici manuel override (MATLAB/Simulink donanım testi)

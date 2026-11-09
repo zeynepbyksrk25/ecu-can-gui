@@ -76,8 +76,11 @@ def test_small_pages_dark_and_accessors(tmp_path):
     from PySide6.QtWidgets import QApplication
     from app.ui.main_window import MainWindow
     w = MainWindow()
-    for page in (w.tanilama_tab, w.session_tab, w.user_tab):
+    for page in (w.tanilama_tab, w.user_tab):
         assert page in w._dark_pages
+    assert w.session_tab is w.tanilama_tab.session
+    labels = [w.nav_bar.tabText(i) for i in range(w.nav_bar.count())]
+    assert "Tanılama ve Oturum" in labels and "Test Oturumu" not in labels
     s = w.session_tab
     assert s.stop_button.isEnabled() is False and s.state_chip.text() == "Oturum yok"
     assert hasattr(w.tanilama_tab, "diagnostics") and hasattr(w.tanilama_tab, "errors")
