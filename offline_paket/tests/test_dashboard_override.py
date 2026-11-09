@@ -26,20 +26,34 @@ def tab(qapp, monkeypatch):
     return t
 
 
+def _type(box, text):
+    """Kutuya yazıp Enter'a basar (kilitli/etkin olmasından bağımsız)."""
+    box.setText(text)
+    box.returnPressed.emit()
+
+
 def test_locked_actuator_controls_are_disabled_and_write_nothing(tab):
     row = tab._act_rows["valf"]
     assert not row["control"].isEnabled()
-    row["control"].setValue(30.0)           # kilitliyken sinyal yok
+    _type(row["control"], "30")             # kilitliyken sinyal yok
     assert tab.calls == []
 
 
-def test_unlock_writes_value_first_then_sw_and_enables_control(tab):
-    tab._act_rows["valf"]["control"].setValue(0.0)
+def test_unlock_with_empty_box_writes_only_sw_then_enter_sends_value(tab):
+    box = tab._act_rows["valf"]["control"]
+    assert box.text() == ""                 # boş başlar
     tab._on_actuator_lock("valf", True)
-    assert tab.calls == [("valf_cmd", 0.0), ("OVR.valf_cmd_sw", 1.0)]
-    assert tab._act_rows["valf"]["control"].isEnabled()
-    tab._act_rows["valf"]["control"].setValue(45.0)
+    assert tab.calls == [("OVR.valf_cmd_sw", 1.0)]          # değer yazılmadı
+    assert box.isEnabled()
+    _type(box, "45")
     assert tab.calls[-1] == ("valf_cmd", 45.0)
+
+
+def test_unlock_with_filled_box_writes_value_first_then_sw(tab):
+    box = tab._act_rows["valf"]["control"]
+    box.setText("12,5")
+    tab._on_actuator_lock("valf", True)
+    assert tab.calls == [("valf_cmd", 12.5), ("OVR.valf_cmd_sw", 1.0)]
 
 
 def test_lock_again_writes_sw_zero_and_disables(tab):
@@ -48,21 +62,31 @@ def test_lock_again_writes_sw_zero_and_disables(tab):
     tab._on_actuator_lock("valf", False)
     assert tab.calls == [("OVR.valf_cmd_sw", 0.0)]
     assert not tab._act_rows["valf"]["control"].isEnabled()
-    tab._act_rows["valf"]["control"].setValue(70.0)
+    _type(tab._act_rows["valf"]["control"], "70")
     assert tab.calls == [("OVR.valf_cmd_sw", 0.0)]
 
 
-def test_actuator_sends_0_to_100_value_only_when_unlocked(tab):
-    spin = tab._act_rows["pompa_fuel"]["control"]
-    spin.setValue(40.0)
+def test_actuator_accepts_any_value_and_sends_only_on_enter_when_unlocked(tab):
+    box = tab._act_rows["pompa_fuel"]["control"]
+    _type(box, "40")
     assert tab.calls == []                   # kilitli: gönderim yok
-    spin.setValue(0.0)
+    box.clear()
     tab._on_actuator_lock("pompa_fuel", True)
     tab.calls.clear()
-    spin.setValue(55.5)
-    spin.setValue(100.0)
-    spin.setValue(0.0)
-    assert tab.calls == [("OVR.pump", 55.5), ("OVR.pump", 100.0), ("OVR.pump", 0.0)]
+    box.textEdited.emit("5")                 # yazarken gönderim yok
+    assert tab.calls == []
+    _type(box, "")                           # boş Enter: gönderim yok
+    assert tab.calls == []
+    for text, v in (("1234,5", 1234.5), ("-7", -7.0), ("250000", 250000.0), ("0", 0.0)):
+        _type(box, text)
+        assert tab.calls[-1] == ("OVR.pump", v)
+
+
+def test_actuator_box_rejects_letters(tab):
+    from PySide6.QtGui import QValidator
+    v = tab._act_rows["valf"]["control"].validator()
+    assert v.validate("12a", 3)[0] == QValidator.Invalid
+    assert v.validate("1,5", 3)[0] != QValidator.Invalid
 
 
 def test_operator_role_cannot_unlock(tab):

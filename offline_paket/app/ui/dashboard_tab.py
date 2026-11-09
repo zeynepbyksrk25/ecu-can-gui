@@ -20,7 +20,9 @@ from PySide6.QtWidgets import (
     QFrame, QGridLayout, QHBoxLayout, QInputDialog, QLabel, QMessageBox, QPushButton,
     QSizePolicy, QVBoxLayout, QWidget,
 )
-from PySide6.QtWidgets import QDoubleSpinBox
+from PySide6.QtCore import QRegularExpression
+from PySide6.QtGui import QRegularExpressionValidator
+from PySide6.QtWidgets import QLineEdit
 
 from app.dashboard_config import (
     ACTUATOR_KEYS, ACTUATOR_KINDS, ACTUATOR_LABELS, GAUGE_KEYS, Binding, DashboardConfig,
@@ -453,16 +455,18 @@ class DashboardTab(QWidget):
             cl.addWidget(sw)
             entry.update(control=sw, onoff=onoff)
         else:
-            spin = QDoubleSpinBox()
-            spin.setObjectName("valueSpin")
-            spin.setRange(0.0, 100.0)
-            spin.setDecimals(1)
-            spin.setSuffix(" %")
-            spin.setKeyboardTracking(False)
-            spin.setFixedWidth(ACT_CMD_W)
-            spin.valueChanged.connect(lambda v, k=key: self._on_actuator_value(k, v))
-            cl.addWidget(spin)
-            entry.update(control=spin)
+            # Serbest değer kutusu: boş başlar, aralık/birim sınırı yok; Enter ile gönderilir.
+            box = QLineEdit()
+            box.setObjectName("actValue")
+            box.setPlaceholderText("değer")
+            box.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            box.setFixedWidth(ACT_CMD_W)
+            # yalnızca sayı: isteğe bağlı eksi, ondalık ayırıcı nokta VEYA virgül (okurken noktaya çevrilir)
+            box.setValidator(QRegularExpressionValidator(QRegularExpression(r"^-?\d*[.,]?\d*$"), box))
+            box.returnPressed.connect(lambda k=key: self._on_actuator_submit(k))
+            box.textEdited.connect(lambda _t, b=box: self._mark_actuator_box(b, False))
+            cl.addWidget(box)
+            entry.update(control=box)
         hl.addWidget(cell)
         lock = LockButton(ACT_LOCK_W)
         lock.lock_requested.connect(lambda want, k=key: self._on_actuator_lock(k, want))
@@ -514,11 +518,32 @@ class DashboardTab(QWidget):
             return False
         return bool(self.writer(binding, float(value), label))
 
-    def _actuator_value(self, key: str) -> float:
-        e = self._act_rows[key]
-        if e["kind"] == "toggle":
-            return 1.0 if e["control"].isChecked() else 0.0
-        return float(e["control"].value())
+    def _actuator_text_value(self, key: str):
+        """Eyleyici kutusundaki sayı; kutu boş/geçersizse None."""
+        text = self._act_rows[key]["control"].text().strip().replace(",", ".")
+        if not text:
+            return None
+        try:
+            return float(text)
+        except ValueError:
+            return None
+
+    @staticmethod
+    def _mark_actuator_box(box, bad: bool):
+        box.setProperty("bad", bad)
+        box.style().unpolish(box)
+        box.style().polish(box)
+
+    def _on_actuator_submit(self, key: str):
+        """Enter: kilit AÇIKSA ve kutuda sayı varsa değeri yazar."""
+        if not self._act_open[key]:
+            return
+        v = self._actuator_text_value(key)
+        if v is None:
+            return
+        box = self._act_rows[key]["control"]
+        ok = self._write(self.config.actuator_map(key).value, v, f"{ACTUATOR_SHORT[key]} komutu")
+        self._mark_actuator_box(box, not ok)
 
     def _on_actuator_lock(self, key: str, want_open: bool):
         amap = self.config.actuator_map(key)
@@ -533,8 +558,10 @@ class DashboardTab(QWidget):
                 return
             if not self._confirm_override(label):
                 return
-            # önce değer, sonra anahtar: anahtar açıldığında ECU bilinen bir değer görür
-            if not self._write(amap.value, self._actuator_value(key), f"{label} değeri"):
+            # kutuda değer varsa önce değer, sonra anahtar (ECU anahtar açılınca bilinen değeri görür);
+            # kutu boşsa yalnızca anahtar (_sw = 1) yazılır
+            v = self._actuator_text_value(key)
+            if v is not None and not self._write(amap.value, v, f"{label} değeri"):
                 return
             if not self._write(amap.sw, 1.0, f"{label} anahtarı"):
                 return
@@ -561,11 +588,6 @@ class DashboardTab(QWidget):
             e["control"].setChecked(not checked)
             e["control"].blockSignals(False)
             e["onoff"].setText("ON" if not checked else "OFF")
-
-    def _on_actuator_value(self, key: str, value: float):
-        if not self._act_open[key]:
-            return
-        self._write(self.config.actuator_map(key).value, value, f"{ACTUATOR_SHORT[key]} komutu")
 
     def release_all_actuators(self, write: bool = True) -> list:
         """Bağlantı kapanırken: kilidi AÇIK her eyleyicinin anahtarını (_sw) kapatmayı dener

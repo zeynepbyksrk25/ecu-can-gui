@@ -71,6 +71,8 @@ DashboardTab QComboBox QAbstractItemView { background: #FFFFFF; color: #121A22; 
 DashboardTab QLineEdit { background: #FFFFFF; border: 1px solid #B7C4D0; border-radius: 6px; color: #121A22;
     padding: 2px 8px; min-height: 22px; selection-background-color: #1F6FE0; }
 DashboardTab QLineEdit:focus { border-color: #0E6E8C; }
+DashboardTab QLineEdit#actValue { padding: 1px 8px; min-height: 24px; font-size: 14px; font-weight: 600; }
+DashboardTab QLineEdit#actValue[bad="true"] { border: 1px solid #C22A1D; background: #FDECEA; }
 DashboardTab QLineEdit:disabled { color: #7C8B98; }
 DashboardTab QCheckBox { color: #243442; spacing: 6px; }
 DashboardTab QCheckBox::indicator { width: 15px; height: 15px; border: 1px solid #B7C4D0; border-radius: 4px;
