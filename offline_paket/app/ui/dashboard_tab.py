@@ -64,6 +64,10 @@ ACTUATOR_ICON = {"pompa_start": "pump", "pompa_fuel": "pump", "valf": "valve",
 
 DASH_QSS = dark_qss("dashBody")
 
+ACT_CMD_W = 112      # Eyleyiciler: KOMUT hücresi genişliği (başlık ve satırlar aynı)
+ACT_LOCK_W = 26      # kilit düğmesi
+ACT_MAN_W = 68       # Eyleyiciler: MANUEL hücresi genişliği (başlık metni sığsın; kilit ortalanır)
+
 
 class DashboardTab(QWidget):
     motor_start_requested = Signal()
@@ -119,7 +123,8 @@ class DashboardTab(QWidget):
         left = QVBoxLayout()
         left.setSpacing(10)
         left.addWidget(self.sim_inputs, 0)
-        left.addWidget(self._build_actuators_card(), 1)
+        left.addWidget(self._build_actuators_card(), 0)
+        left.addStretch(1)      # pencere uzunsa artan boşluk kartın İÇİNDE değil, altında kalır
         left_w = QWidget()
         left_w.setLayout(left)
         # Genişlik sabit DEĞİL: alt sınırı içeriğin (yazı tipine göre) asgari genişliği belirler
@@ -391,14 +396,26 @@ class DashboardTab(QWidget):
         head.addStretch(1)
         lay.addLayout(head)
 
+        # Başlıklar satırlarla AYNI sütun genişliklerini ve aralığı kullanır (hizalı)
         cols = QHBoxLayout()
-        cols.setContentsMargins(2, 4, 2, 2)
-        for text, align in (("EYLEYİCİ", Qt.AlignLeft), ("KOMUT", Qt.AlignRight), ("MANUEL", Qt.AlignRight)):
-            c = QLabel(text)
-            c.setObjectName("colHead")
-            cols.addWidget(c, 1 if align == Qt.AlignLeft else 0)
-            if text == "KOMUT":
-                cols.addSpacing(34)
+        cols.setContentsMargins(0, 4, 0, 2)
+        cols.setSpacing(10)
+        spacer = QWidget()
+        spacer.setFixedWidth(18)                      # simge sütunu
+        cols.addWidget(spacer)
+        c0 = QLabel("EYLEYİCİ")
+        c0.setObjectName("colHead")
+        cols.addWidget(c0, 1)
+        self.act_head_cmd = QLabel("KOMUT")
+        self.act_head_cmd.setObjectName("colHead")
+        self.act_head_cmd.setFixedWidth(ACT_CMD_W)
+        self.act_head_cmd.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        cols.addWidget(self.act_head_cmd)
+        c2 = QLabel("MANUEL")
+        c2.setObjectName("colHead")
+        c2.setFixedWidth(ACT_MAN_W)
+        c2.setAlignment(Qt.AlignCenter)
+        cols.addWidget(c2)
         lay.addLayout(cols)
 
         for key in ACTUATOR_KEYS:
@@ -410,6 +427,7 @@ class DashboardTab(QWidget):
         row = QFrame()
         row.setObjectName("rowFrame")
         row.setMinimumHeight(36)
+        row.setMaximumHeight(52)
         hl = QHBoxLayout(row)
         hl.setContentsMargins(0, 2, 0, 2)
         hl.setSpacing(10)
@@ -419,14 +437,20 @@ class DashboardTab(QWidget):
         hl.addWidget(icon)
         hl.addWidget(name, 1)
         entry = {"kind": kind, "name": name, "icon": icon}
+        cell = QWidget()                                # KOMUT hücresi: sabit genişlik, sağa dayalı
+        cell.setFixedWidth(ACT_CMD_W)
+        cl = QHBoxLayout(cell)
+        cl.setContentsMargins(0, 0, 0, 0)
+        cl.setSpacing(8)
+        cl.addStretch(1)
         if kind == "toggle":
             onoff = QLabel("OFF")
             onoff.setObjectName("onoff")
             onoff.setProperty("on", False)
             sw = ToggleSwitch(on_color="#1B8A4C")
             sw.toggled.connect(lambda checked, k=key: self._on_actuator_toggle(k, checked))
-            hl.addWidget(onoff)
-            hl.addWidget(sw)
+            cl.addWidget(onoff)
+            cl.addWidget(sw)
             entry.update(control=sw, onoff=onoff)
         else:
             spin = QDoubleSpinBox()
@@ -435,13 +459,19 @@ class DashboardTab(QWidget):
             spin.setDecimals(1)
             spin.setSuffix(" %")
             spin.setKeyboardTracking(False)
-            spin.setMinimumWidth(108)
+            spin.setFixedWidth(ACT_CMD_W)
             spin.valueChanged.connect(lambda v, k=key: self._on_actuator_value(k, v))
-            hl.addWidget(spin)
+            cl.addWidget(spin)
             entry.update(control=spin)
-        lock = LockButton(26)
+        hl.addWidget(cell)
+        lock = LockButton(ACT_LOCK_W)
         lock.lock_requested.connect(lambda want, k=key: self._on_actuator_lock(k, want))
-        hl.addWidget(lock)
+        mcell = QWidget()                                # MANUEL hücresi: kilit ortada
+        mcell.setFixedWidth(ACT_MAN_W)
+        ml = QHBoxLayout(mcell)
+        ml.setContentsMargins(0, 0, 0, 0)
+        ml.addWidget(lock, 0, Qt.AlignCenter)
+        hl.addWidget(mcell)
         entry["lock"] = lock
         entry["control"].setEnabled(False)
         self._act_rows[key] = entry
