@@ -27,8 +27,8 @@ from PySide6.QtWidgets import QLineEdit
 from app.dashboard_config import (
     ACTUATOR_KEYS, ACTUATOR_KINDS, ACTUATOR_LABELS, GAUGE_KEYS, Binding, DashboardConfig,
 )
-from app.ui.dash_widgets import (  # noqa: F401  (GaugeWidget/ToggleSwitch: eski import yolları)
-    DK_CYAN, DK_MUT, DashGauge, GaugeCard, GaugeWidget, IconLabel, LockButton, ToggleSwitch,
+from app.ui.dash_widgets import (  # noqa: F401  (ToggleSwitch: eski import yolu)
+    DK_CYAN, DK_MUT, DashGauge, GaugeCard, IconLabel, LockButton, ToggleSwitch,
     format_value,
 )
 from app.ui.dark_theme import dark_qss

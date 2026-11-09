@@ -503,9 +503,8 @@ class GaugePanel(PanelBase):
 
     def __init__(self, hub):
         super().__init__(hub)
-        from app.ui.dashboard_tab import GaugeWidget
-        from app.ui.dash_widgets import DarkGauge
-        self.gauge = DarkGauge("—", 0.0, 100.0, "")
+        from app.ui.dash_widgets import DashGauge
+        self.gauge = DashGauge(0.0, 100.0, "", label="—")
         self.gauge.setMaximumHeight(16777215)
         self.name_label = QLabel("")
         self.name_label.setAlignment(Qt.AlignCenter)
@@ -542,18 +541,15 @@ class GaugePanel(PanelBase):
 
     def _signals_changed(self):
         sid = self.signals_ids[0] if self.signals_ids else None
-        self.gauge._label = label_of(sid) if sid else "—"
+        self.gauge.set_label(label_of(sid) if sid else "—")
         self.name_label.setText(sid or "")
-        self.gauge.update()
         self.changed.emit()
 
     def _on_range(self, *_):
         lo, hi = self.min_spin.value(), self.max_spin.value()
         if hi <= lo:
             hi = lo + 1.0
-        self.gauge.set_range(lo, hi)
-        self.gauge._unit = self.unit_edit.text()
-        self.gauge.update()
+        self.gauge.set_range(lo, hi, self.unit_edit.text())
         self.changed.emit()
 
     def refresh(self, span, frozen):
