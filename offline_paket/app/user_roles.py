@@ -43,10 +43,6 @@ def can_manage_profiles(role: Role) -> bool:
     return role in (Role.ENGINEER, Role.ADMIN)
 
 
-def can_clear_audit_log(role: Role) -> bool:
-    return role == Role.ADMIN
-
-
 def can_override_actuator(role: Role) -> bool:
     """Ana Sayfa'daki 'Eyleyiciler' panelinden manuel override (CAN
     üzerinden gerçek donanımı/MATLAB override anahtarını süren bir sinyal

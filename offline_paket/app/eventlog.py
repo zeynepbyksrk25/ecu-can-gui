@@ -61,8 +61,8 @@ class EventLog:
                 self.last_write_error = str(exc)
                 log.error("Denetim günlüğü yazılamadı (%s): %s", self.file_path, exc)
 
-    def clear(self):
-        self.entries.clear()
+    # Denetim günlüğü arayüzden SİLİNEMEZ (bilinçli): bellekteki liste oturum PDF raporunun kaynağıdır ve
+    # diskteki audit_log.txt yalnızca eklemeli (append-only) tutulur. Bu yüzden clear() yoktur.
 
     def export_csv(self, path: str):
         with open(path, "w", newline="", encoding="utf-8") as f:

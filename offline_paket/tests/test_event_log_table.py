@@ -28,3 +28,11 @@ def test_log_event_reaches_merged_session_log(qapp):
     s.log_table.set_errors_only(True)
     assert any(s.table.item(r, 3).text() == "deneme hatası" for r in range(s.table.rowCount()))
     w.close()
+
+
+def test_audit_log_cannot_be_cleared_from_the_app():
+    """Denetim günlüğü bilinçli olarak silinemez: temizleme API'si ve yetkisi yok."""
+    from app import user_roles
+    from app.eventlog import EventLog
+    assert not hasattr(EventLog, "clear")
+    assert not hasattr(user_roles, "can_clear_audit_log")
