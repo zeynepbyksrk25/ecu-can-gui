@@ -40,6 +40,7 @@ from app.ui.graph_tab import GraphTab
 from app.ui.workspace_tab import WorkspaceLayoutStore, WorkspaceTab
 from app.ui.kalibrasyon_tab import KalibrasyonTab
 from app.ui.tanilama_tab import TanilamaTab
+from app.ui.settings_dialog import SettingsDialog
 from app.ui.user_tab import UserTab
 from app.ui.watch_tab import parse_value_text
 from app.user_roles import (
@@ -138,6 +139,8 @@ class MainWindow(QMainWindow):
 
         self.session_tab = self.tanilama_tab.session      # Tanılama ve Oturum sayfasının parçası
         self.user_tab = UserTab()
+        # Profil artık üst sekme değil: komut şeridindeki "⚙ Ayarlar" penceresi (rol + profiller)
+        self.settings_dialog = SettingsDialog(self.user_tab, self)
 
         # ---- Sol kenar çubuğu navigasyonu + sayfa yığını (QStackedWidget).
         # Eskiden burada üstte bir QTabWidget sekme çubuğu vardı; kullanıcı
@@ -154,7 +157,6 @@ class MainWindow(QMainWindow):
             ("📈", "Analiz", self.analiz_tab),
             ("🎛", "Kontrol Paneli", self.control_panel_tab),
             ("🛡", "Tanılama ve Oturum", self.tanilama_tab),
-            ("👤", "Profil", self.user_tab),
         ]
         # Her sayfa kendi QScrollArea'sı içinde yaşar: pencere sayfa
         # içeriğinden KÜÇÜKSE (düşük çözünürlüklü laptop vb.) içerik aşağıdan
@@ -166,7 +168,7 @@ class MainWindow(QMainWindow):
         self.stack = QStackedWidget()
         self._page_scrolls: dict[QWidget, QScrollArea] = {}
         # Koyu temaya geçirilmiş sayfalar (koyu gövdeye sarılır); diğerleri henüz açık temada.
-        self._dark_pages = {self.a2l_tab, self.tanilama_tab, self.session_tab, self.user_tab, self.kalibrasyon_tab, self.analiz_tab, self.graph_tab, self.performance_tab, self.workspace_tab, self.control_panel_tab}
+        self._dark_pages = {self.a2l_tab, self.tanilama_tab, self.session_tab, self.kalibrasyon_tab, self.analiz_tab, self.graph_tab, self.performance_tab, self.workspace_tab, self.control_panel_tab}
         for _icon, _label, page in self._nav_pages:
             # Ana Sayfa kaydırılmaz: 16" ekrana tamamen sığar (bkz. DashboardTab)
             self.stack.addWidget(page if page is self.dashboard_tab else self._make_scrollable_page(page))
@@ -427,10 +429,19 @@ class MainWindow(QMainWindow):
         self.ccp_chip.setToolTip("CCP/ECU durumu: bağlı değil → bağlanıyor → çevrimiçi → ECU yok (otomatik yeniden bağlanır)")
         layout.addWidget(self.ccp_chip)
         layout.addSpacing(8)
-        self.header_role_label = QLabel("")
+        self.header_role_label = _ClickLabel("")
         self.header_role_label.setObjectName("headerReadout")
         self.header_role_label.setTextFormat(Qt.RichText)
+        self.header_role_label.setCursor(Qt.PointingHandCursor)
+        self.header_role_label.setToolTip("Tıkla: kullanıcı ve rol ayarları")
+        self.header_role_label.clicked.connect(self.open_settings)
         layout.addWidget(self.header_role_label)
+        self.settings_button = QPushButton("⚙  Ayarlar")
+        self.settings_button.setFixedHeight(28)
+        self.settings_button.setCursor(Qt.PointingHandCursor)
+        self.settings_button.setToolTip("Kullanıcı / rol ve bağlantı+CCP profilleri")
+        self.settings_button.clicked.connect(self.open_settings)
+        layout.addWidget(self.settings_button)
         self.mappings_button = QPushButton("⚙  Eşleşmeler")
         self.mappings_button.setFixedHeight(28)
         self.mappings_button.setCursor(Qt.PointingHandCursor)
@@ -447,8 +458,12 @@ class MainWindow(QMainWindow):
                 self.nav_bar.setCurrentIndex(i)
                 return
 
+    def open_settings(self):
+        """Ayarlar penceresi (kullanıcı/rol + profiller)."""
+        self.settings_dialog.exec()
+
     def _update_role_label(self):
-        self.header_role_label.setText(f"Rol: <b style='color:#121A22'>{self.current_role.value}</b>")
+        self.header_role_label.setText(f"Rol: <b style='color:#121A22'>{self.current_role.value} ▾</b>")
 
     def _update_clock(self):
         now_text = datetime.now().strftime("%d.%m.%Y  %H:%M:%S")
@@ -553,6 +568,7 @@ class MainWindow(QMainWindow):
 
         self.history_tab.revert_requested.connect(self._on_history_revert)
 
+        self.settings_dialog.mappings_requested.connect(self.dashboard_tab.open_mappings)
         self.user_tab.role_applied.connect(self._on_role_applied)
         self.user_tab.profile_save_requested.connect(self._on_profile_save)
         self.user_tab.profile_apply_requested.connect(self._on_profile_apply)
@@ -845,7 +861,7 @@ class MainWindow(QMainWindow):
         if not can_transmit_frames(self.current_role):
             QMessageBox.warning(self, "Yetki yok",
                                 "CAN çerçevesi göndermek için Mühendis veya Yönetici rolü gerekir "
-                                "(Kullanıcı / Profil sekmesinden rol seçin).")
+                                "(sağ üstteki ⚙ Ayarlar penceresinden rol seçin).")
             return
         try:
             self.connection.send(can_id, data, extended)
@@ -864,7 +880,7 @@ class MainWindow(QMainWindow):
             self.transmit_tab.mark_start_failed(row_key)
             QMessageBox.warning(self, "Yetki yok",
                                 "Periyodik gönderim için Mühendis veya Yönetici rolü gerekir "
-                                "(Kullanıcı / Profil sekmesinden rol seçin).")
+                                "(sağ üstteki ⚙ Ayarlar penceresinden rol seçin).")
             return
         if self.periodic_manager is None:
             self.transmit_tab.mark_start_failed(row_key)
@@ -1000,13 +1016,13 @@ class MainWindow(QMainWindow):
             if not can_write_flash(self.current_role):
                 self.ccp_tab.set_write_result(
                     False, "Yetki yok: FLAŞ yazmak için Yönetici rolü gerekir "
-                           "(Kullanıcı / Profil sekmesinden rol seçin)."
+                           "(sağ üstteki ⚙ Ayarlar penceresinden rol seçin)."
                 )
                 return
         elif not can_write_calibration(self.current_role):
             self.ccp_tab.set_write_result(
                 False, "Yetki yok: kalibrasyon yazmak için Mühendis veya Yönetici rolü gerekir "
-                       "(Kullanıcı / Profil sekmesinden rol seçin)."
+                       "(sağ üstteki ⚙ Ayarlar penceresinden rol seçin)."
             )
             return
         selected = self.ccp_tab.selected_object()
@@ -1272,7 +1288,7 @@ class MainWindow(QMainWindow):
             self.watch_tab.discard_pending(rows)
             self.watch_tab.set_write_result(
                 False, "Yetki yok: kalibrasyon yazmak için Mühendis veya Yönetici rolü gerekir "
-                       "(Kullanıcı / Profil sekmesinden rol seçin).")
+                       "(sağ üstteki ⚙ Ayarlar penceresinden rol seçin).")
             return
         entries = self.watch_tab.entries()
         done = 0

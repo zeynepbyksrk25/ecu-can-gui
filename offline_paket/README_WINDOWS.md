@@ -85,7 +85,7 @@ Sürücü kurulduktan sonra adaptörü takıp Aygıt Yöneticisi'nde
 | **Kalibrasyon** | İç sekmeler (4): **CCP** (canlı değer okuma, RAM'e geçici yazma, **Yönetici rolüyle flaşa kalıcı yazma**), **Harita Editörü** (1D/2D kalibrasyon tabloları, geri al/yinele, ısı haritası), **Parametre Listesi** (adres/hex ile serbest satırlar, toplu yaz/oku), **Geçmiş** (RAM ve FLAŞ yazımlarının eski/yeni değerleri, geri alma — FLAŞ kaydı uygulama kapansa bile kalıcıdır) |
 | Grafik | Birden fazla bağımsız grafik paneli ekleyip her birinde ayrı sinyaller izleme; fareyle "sensör takibi" (crosshair) |
 | **Tanılama ve Oturum** | CCP bağlantı testi + ham DIAG_SERVICE isteği, CAN bağlantı sağlığı, test oturumu (başlat/bitir, PDF test raporu) ve TEK olay günlüğü ("Tümü / Yalnız hatalar" süzgeci) — birleşik |
-| Kullanıcı / Profil | Rol seçimi (Operatör/Mühendis/Yönetici) ve bağlantı+CCP ayarlarını profil olarak kaydetme |
+| **⚙ Ayarlar** (komut şeridi; sekme değil) | Rol seçimi (Operatör/Mühendis/Yönetici), bağlantı+CCP ayarlarını profil olarak kaydetme ve Eşleşmeler. "Rol: …" etiketine tıklayarak da açılır |
 
 ### Eyleyici manuel override (MATLAB/Simulink donanım testi)
 
@@ -144,8 +144,8 @@ uygulamada donanımla doğrulanmamıştır**. Bu yüzden:
 - Kalibrasyon (CCP) sekmesinde flaş yazma varsayılan olarak **kapalıdır**;
   "Deneysel flaş yazmayı etkinleştir" kutusunu işaretleyip güçlü bir onay
   diyaloğunu geçmeniz gerekir.
-- Flaşa yazmak/geri almak yalnızca **Yönetici** rolüyle mümkündür (Kullanıcı
-  / Profil sekmesinden rol seçin).
+- Flaşa yazmak/geri almak yalnızca **Yönetici** rolüyle mümkündür (sağ üstteki
+  ⚙ Ayarlar penceresinden rol seçin).
 - Her flaş yazımından önceki değer Kalibrasyon Geçmişi'ne **diske kalıcı**
   olarak kaydedilir; "eski haline getir" uygulama kapanıp açılsa bile
   çalışır (geri alma = eski değeri tekrar flaşa yazmaktır).

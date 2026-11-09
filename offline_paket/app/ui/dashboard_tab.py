@@ -522,7 +522,7 @@ class DashboardTab(QWidget):
             QMessageBox.warning(
                 self, "Yetki yok",
                 f"{label} için manuel değeri açmak için Mühendis veya Yönetici rolü gerekir "
-                "(Kullanıcı / Profil sekmesinden rol seçin).")
+                "(sağ üstteki ⚙ Ayarlar penceresinden rol seçin).")
             return False
         if not self._override_confirmed_session:
             confirm = QMessageBox.warning(

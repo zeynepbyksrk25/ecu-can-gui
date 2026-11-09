@@ -76,8 +76,10 @@ def test_small_pages_dark_and_accessors(tmp_path):
     from PySide6.QtWidgets import QApplication
     from app.ui.main_window import MainWindow
     w = MainWindow()
-    for page in (w.tanilama_tab, w.user_tab):
-        assert page in w._dark_pages
+    assert w.tanilama_tab in w._dark_pages
+    # Profil artık üst sekme değil, Ayarlar penceresinde
+    assert "Profil" not in [w.nav_bar.tabText(i) for i in range(w.nav_bar.count())]
+    assert w.settings_dialog.user_tab is w.user_tab
     assert w.session_tab is w.tanilama_tab.session
     labels = [w.nav_bar.tabText(i) for i in range(w.nav_bar.count())]
     assert "Tanılama ve Oturum" in labels and "Test Oturumu" not in labels
