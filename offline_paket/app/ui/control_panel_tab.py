@@ -1599,19 +1599,43 @@ class ControlPanelTab(QWidget):
         if on:
             self.splitter.setSizes([420, 900])
 
+    def _view_dirty(self) -> bool:
+        """Seçili kayıtlı görünümün içeriği çalışma listesinden farklı mı (sinyal eklendi/çıkarıldı)?"""
+        cv = self.config.current_view
+        return bool(cv) and cv in self.config.views and list(self.config.views[cv]) != list(self.config.pinned)
+
     def _reload_views_combo(self):
+        """Görünüm listesi. Öğenin GERÇEK adı itemData'dadır; kaydedilmemiş değişiklik varsa görünen metne
+        "(değişti)" eklenir (ad aynı kalıp içerik farklıymış gibi görünmesin)."""
         self.view_combo.blockSignals(True)
         self.view_combo.clear()
-        self.view_combo.addItem("(Çalışma listesi)")
+        self.view_combo.addItem("(Çalışma listesi)", None)
+        dirty = self._view_dirty()
         for name in sorted(self.config.views):
-            self.view_combo.addItem(name)
-        i = self.view_combo.findText(self.config.current_view) if self.config.current_view else 0
+            label = f"{name} (değişti)" if dirty and name == self.config.current_view else name
+            self.view_combo.addItem(label, name)
+        i = self.view_combo.findData(self.config.current_view) if self.config.current_view else 0
         self.view_combo.setCurrentIndex(max(0, i))
+        self.view_combo.setToolTip("Kaydedilmemiş değişiklik var: başka görünüme geçerken sorulur; "
+                                   "'Görünümü kaydet…' ile güncelleyin." if dirty else "")
         self.view_combo.blockSignals(False)
         self.view_delete.setEnabled(self.view_combo.currentIndex() > 0)
 
     def _on_view_selected(self, idx: int):
-        name = self.view_combo.itemText(idx)
+        name = self.view_combo.itemData(idx) if idx > 0 else None
+        if self._view_dirty():
+            cv = self.config.current_view
+            ans = QMessageBox.question(
+                self, "Kaydedilmemiş değişiklik",
+                f"“{cv}” görünümünde kaydedilmemiş değişiklik var (sinyal eklendi/çıkarıldı).\n\n"
+                "Evet: görünüme kaydet ve devam et\nHayır: kaydetmeden devam et (değişiklik kaybolur)\n"
+                "İptal: olduğu gibi kal",
+                QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel, QMessageBox.Yes)
+            if ans == QMessageBox.Cancel:
+                self._reload_views_combo()          # seçimi eski haline döndür
+                return
+            if ans == QMessageBox.Yes:
+                self.config.views[cv] = list(self.config.pinned)
         if idx <= 0 or name not in self.config.views:
             self.config.current_view = ""
         else:
@@ -1620,7 +1644,7 @@ class ControlPanelTab(QWidget):
         self.config.save()
         self.catalog_panel.set_pinned(self.config.pinned)
         self._rebuild_tables()
-        self.view_delete.setEnabled(idx > 0)
+        self._reload_views_combo()
 
     def _save_view(self):
         name, ok = QInputDialog.getText(self, "Görünümü kaydet", "Görünüm ismi:",
@@ -1635,7 +1659,7 @@ class ControlPanelTab(QWidget):
         self._set_status(f"“{name}” görünümü kaydedildi ({len(self.config.pinned)} sinyal).", True)
 
     def _delete_view(self):
-        name = self.view_combo.currentText()
+        name = self.view_combo.currentData()
         if name in self.config.views:
             del self.config.views[name]
             self.config.current_view = ""

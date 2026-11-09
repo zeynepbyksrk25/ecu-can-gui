@@ -164,6 +164,10 @@ uygulamada donanımla doğrulanmamıştır**. Bu yüzden:
   eşlenmemiş" uyarısı görünür ve basınca komut GİTMEDİĞİ açıkça bildirilir. Eşleme varsa A2L min/max,
   READ_ONLY ve DBC min/max denetimi komutu ENGELLEMEZ (sınır dışıysa olay günlüğüne not düşülür);
   değer veri tipine / sinyalin bit genişliğine sığmıyorsa yine gönderilmez ve HATA olarak günlüğe yazılır.
+  Güvenlik komutları (Acil Durdurma, Motoru Durdur) CAN'da ilk kareden sonra AYNI kareyi 20 ms aralıkla
+  4 kez daha yollar (toplam 5; arayüzü bloklamaz, olay günlüğüne yazılır); A2L/CCP'de iletişim hatasında
+  en çok 3 kez yeniden yazar. Yazma sonrası geri OKUMA doğrulaması bilerek yoktur: komut bayrağını ECU modeli
+  tüketip sıfırlayabilir, bu yüzden uyuşmazlık başarısızlık sayılmaz.
   Aynı sınır muafiyeti Motoru Durdur için de geçerlidir; Motoru Başlat ve eyleyici yazımlarında sınır
   denetimi aynen geçerlidir. Bu davranış otomatik
   testlerle yazılım düzeyinde sınanmıştır; gerçek ECU'da motoru durdurduğu donanımda ayrıca doğrulanmalıdır.
@@ -317,3 +321,21 @@ haberleşmeyi test edebilirsiniz.
 - Ana Sayfa'da sensör sağlığı ince bir şerit: yalnızca arızalı sensörler listelenir ("Arıza yok" / "N arıza").
 - Eyleyiciler: her kartta CAN | A2L kanal seçici. CAN = DBC mesajı; A2L = CCP ile değişken yazımı
   (⚙ Eşlemeler'de A2L enable / değer değişkenleri girilir). Seçim kalıcıdır.
+
+## Donanım devreye alma kontrol listesi (M220)
+Aşağıdakiler yazılımın otomatik testleriyle **kanıtlanamaz**; gerçek ECU ile ilk kullanımda elle denenmelidir
+(yazılım bu maddelerin ECU'da nasıl davranacağını bilmez, sonuçları not edin):
+1. **Acil Durdurma / Motoru Durdur:** Motor çalışırken basın; motor durdu mu, ne kadar sürede? Komut ECU'da
+   **mandallanıyor mu**, yoksa kare akışı kesilince varsayılana mı dönüyor (CAN alım zaman aşımı)? Sonucuna
+   göre komutun sürekli tutulması gerekebilir (yazılım şimdilik 5 kare gönderir, sonra bırakır).
+2. **Sınır dışı komut değeri:** Acil Durdurma/Durdur için yapılandırılan değer A2L/DBC sınırının dışındaysa
+   yazılım yine gönderir (olay günlüğünde "sınır denetimi atlandı" notu görünür); ECU'nun bu değere tepkisini doğrulayın.
+3. **Eyleyici / sensör override:** Ana Sayfa'dan ve Kontrol Paneli'nden AYNI CAN mesajına yazın; override
+   anahtarı ECU'da açık kalıyor mu? (Ana Sayfa ve Kontrol Paneli artık tek değer tablosunu paylaşır ve mesaj
+   periyodik gönderilir; ECU'nun periyodik değeri beklediğini doğrulayın.)
+4. **Bus-off ve kopma:** Hattı/kabloyu çıkarıp takın; yazılımın toparlanması ve sonrasında komutların
+   gönderilmesi (README "Doğrulanmayanlar": PCAN bus-off davranışı ve ECU açılış süresi donanımda doğrulanmadı).
+5. **Performans kadranları:** Gerçek veriyle iğne, değer ve etiketler okunuyor mu? Aralıklar (sağ tık →
+   Aralığı ayarla) doğru mu?
+6. **Eşleşmeler:** Acil Durdurma dahil tüm motor komutları ⚙ Eşleşmeler'de tanımlı mı? (Tanımsızsa komut
+   şeridinde "⚠ Acil Durdurma eşlenmemiş" görünür.)

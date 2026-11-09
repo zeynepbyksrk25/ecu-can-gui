@@ -56,6 +56,11 @@ RECONNECT_INTERVAL_MS = 2000  # bağlantı koptuktan sonra otomatik yeniden bağ
 SILENT_NOTICE_S = 3.0  # bu kadar süre mesaj gelmezse bağlantı şeridinde "Hat sessiz" uyarısı
 CCP_AUTO_CONNECT_DELAY_MS = 300  # CAN bağlandıktan kaç ms sonra CCP otomatik bağlansın
 WATCH_FAIL_STREAK_LIMIT = 3  # Parametre Listesi'nde art arda bu kadar ECU-cevapsız turdan sonra sürekli okuma durur
+# Güvenlik komutları (Acil Durdurma / Motor Durdur): CAN'da aynı kare, ilkinden sonra bu kadar kez daha ve bu
+# aralıkla tekrarlanır; A2L/CCP'de iletişim hatasında bu kadar denemeye kadar yeniden yazılır.
+SAFETY_REPEAT_COUNT = 4
+SAFETY_REPEAT_MS = 20
+SAFETY_A2L_ATTEMPTS = 3
 
 
 class _ClickLabel(QLabel):
@@ -1439,13 +1444,13 @@ class MainWindow(QMainWindow):
 
     # ---- Ana Sayfa (Dashboard) -----------------------------------------------
     # Her değişken bir Binding ile tanımlıdır: CAN (DBC mesaj.sinyal) ya da A2L (CCP).
-    _can_tx_values: dict = {}
-
     def _write_binding(self, binding: Binding, value: float, label: str, merge: bool = True,
                        safety: bool = False) -> bool:
         """Bir Binding'e değer yazar (DashboardTab.writer). Başarısızlıkta kullanıcıyı
-        bilgilendirir ve False döner. ``merge``: aynı CAN mesajına daha önce yazılan
-        diğer sinyallerin son değerleri korunur (değer + anahtar aynı mesajda olabilir).
+        bilgilendirir ve False döner. ``merge``: eyleyici/sensör yazımı. Değer, Kontrol Paneli ve Ana Sayfa
+        girişleriyle AYNI değer tablosundan (``tx_scheduler``) gider: aynı mesajın diğer sinyalleri korunur
+        (değer + anahtar aynı mesajda olabilir) ve iki ekran birbirinin değerini ezmez. ``merge=False``:
+        motor komutları (Başlat/Durdur/Acil Durdurma), tek sinyallik tek seferlik darbe.
         ``safety``: güvenlik komutu (Acil Durdurma): A2L min/max + READ_ONLY ve DBC min/max denetimi
         komutu ENGELLEMEZ (sınır dışıysa günlüğe not düşülür); değer veri tipine / bit genişliğine
         sığmıyorsa yine gönderilmez."""
@@ -1462,18 +1467,27 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "CAN bağlantısı yok",
                                 f"{label} göndermeden önce CAN hattına bağlanın.")
             return False
-        vals = self._can_tx_values.setdefault(binding.message, {}) if merge else {}
-        vals[binding.signal] = value
+        vals = {binding.signal: value}
         try:
-            if safety:
+            if merge and not safety:
+                # Ortak değer tablosu: Kontrol Paneli'nin periyodik göndericisi aynı mesajı eski değerle
+                # geri yazmasın (eyleyici anahtarı bir periyotta 0'a dönerdi). Mesaj periyodik sürer.
+                can_id, data = self.tx_scheduler.set_values(binding.message, vals, None,
+                                                            start=not self._panel_paused)
+                extended = bool(self.transmit_tab.dbc.get_message(binding.message).is_extended_frame)
+                self.control_panel_tab.set_external_applied(binding.message, binding.signal, value)
+            elif safety:
                 try:
                     self.transmit_tab.dbc.encode(binding.message, dict(vals))
                 except ValueError as exc:
                     # Sınır (min/max) dışı olabilir: güvenlik komutu engellenmez. Gerçekten kodlanamıyorsa
                     # (bit genişliği) aşağıdaki strict=False kodlama da hata verir ve gönderilmez.
                     self._log_event("MOTOR", f"{label}: DBC sınır denetimi güvenlik komutu olduğu için atlandı ({exc})")
-            can_id, data, extended = self.transmit_tab.dbc.encode(binding.message, dict(vals), strict=not safety)
-            self.connection.send(can_id, data, extended)
+                can_id, data, extended = self.transmit_tab.dbc.encode(binding.message, dict(vals), strict=False)
+                self.connection.send(can_id, data, extended)
+            else:
+                can_id, data, extended = self.transmit_tab.dbc.encode(binding.message, dict(vals))
+                self.connection.send(can_id, data, extended)
         except Exception as exc:  # cantools/python-can çeşitli hata tipleri fırlatabilir
             hint = ("\n\nDeğer sinyalin bit genişliğine sığmıyor: yapılandırılmış komut değerini "
                     "(⚙ Eşleşmeler) düzeltin.") if safety else ""
@@ -1485,7 +1499,33 @@ class MainWindow(QMainWindow):
         self.monitor_tab.add_message(sent_msg, direction="TX")
         self._log_event("EYLEYICI", f"{label} [CAN {binding.message}.{binding.signal}] = {value:g} "
                                     f"({self.current_user}/{self.current_role.value})")
+        if safety:
+            self._repeat_safety_frame(label, can_id, data, extended, SAFETY_REPEAT_COUNT)
         return True
+
+    def _repeat_safety_frame(self, label: str, can_id: int, data: bytes, extended: bool, remaining: int):
+        """Güvenlik komutunun (Acil Durdurma / Durdur) AYNI karesini kısa aralıkla birkaç kez daha yollar.
+        Tek karenin hatta/ECU tarafında kaçma ihtimaline karşı (ECU'nun komutu mandallayıp mandallamadığı
+        bilinmiyor); değer değişmediği için tekrar zararsızdır. Arayüzü bloklamaz; hata olursa günlüğe yazar."""
+        if remaining <= 0:
+            self._log_event("MOTOR", f"{label}: {SAFETY_REPEAT_COUNT + 1} kare gönderildi")
+            return
+        timer = QTimer(self)
+        timer.setSingleShot(True)
+
+        def step():
+            timer.deleteLater()
+            try:
+                if not self.connection.is_connected:
+                    raise RuntimeError("Bağlantı yok.")
+                self.connection.send(can_id, data, extended)
+            except Exception as exc:  # noqa: BLE001
+                self._log_event("HATA", f"{label}: tekrar karesi gönderilemedi ({exc}); ilk kare gönderilmişti")
+                return
+            self._repeat_safety_frame(label, can_id, data, extended, remaining - 1)
+
+        timer.timeout.connect(step)
+        timer.start(SAFETY_REPEAT_MS)
 
     def _a2l_info(self, name: str):
         summary = self.a2l_tab.db.summary
@@ -1516,8 +1556,20 @@ class MainWindow(QMainWindow):
                                              f"atlandı ({exc})")
             # 0 = kapat/güvenli yön: A2L alt sınırı kapatmayı engellemesin (yine de sonlu/tür kontrolü var).
             # Güvenlik komutunda (safety) değer ne olursa olsun sınır/READ_ONLY denetimi atlanır.
-            cpanel.ccp_write_value(self.ccp_client, info, value,
-                                   enforce_limits=(not safety and float(value) != 0.0))
+            # Güvenlik komutunda yalnızca İLETİŞİM hatası (zaman aşımı/CCP hatası) yeniden denenir; her deneme
+            # SET_MTA'dan başladığı için tekrar güvenlidir. Geri OKUMA doğrulaması bilerek yok: komut bayrağını
+            # ECU modeli tüketip sıfırlayabilir, bu yüzden uyuşmazlık başarısızlık anlamına gelmez.
+            attempts = SAFETY_A2L_ATTEMPTS if safety else 1
+            for attempt in range(1, attempts + 1):
+                try:
+                    cpanel.ccp_write_value(self.ccp_client, info, value,
+                                           enforce_limits=(not safety and float(value) != 0.0))
+                    break
+                except (ccp_protocol.CCPError, ccp_protocol.CCPTimeoutError) as exc:
+                    if attempt >= attempts:
+                        raise
+                    self._log_event("HATA", f"{label}: A2L yazma denemesi {attempt}/{attempts} başarısız ({exc}); "
+                                            f"yeniden deneniyor")
         except Exception as exc:
             hint = ("\n\nDeğer veri tipine sığmıyor: yapılandırılmış komut değerini "
                     "(⚙ Eşleşmeler) düzeltin.") if safety else ""
