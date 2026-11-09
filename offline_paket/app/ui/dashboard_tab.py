@@ -439,6 +439,7 @@ class DashboardTab(QWidget):
 
         for key in ACTUATOR_KEYS:
             lay.addWidget(self._build_actuator_row(key), 1)
+        lay.addStretch(1)       # artan yükseklik başlıkla satırlar arasına DEĞİL, kartın altına gider
         return card
 
     def _build_actuator_row(self, key: str) -> QFrame:
@@ -446,7 +447,7 @@ class DashboardTab(QWidget):
         row = QFrame()
         row.setObjectName("rowFrame")
         row.setMinimumHeight(36)
-        row.setMaximumHeight(64)
+        row.setMaximumHeight(60)
         hl = QHBoxLayout(row)
         hl.setContentsMargins(0, 2, 0, 2)
         hl.setSpacing(10)

@@ -155,27 +155,27 @@ class TrendPanel(QFrame):
         self.btn_zoom_out = IconButton("zoom_out", 28)
         self.btn_zoom_out.setToolTip("Uzaklaştır (zaman penceresini iki katına çıkar)")
         self.btn_zoom_out.clicked.connect(lambda: self.zoom(2.0))
-        self.btn_live = IconButton("fit", 28)
+        self.btn_live = self._tool_button("fit", "Canlı")
         self.btn_live.setToolTip("Canlı görünüme dön / pencereye sığdır")
         self.btn_live.clicked.connect(self.go_live)
-        self.btn_cursor = IconButton("cursor", 28)
+        self.btn_cursor = self._tool_button("cursor", "A/B İmleç")
         self.btn_cursor.setCheckable(True)
         self.btn_cursor.setToolTip("A/B imleçleri: görünümü durdurur, iki zamandaki değerleri ve farkı gösterir")
         self.btn_cursor.toggled.connect(self._on_cursor_toggled)
-        self.btn_pick = IconButton("sliders", 28)
+        self.btn_pick = self._tool_button("sliders", "Sinyaller")
         self.btn_pick.setToolTip("Grafikte çizilecek sinyalleri seç")
         self.btn_pick.clicked.connect(self.pick_requested.emit)
-        self.btn_compare = IconButton("compare", 28)
+        self.btn_compare = self._tool_button("compare", "Karşılaştır")
         self.btn_compare.setToolTip("Karşılaştır: iki sinyalin farkını (A − B) ayrı bir eğri olarak çizer")
         self.btn_compare.clicked.connect(self._on_compare)
-        self.btn_export = IconButton("download", 28)
+        self.btn_export = self._tool_button("download", "Dışa aktar")
         self.btn_export.setToolTip("Dışa aktar: CSV / MAT / MDF")
         menu = QMenu(self.btn_export)
         menu.addAction("CSV (.csv)", lambda: self.export("csv"))
         menu.addAction("MAT (.mat)", lambda: self.export("mat"))
         menu.addAction("MDF (.mf4)", lambda: self.export("mdf"))
         self.btn_export.setMenu(menu)
-        self.btn_detach = IconButton("detach", 28)
+        self.btn_detach = self._tool_button("detach", "Ayır")
         self.btn_detach.setToolTip("Trend grafiğini ayrı pencerede aç (ör. ikinci monitör)")
         self.btn_detach.clicked.connect(lambda: self.detacher.detach())
         from app.ui.detach import PanelDetacher
@@ -240,6 +240,14 @@ class TrendPanel(QFrame):
     def _qicon(name, color):
         from PySide6.QtGui import QIcon
         return QIcon(icon_pixmap(name, color, 16))
+
+    def _tool_button(self, icon_name: str, text: str) -> QPushButton:
+        """Simge + kısa etiketli araç çubuğu düğmesi (yalnızca simge yerine okunur etiket)."""
+        b = QPushButton(text)
+        b.setProperty("compact", True)
+        b.setIcon(self._qicon(icon_name, DK_MUT))
+        b.setCursor(Qt.PointingHandCursor)
+        return b
 
     def window_s(self) -> float:
         return self._window
@@ -350,6 +358,8 @@ class TrendPanel(QFrame):
                         f"{' ' if len(g['series']) == 1 and g['unit'] else ''}"
                         f"{'[' + g['unit'] + ']' if g['unit'] else ''}", color=first.color)
             ax.setStyle(tickTextOffset=4)
+            if ax is not left_axis:
+                ax.setWidth(62)       # her sağ eksen kendi sütununda: başlık + etiketler çakışmaz
             g["vb"] = vb
             for ser in g["series"]:
                 ser.curve = pg.PlotDataItem(pen=pg.mkPen(ser.color, width=2), name=ser.label)
@@ -373,6 +383,8 @@ class TrendPanel(QFrame):
             it = self.legend_row.takeAt(0)
             w = it.widget()
             if w is not None:
+                w.hide()
+                w.setParent(None)       # deleteLater gecikirse eski etiket ekranda asılı kalmasın
                 w.deleteLater()
         pos = 0
         for key in self._order:
