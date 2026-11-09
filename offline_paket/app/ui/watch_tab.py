@@ -575,7 +575,7 @@ class WatchTab(QWidget):
     def _on_add_a2l(self):
         if self.a2l_db is None or getattr(self.a2l_db, "summary", None) is None:
             QMessageBox.information(self, "A2L yüklü değil",
-                                    "Önce A2L sekmesinden bir A2L dosyası yükleyin.")
+                                    "Önce Kalibrasyon > A2L sekmesinden bir A2L dosyası yükleyin.")
             return
         dlg = A2LPickerDialog(self.a2l_db, self)
         if dlg.exec() != QDialog.Accepted:

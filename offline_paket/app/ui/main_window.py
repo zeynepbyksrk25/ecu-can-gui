@@ -121,7 +121,7 @@ class MainWindow(QMainWindow):
         self.control_panel_tab = ControlPanelTab(cpanel.ControlPanelConfig(data_path("kontrol_paneli.json")))
         self.tx_scheduler = cpanel.TxScheduler(self.transmit_tab.dbc, self._panel_send)
 
-        self.kalibrasyon_tab = KalibrasyonTab()
+        self.kalibrasyon_tab = KalibrasyonTab(self.a2l_tab)   # A2L ilk iç sekme (a2l_tab takma adı korunur)
         self.ccp_tab = self.kalibrasyon_tab.ccp
         self.watch_tab = self.kalibrasyon_tab.watch
         self.map_editor_tab = self.kalibrasyon_tab.map_editor
@@ -152,7 +152,6 @@ class MainWindow(QMainWindow):
         self._nav_pages = [
             ("🏠", "Ana Sayfa", self.dashboard_tab),
             ("📶", "CAN Monitor", self.can_monitor_tab),
-            ("📄", "A2L", self.a2l_tab),
             ("⚙", "Kalibrasyon", self.kalibrasyon_tab),
             ("📈", "Analiz", self.analiz_tab),
             ("🎛", "Kontrol Paneli", self.control_panel_tab),
@@ -168,7 +167,7 @@ class MainWindow(QMainWindow):
         self.stack = QStackedWidget()
         self._page_scrolls: dict[QWidget, QScrollArea] = {}
         # Koyu temaya geçirilmiş sayfalar (koyu gövdeye sarılır); diğerleri henüz açık temada.
-        self._dark_pages = {self.a2l_tab, self.tanilama_tab, self.session_tab, self.kalibrasyon_tab, self.analiz_tab, self.graph_tab, self.performance_tab, self.workspace_tab, self.control_panel_tab}
+        self._dark_pages = {self.tanilama_tab, self.session_tab, self.kalibrasyon_tab, self.analiz_tab, self.graph_tab, self.performance_tab, self.workspace_tab, self.control_panel_tab}
         for _icon, _label, page in self._nav_pages:
             # Ana Sayfa kaydırılmaz: 16" ekrana tamamen sığar (bkz. DashboardTab)
             self.stack.addWidget(page if page is self.dashboard_tab else self._make_scrollable_page(page))
@@ -184,7 +183,7 @@ class MainWindow(QMainWindow):
         self.monitor_tab.dbc = self.transmit_tab.dbc
         self.transmit_tab.dbc_loaded.connect(self.monitor_tab.refresh_dbc_messages)
 
-        # CCP sekmesi, A2L sekmesindeki AYNI A2LDatabase nesnesini kullanır;
+        # CCP sekmesi, A2L (Kalibrasyon > A2L) sekmesindeki AYNI A2LDatabase nesnesini kullanır;
         # A2L yüklenince nesne tarayıcısı orada da güncellenir.
         self.ccp_tab.a2l_db = self.a2l_tab.db
         self.a2l_tab.a2l_loaded.connect(self.ccp_tab.refresh_objects)
