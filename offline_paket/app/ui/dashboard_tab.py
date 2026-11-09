@@ -447,7 +447,7 @@ class DashboardTab(QWidget):
         row = QFrame()
         row.setObjectName("rowFrame")
         row.setMinimumHeight(36)
-        row.setMaximumHeight(60)
+        row.setMaximumHeight(52)
         hl = QHBoxLayout(row)
         hl.setContentsMargins(0, 2, 0, 2)
         hl.setSpacing(10)
