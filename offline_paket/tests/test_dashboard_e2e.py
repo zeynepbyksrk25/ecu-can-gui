@@ -231,6 +231,38 @@ def test_estop_over_can_still_rejects_value_that_does_not_fit_the_bit_width(win,
     assert any("ACİL DURDURMA GÖNDERİLEMEDİ" in m for m in _hata(win))
 
 
+def test_motor_stop_is_a_safety_command_start_is_not(win, ccp):
+    """Motor Durdur da "güvenli yön" komutudur: A2L sınırı onu engellemez; Motor Başlat sınırda kalır."""
+    name = "clbc_Fuel_pump_dc_perc_sw"                  # UBYTE, A2L sınırı 0..1
+    addr = _addr(win, name)
+    cfg = DashboardConfig()
+    cfg.motor_stop = MotorCommand(Binding(SOURCE_A2L, a2l_name=name), 5.0)
+    cfg.motor_start = MotorCommand(Binding(SOURCE_A2L, a2l_name=name), 5.0)
+    win.dashboard_tab.set_config(cfg)
+
+    win._on_motor_start()
+    assert ccp.read_memory_bytes(addr, 1) == b"\x00"                       # sınır dışı: Başlat reddedildi
+    win._on_motor_stop()
+    assert ccp.read_memory_bytes(addr, 1) == b"\x05"                       # Durdur gitti
+    assert any("Motor Stop: A2L sınır/READ_ONLY denetimi güvenlik komutu" in m for m in _motor_notes(win))
+
+
+def test_motor_stop_over_can_ignores_dbc_limits_but_not_bit_width(win, can_out):
+    b = Binding(SOURCE_CAN, "OVERRIDE", "valf_cmd")                       # 16 bit, DBC sınırı 0..100
+    cfg = DashboardConfig()
+    cfg.motor_stop = MotorCommand(b, 150.0)
+    cfg.motor_start = MotorCommand(b, 150.0)
+    win.dashboard_tab.set_config(cfg)
+    win._on_motor_start()
+    assert can_out == []                                                    # Başlat: DBC sınırı açık
+    win._on_motor_stop()
+    assert len(can_out) == 1                                                # Durdur gitti
+    cfg.motor_stop = MotorCommand(Binding(SOURCE_CAN, "CMD", "stop_req"), 5.0)    # 1 bit: sığmaz
+    win.dashboard_tab.set_config(cfg)
+    win._on_motor_stop()
+    assert len(can_out) == 1 and any("Motor Stop GÖNDERİLEMEDİ" in m for m in _hata(win))
+
+
 def test_dbc_encode_strict_default_rejects_out_of_range_and_non_strict_allows_it(win):
     dbc = win.transmit_tab.dbc
     with pytest.raises(ValueError):

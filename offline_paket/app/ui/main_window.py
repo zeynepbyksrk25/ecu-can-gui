@@ -1544,7 +1544,9 @@ class MainWindow(QMainWindow):
         self._send_motor_command("Motor Start", self.dashboard_tab.config.motor_start)
 
     def _on_motor_stop(self):
-        self._send_motor_command("Motor Stop", self.dashboard_tab.config.motor_stop)
+        # Durdurma "güvenli yön" komutudur: A2L/DBC sınırı ya da READ_ONLY yüzünden reddedilmez
+        # (Motor Start sınırda kalır; bkz. _write_binding safety).
+        self._send_motor_command("Motor Stop", self.dashboard_tab.config.motor_stop, safety=True)
 
     def _on_estop(self):
         cmd = self.dashboard_tab.config.estop

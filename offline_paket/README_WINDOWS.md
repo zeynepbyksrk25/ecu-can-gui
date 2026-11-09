@@ -160,11 +160,12 @@ uygulamada donanımla doğrulanmamıştır**. Bu yüzden:
   her değişkenin **Değer** ve **Anahtar (`_sw`)** eşleşmesi ayrı ayrı **CAN (DBC) ya da A2L**
   olarak seçilir (sensörlerde isteğe bağlı *Arıza* biti de). Motoru Başlat / Durdur / Acil
   Durdurma da CAN veya A2L olabilir. Eski `dashboard_config.json` otomatik göç eder.
-- **Acil Durdurma güvenlik komutudur:** eşleme yoksa düğmenin yanında kalıcı "⚠ Acil Durdurma
+- **Acil Durdurma ve Motoru Durdur güvenlik komutlarıdır:** (Acil Durdurma için) eşleme yoksa düğmenin yanında kalıcı "⚠ Acil Durdurma
   eşlenmemiş" uyarısı görünür ve basınca komut GİTMEDİĞİ açıkça bildirilir. Eşleme varsa A2L min/max,
   READ_ONLY ve DBC min/max denetimi komutu ENGELLEMEZ (sınır dışıysa olay günlüğüne not düşülür);
   değer veri tipine / sinyalin bit genişliğine sığmıyorsa yine gönderilmez ve HATA olarak günlüğe yazılır.
-  Motoru Başlat/Durdur ve eyleyici yazımlarında sınır denetimi aynen geçerlidir. Bu davranış otomatik
+  Aynı sınır muafiyeti Motoru Durdur için de geçerlidir; Motoru Başlat ve eyleyici yazımlarında sınır
+  denetimi aynen geçerlidir. Bu davranış otomatik
   testlerle yazılım düzeyinde sınanmıştır; gerçek ECU'da motoru durdurduğu donanımda ayrıca doğrulanmalıdır.
 - **Kilit (`_sw`)**: kilitli (anahtar=0) iken değer değiştirilemez. Kilit açılınca (Mühendis/Yönetici
   + onay) önce değer, sonra `<ad>_sw = 1` yazılır; tekrar kilitleyince `<ad>_sw = 0`.
