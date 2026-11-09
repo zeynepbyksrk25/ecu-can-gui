@@ -4,7 +4,7 @@ gönderimi MainWindow yapar, bu widget yalnızca ``values_changed({anahtar: değ
 sinyali yayar. Sinyal eşleşmeleri "Eşleşmeler" penceresinden yapılır."""
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QDoubleSpinBox, QFrame, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QSlider, QVBoxLayout, QWidget,
+    QDoubleSpinBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QSlider, QVBoxLayout, QWidget,
 )
 
 from app.ui.noscroll import no_wheel
@@ -68,23 +68,22 @@ class SimInputsPanel(QWidget):
         self.flight_cycle.setObjectName("mutedSmall")
         head.addWidget(self.flight_cycle)
         fl.addLayout(head)
-        cols = QHBoxLayout()
-        cols.setSpacing(16)
-        for keys in (FLIGHT_LEFT, FLIGHT_RIGHT):
-            col = QVBoxLayout()
-            col.setSpacing(0)
-            if keys is FLIGHT_RIGHT:
-                col.addStretch(1)      # 3 satır, soldaki 4 satıra göre dikey ortalanır
-            for k in keys:
-                col.addLayout(self._flight_row(INPUT_BY_KEY[k]))
-            col.addStretch(1)
-            cols.addLayout(col, 9 if keys is FLIGHT_LEFT else 11)
-            if keys is FLIGHT_LEFT:
-                sep = QFrame()
-                sep.setObjectName("vsep")
-                sep.setFixedWidth(1)
-                cols.addWidget(sep)
-        fl.addLayout(cols)
+        # Izgara: sol ve sağ sütun satır satır AYNI yükseklikte hizalanır; etiket sütunları
+        # yazı tipine göre kendi metin genişliğini ister (kırpılmaz).
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(16)
+        grid.setVerticalSpacing(0)
+        for r, k in enumerate(FLIGHT_LEFT):
+            grid.addWidget(self._flight_row(INPUT_BY_KEY[k]), r, 0)
+        for r, k in enumerate(FLIGHT_RIGHT):
+            grid.addWidget(self._flight_row(INPUT_BY_KEY[k]), r, 2)
+        sep = QFrame()
+        sep.setObjectName("vsep")
+        sep.setFixedWidth(1)
+        grid.addWidget(sep, 0, 1, len(FLIGHT_LEFT), 1)
+        grid.setColumnStretch(0, 1)
+        grid.setColumnStretch(2, 1)
+        fl.addLayout(grid)
         root.addWidget(self.flight_card)
 
         # ---- Motor Kontrol
@@ -139,18 +138,19 @@ class SimInputsPanel(QWidget):
         spin.setKeyboardTracking(False)
         return spin
 
-    def _flight_row(self, d) -> QHBoxLayout:
+    def _flight_row(self, d) -> QFrame:
         row = QHBoxLayout()
-        row.setSpacing(6)
+        row.setSpacing(4)
         row.setContentsMargins(0, 0, 0, 0)
         spin = self._spin(d)
         spin.setObjectName("flightSpin")
-        spin.setMinimumWidth(108)
+        spin.setMinimumWidth(100)
         spin.editingFinished.connect(lambda k=d.key: self._emit_one(k))
         warn = QLabel("")
         warn.setObjectName("warnDot")
         warn.setVisible(False)
         lab = self._name_label(d)
+        lab.setStyleSheet("font-size: 13px;")   # DejaVu gibi geniş yazı tiplerinde de sığsın
         # dar sütunda metin kırpılabilsin diye etiket küçülebilir (kart taşmaz)
         lab.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
         row.addWidget(IconLabel(ICON_OF[d.key], DK_MUT, 16))
@@ -164,11 +164,8 @@ class SimInputsPanel(QWidget):
         wrap = QFrame()
         wrap.setObjectName("rowFrame")
         wrap.setLayout(row)
-        wrap.setMinimumHeight(34)
-        outer = QHBoxLayout()
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.addWidget(wrap)
-        return outer
+        wrap.setMinimumHeight(36)
+        return wrap
 
     def _control_row(self, d) -> QVBoxLayout:
         box = QVBoxLayout()

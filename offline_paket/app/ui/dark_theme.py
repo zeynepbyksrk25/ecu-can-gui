@@ -35,9 +35,9 @@ DashboardTab QDoubleSpinBox#valueSpin { background: #FFFFFF; border: 1px solid #
     padding: 1px 16px 1px 8px; color: #121A22; font-size: 14px; font-weight: 700; min-height: 20px; }
 DashboardTab QDoubleSpinBox#valueSpin:disabled { color: #8A98A5; border-color: #D6DEE6; }
 DashboardTab QDoubleSpinBox#valueSpin:focus { border-color: #0E6E8C; }
-DashboardTab QDoubleSpinBox#flightSpin { background: transparent; border: none; border-radius: 6px;
-    padding: 1px 12px 1px 2px; color: #121A22; font-size: 15px; font-weight: 700; }
-DashboardTab QDoubleSpinBox#flightSpin::up-button, DashboardTab QDoubleSpinBox#flightSpin::down-button { width: 12px; }
+DashboardTab QDoubleSpinBox#flightSpin { background: transparent; border: 1px solid transparent; border-radius: 6px;
+    padding: 1px 20px 1px 2px; color: #121A22; font-size: 15px; font-weight: 700; min-height: 24px; }
+DashboardTab QDoubleSpinBox#flightSpin::up-button, DashboardTab QDoubleSpinBox#flightSpin::down-button { width: 16px; }
 DashboardTab QDoubleSpinBox#flightSpin:disabled { color: #8A98A5; }
 DashboardTab QDoubleSpinBox#flightSpin:focus { background: #FFFFFF; border: 1px solid #0E6E8C; }
 DashboardTab QPushButton { background: #F4F7FA; border: 1px solid #B7C4D0; border-radius: 8px; color: #121A22;
@@ -46,7 +46,7 @@ DashboardTab QPushButton:hover { border-color: #0E6E8C; color: #121A22; }
 DashboardTab QPushButton:disabled { color: #7C8B98; border-color: #D6DEE6; }
 DashboardTab QPushButton[compact="true"] { padding: 3px 10px; min-height: 20px; border-radius: 7px; font-size: 13px; }
 DashboardTab QPushButton[tone="go"] { border-color: #6DBA8C; color: #1B6B3E; background: #E6F4EC; }
-DashboardTab QPushButton[seg="true"] { border-radius: 0; padding: 3px 8px; min-height: 20px; font-size: 13px;
+DashboardTab QPushButton[seg="true"] { border-radius: 0; padding: 3px 6px; min-height: 20px; font-size: 13px;
     color: #51616F; background: #FFFFFF; border-left: none; }
 DashboardTab QPushButton[seg="true"]:checked { background: #1F6FE0; color: #ffffff; }
 DashboardTab QSlider::groove:horizontal { height: 4px; background: #D0DAE3; border-radius: 2px; }

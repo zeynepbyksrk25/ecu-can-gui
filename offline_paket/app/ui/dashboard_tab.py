@@ -122,8 +122,9 @@ class DashboardTab(QWidget):
         left.addWidget(self._build_actuators_card(), 1)
         left_w = QWidget()
         left_w.setLayout(left)
-        left_w.setFixedWidth(620)
-        left_w.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
+        # Genişlik sabit DEĞİL: alt sınırı içeriğin (yazı tipine göre) asgari genişliği belirler
+        # (Uçuş Koşulları etiketleri kırpılmasın); sağ taraf kalan yeri alır.
+        left_w.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
 
         right = QVBoxLayout()
         right.setSpacing(10)
