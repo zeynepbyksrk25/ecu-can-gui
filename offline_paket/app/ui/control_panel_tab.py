@@ -290,7 +290,7 @@ class CatalogPanel(QWidget):
         clear.clicked.connect(self.clear_selection)
         self.add_button = QPushButton("Panele ekle (0)")
         self.add_button.setStyleSheet("QPushButton{background:#0E6E8C;color:#FFFFFF;font-weight:700;padding:6px 14px;border-radius:6px;}"
-                                      "QPushButton:disabled{background:#3b5068;}")
+                                      "QPushButton:disabled{background:#9AA8B5;}")
         self.add_button.setEnabled(False)
         self.add_button.clicked.connect(self._emit_add)
         bottom = QHBoxLayout()
@@ -607,12 +607,12 @@ class ControlPanelTab(QWidget):
 
         self.apply_button = QPushButton("Uygula (0)")
         self.apply_button.setStyleSheet("QPushButton{background:#0E6E8C;color:#FFFFFF;font-weight:700;padding:7px 18px;border-radius:6px;}"
-                                        "QPushButton:disabled{background:#3b5068;}")
+                                        "QPushButton:disabled{background:#9AA8B5;}")
         self.apply_button.clicked.connect(self._on_apply_clicked)
         self.revert_button = QPushButton("Bekleyenleri geri al")
         self.revert_button.clicked.connect(self.revert_pending)
         self.kill_button = QPushButton("Tüm override'ları kapat")
-        self.kill_button.setStyleSheet("QPushButton{border:1px solid #ff6b6b;color:#ff8a8a;background:#3a1620;font-weight:700;padding:6px 12px;border-radius:6px;}")
+        self.kill_button.setStyleSheet("QPushButton{border:1px solid #C22A1D;color:#C22A1D;background:#FBE3E0;font-weight:700;padding:6px 12px;border-radius:6px;}")
         self.kill_button.clicked.connect(self._on_kill_clicked)
 
         bar = QHBoxLayout()
@@ -686,7 +686,7 @@ class ControlPanelTab(QWidget):
         strip.addStretch()
 
         self.banner = QLabel("")
-        self.banner.setStyleSheet("background:#3a1620;color:#ff8a8a;font-weight:700;padding:6px 10px;border-radius:6px;")
+        self.banner.setStyleSheet("background:#FBE3E0;color:#C22A1D;font-weight:700;padding:6px 10px;border-radius:6px;")
         self.banner.setVisible(False)
         self.status_label = QLabel("")
         self.status_label.setWordWrap(True)
@@ -819,7 +819,7 @@ class ControlPanelTab(QWidget):
     def _set_files_changed(self, on: bool, which: str = ""):
         self.reload_button.setVisible(on)
         self.files_label.setText(f"{which} dosyası değişti" if on else "")
-        self.files_label.setStyleSheet("color:#f0b04a;font-weight:700;" if on else "")
+        self.files_label.setStyleSheet("color:#9A6208;font-weight:700;" if on else "")
         self._files_changed_text = which if on else ""
 
     def _set_role_override(self, key: str, role: str):
@@ -1482,7 +1482,7 @@ class ControlPanelTab(QWidget):
         self.apply_button.setText(f"Uygula ({n})")
         self.apply_button.setEnabled(n > 0 and self._can_allowed)
         self.revert_button.setEnabled(n > 0)
-        self.pending_label.setText(f"<b style='color:#f0b04a'>{n} bekleyen değişiklik</b>" if n else "Bekleyen değişiklik yok")
+        self.pending_label.setText(f"<b style='color:#9A6208'>{n} bekleyen değişiklik</b>" if n else "Bekleyen değişiklik yok")
         n_ovr = sum(1 for k in self._rows if self._sig(k).role == ROLE_SENSOR_OVR and self._st(k)["en"])
         self.ovr_label.setText(f"Override aktif: <b>{n_ovr}</b>")
         self.tx_label.setText(f"Periyodik gönderim: <b>{len(self._tx_running)}</b> mesaj")
@@ -1520,7 +1520,7 @@ class ControlPanelTab(QWidget):
 
     def _set_status(self, text: str, ok: bool):
         self.status_label.setText(text)
-        self.status_label.setStyleSheet("color:#4ade80;" if ok else "color:#ff6b6b;")
+        self.status_label.setStyleSheet("color:#1B8A4C;" if ok else "color:#C22A1D;")
 
     # ======================= Dış durumlar =======================
     def set_connection_state(self, can: bool, ccp: bool, lost: bool = False):

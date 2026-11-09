@@ -177,7 +177,9 @@ def test_actuator_override_mixed_sources_value_a2l_sw_can(win, ccp, can_out, mon
     dt._on_actuator_lock("pompa_fuel", True)
     assert dt._act_open["pompa_fuel"]
     assert win.transmit_tab.dbc.get_message("OVERRIDE").decode(can_out[-1][1])["pump_dc_sw"] == 1
-    dt._act_rows["pompa_fuel"]["control"].setChecked(True)
-    assert struct.unpack("<f", ccp.read_memory_bytes(_addr(win, "clbc_Fuel_pump_dc_perc"), 4))[0] == 1.0
+    box = dt._act_rows["pompa_fuel"]["control"]               # serbest değer kutusu (yalnızca 0/1 değil)
+    box.setText("35")
+    box.returnPressed.emit()
+    assert struct.unpack("<f", ccp.read_memory_bytes(_addr(win, "clbc_Fuel_pump_dc_perc"), 4))[0] == 35.0
     dt._on_actuator_lock("pompa_fuel", False)
     assert win.transmit_tab.dbc.get_message("OVERRIDE").decode(can_out[-1][1])["pump_dc_sw"] == 0

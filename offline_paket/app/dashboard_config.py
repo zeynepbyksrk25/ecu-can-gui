@@ -40,13 +40,14 @@ ACTUATOR_LABELS = {
     "glow_plug": "Glow Plug",
     "starter": "Başlatma Motoru",
 }
-# "toggle" -> açma/kapama anahtarı; "valve" -> 0-100 arası sayısal komut.
+# "valve" -> 0-100 arası sayısal komut (kilit açılınca _sw=1, değer % olarak girilir);
+# "toggle" -> yalnızca ON/OFF (0/1) anahtarı. Tüm eyleyiciler 0-100 değer alabilsin diye "valve".
 ACTUATOR_KINDS = {
-    "pompa_start": "toggle",
-    "pompa_fuel": "toggle",
+    "pompa_start": "valve",
+    "pompa_fuel": "valve",
     "valf": "valve",
-    "glow_plug": "toggle",
-    "starter": "toggle",
+    "glow_plug": "valve",
+    "starter": "valve",
 }
 
 MOTOR_COMMAND_KEYS = ["motor_start", "motor_stop", "estop"]

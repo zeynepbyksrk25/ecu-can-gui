@@ -244,7 +244,7 @@ class ManualEntryDialog(QDialog):
 
         self.warn_label = QLabel("")
         self.warn_label.setWordWrap(True)
-        self.warn_label.setStyleSheet("color: #ff6b6b;")
+        self.warn_label.setStyleSheet("color: #C22A1D;")
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.button(QDialogButtonBox.Ok).setText("Ekle")
@@ -365,7 +365,7 @@ class WatchTab(QWidget):
         self.delete_button = QPushButton("Seçili Satırları Sil")
         self.clear_button = QPushButton("Listeyi Temizle")
         self.live_label = QLabel("● CCP bağlı değil")
-        self.live_label.setStyleSheet("color: #ff6b6b; font-weight: bold;")
+        self.live_label.setStyleSheet("color: #C22A1D; font-weight: bold;")
         self.hint_label = QLabel("Değerler canlı izlenir · değiştirmek için Değer hücresine yazıp Enter'a basın (Esc iptal)")
         self.hint_label.setStyleSheet("color: #51616F;")
 
@@ -642,7 +642,7 @@ class WatchTab(QWidget):
 
     def set_live_state(self, state: str, text: str):
         """CCP oturum durumu (idle/connecting/online/lost) -> araç çubuğundaki canlı etiketi."""
-        color = {"idle": "#C22A1D", "connecting": "#f0b04a", "online": "#4ade80", "lost": "#C22A1D"}.get(state, "#C22A1D")
+        color = {"idle": "#C22A1D", "connecting": "#9A6208", "online": "#1B8A4C", "lost": "#C22A1D"}.get(state, "#C22A1D")
         dot = "●" if state in ("online", "lost", "connecting") else "○"
         self.live_label.setText(f"{dot} {text}")
         self.live_label.setStyleSheet(f"color: {color}; font-weight: bold;")
@@ -721,7 +721,7 @@ class WatchTab(QWidget):
         if ok is None:
             self.status_label.setStyleSheet("")
         else:
-            self.status_label.setStyleSheet("color: #4ade80;" if ok else "color: #ff6b6b;")
+            self.status_label.setStyleSheet("color: #1B8A4C;" if ok else "color: #C22A1D;")
 
     # ---- Düzenleme / yazma ---------------------------------------------------
     def _on_item_changed(self, item: QTableWidgetItem):

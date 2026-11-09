@@ -205,7 +205,7 @@ class MathDialog(QDialog):
         self.row_win = (QLabel("Pencere"), self.window)
         form.addRow(*self.row_win)
         self.error = QLabel("")
-        self.error.setStyleSheet("color:#ff6b6b;")
+        self.error.setStyleSheet("color:#C22A1D;")
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         bb.button(QDialogButtonBox.Ok).setText("Kaydet")
         bb.button(QDialogButtonBox.Cancel).setText("Vazgeç")
@@ -710,10 +710,10 @@ class WorkspaceTab(QWidget):
     def _update_state_label(self):
         if self.frozen:
             self.state_label.setText("● DONDURULDU")
-            self.state_label.setStyleSheet("color:#f0b04a; font-weight:700;")
+            self.state_label.setStyleSheet("color:#9A6208; font-weight:700;")
         else:
             self.state_label.setText("● CANLI")
-            self.state_label.setStyleSheet("color:#4ade80; font-weight:700;")
+            self.state_label.setStyleSheet("color:#1B8A4C; font-weight:700;")
 
     # ====================================================================
     # Sinyal tarayıcı

@@ -56,7 +56,7 @@ class HistoryTab(QWidget):
             self.table.setItem(row, 0, QTableWidgetItem(time.strftime("%d.%m.%Y %H:%M:%S", time.localtime(e.timestamp))))
             kind_item = QTableWidgetItem("FLAŞ (kalıcı)" if e.persistent else "RAM (geçici)")
             if e.persistent:
-                kind_item.setForeground(QColor("#f0b04a"))
+                kind_item.setForeground(QColor("#9A6208"))
             self.table.setItem(row, 1, kind_item)
             self.table.setItem(row, 2, QTableWidgetItem(e.user))
             self.table.setItem(row, 3, QTableWidgetItem(e.role))

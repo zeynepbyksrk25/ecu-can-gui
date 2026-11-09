@@ -63,7 +63,7 @@ class CCPTab(QWidget):
         self.disconnect_button.clicked.connect(self.disconnect_requested.emit)
 
         self.status_label = QLabel("● CCP bağlı değil")
-        self.status_label.setStyleSheet("color: #ff6b6b; font-weight: bold;")
+        self.status_label.setStyleSheet("color: #C22A1D; font-weight: bold;")
 
         # CAN hattına bağlanınca CCP'yi de otomatik bağlamak için. Manuel
         # "CCP Bağlan" / "CCP Bağlantıyı Kes" düğmeleri bundan bağımsız
@@ -132,10 +132,10 @@ class CCPTab(QWidget):
         self.station_edit.setEnabled(not connected)
         if connected:
             self.status_label.setText(f"● CCP bağlı  {info}".rstrip())
-            self.status_label.setStyleSheet("color: #4ade80; font-weight: bold;")
+            self.status_label.setStyleSheet("color: #1B8A4C; font-weight: bold;")
         else:
             self.status_label.setText("● CCP bağlı değil")
-            self.status_label.setStyleSheet("color: #ff6b6b; font-weight: bold;")
+            self.status_label.setStyleSheet("color: #C22A1D; font-weight: bold;")
             self._session_active = False
             self._update_live()
 
@@ -148,14 +148,14 @@ class CCPTab(QWidget):
         self.disconnect_button.setEnabled(active)
         for w in (self.cro_edit, self.dto_edit, self.station_edit):
             w.setEnabled(not active)
-        color = {"idle": "#ff6b6b", "connecting": "#f0b04a", "online": "#4ade80", "lost": "#ff6b6b"}[state]
+        color = {"idle": "#C22A1D", "connecting": "#9A6208", "online": "#1B8A4C", "lost": "#C22A1D"}[state]
         self.status_label.setText(f"● {text}")
         self.status_label.setStyleSheet(f"color: {color}; font-weight: bold;")
         self._update_live()
 
     def set_auto_connect_failed(self, message: str):
         self.status_label.setText(f"● CCP otomatik bağlanamadı: {message}")
-        self.status_label.setStyleSheet("color: #f0b04a; font-weight: bold;")
+        self.status_label.setStyleSheet("color: #9A6208; font-weight: bold;")
 
     # ---- Nesne tarayıcı ---------------------------------------------------
     def _build_tree_panel(self) -> QGroupBox:
@@ -247,7 +247,7 @@ class CCPTab(QWidget):
         form.addRow("Birim:", self.sel_unit)
 
         self.value_display = QLabel("-")
-        self.value_display.setStyleSheet("font-size: 16px; font-weight: bold; color: #ffffff;")
+        self.value_display.setStyleSheet("font-size: 16px; font-weight: bold; color: #121A22;")
         form.addRow("Okunan değer:", self.value_display)
 
         # "Oku" ve "Sürekli oku" kaldırıldı: nesne seçilince ve CCP çevrimiçiyken değer sürekli güncellenir.
@@ -263,7 +263,7 @@ class CCPTab(QWidget):
 
         self.array_hint_label = QLabel("")
         self.array_hint_label.setWordWrap(True)
-        self.array_hint_label.setStyleSheet("color: #f0b04a;")
+        self.array_hint_label.setStyleSheet("color: #9A6208;")
         self.array_hint_label.setVisible(False)
         self.open_map_button = QPushButton("Harita Editörü'nde Aç (tüm elemanları gör/düzenle)")
         self.open_map_button.setVisible(False)
@@ -411,4 +411,4 @@ class CCPTab(QWidget):
         # Her yazma denemesinden sonra flaş izni kapanır (tek seferlik izin).
         self.flash_enable_checkbox.setChecked(False)
         self.op_status_label.setText(message)
-        self.op_status_label.setStyleSheet("color: #4ade80;" if ok else "color: #ff6b6b;")
+        self.op_status_label.setStyleSheet("color: #1B8A4C;" if ok else "color: #C22A1D;")

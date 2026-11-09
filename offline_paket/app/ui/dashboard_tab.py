@@ -20,7 +20,9 @@ from PySide6.QtWidgets import (
     QFrame, QGridLayout, QHBoxLayout, QInputDialog, QLabel, QMessageBox, QPushButton,
     QSizePolicy, QVBoxLayout, QWidget,
 )
-from PySide6.QtWidgets import QDoubleSpinBox
+from PySide6.QtCore import QRegularExpression
+from PySide6.QtGui import QRegularExpressionValidator
+from PySide6.QtWidgets import QLineEdit
 
 from app.dashboard_config import (
     ACTUATOR_KEYS, ACTUATOR_KINDS, ACTUATOR_LABELS, GAUGE_KEYS, Binding, DashboardConfig,
@@ -63,6 +65,10 @@ ACTUATOR_ICON = {"pompa_start": "pump", "pompa_fuel": "pump", "valf": "valve",
                  "glow_plug": "glow", "starter": "starter"}
 
 DASH_QSS = dark_qss("dashBody")
+
+ACT_CMD_W = 112      # Eyleyiciler: KOMUT hücresi genişliği (başlık ve satırlar aynı)
+ACT_LOCK_W = 26      # kilit düğmesi
+ACT_MAN_W = 68       # Eyleyiciler: MANUEL hücresi genişliği (başlık metni sığsın; kilit ortalanır)
 
 
 class DashboardTab(QWidget):
@@ -119,11 +125,13 @@ class DashboardTab(QWidget):
         left = QVBoxLayout()
         left.setSpacing(10)
         left.addWidget(self.sim_inputs, 0)
-        left.addWidget(self._build_actuators_card(), 1)
+        left.addWidget(self._build_actuators_card(), 0)
+        left.addStretch(1)      # pencere uzunsa artan boşluk kartın İÇİNDE değil, altında kalır
         left_w = QWidget()
         left_w.setLayout(left)
-        left_w.setFixedWidth(620)
-        left_w.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
+        # Genişlik sabit DEĞİL: alt sınırı içeriğin (yazı tipine göre) asgari genişliği belirler
+        # (Uçuş Koşulları etiketleri kırpılmasın); sağ taraf kalan yeri alır.
+        left_w.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
 
         right = QVBoxLayout()
         right.setSpacing(10)
@@ -390,14 +398,26 @@ class DashboardTab(QWidget):
         head.addStretch(1)
         lay.addLayout(head)
 
+        # Başlıklar satırlarla AYNI sütun genişliklerini ve aralığı kullanır (hizalı)
         cols = QHBoxLayout()
-        cols.setContentsMargins(2, 4, 2, 2)
-        for text, align in (("EYLEYİCİ", Qt.AlignLeft), ("KOMUT", Qt.AlignRight), ("MANUEL", Qt.AlignRight)):
-            c = QLabel(text)
-            c.setObjectName("colHead")
-            cols.addWidget(c, 1 if align == Qt.AlignLeft else 0)
-            if text == "KOMUT":
-                cols.addSpacing(34)
+        cols.setContentsMargins(0, 4, 0, 2)
+        cols.setSpacing(10)
+        spacer = QWidget()
+        spacer.setFixedWidth(18)                      # simge sütunu
+        cols.addWidget(spacer)
+        c0 = QLabel("EYLEYİCİ")
+        c0.setObjectName("colHead")
+        cols.addWidget(c0, 1)
+        self.act_head_cmd = QLabel("KOMUT")
+        self.act_head_cmd.setObjectName("colHead")
+        self.act_head_cmd.setFixedWidth(ACT_CMD_W)
+        self.act_head_cmd.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        cols.addWidget(self.act_head_cmd)
+        c2 = QLabel("MANUEL")
+        c2.setObjectName("colHead")
+        c2.setFixedWidth(ACT_MAN_W)
+        c2.setAlignment(Qt.AlignCenter)
+        cols.addWidget(c2)
         lay.addLayout(cols)
 
         for key in ACTUATOR_KEYS:
@@ -409,6 +429,7 @@ class DashboardTab(QWidget):
         row = QFrame()
         row.setObjectName("rowFrame")
         row.setMinimumHeight(36)
+        row.setMaximumHeight(52)
         hl = QHBoxLayout(row)
         hl.setContentsMargins(0, 2, 0, 2)
         hl.setSpacing(10)
@@ -418,29 +439,43 @@ class DashboardTab(QWidget):
         hl.addWidget(icon)
         hl.addWidget(name, 1)
         entry = {"kind": kind, "name": name, "icon": icon}
+        cell = QWidget()                                # KOMUT hücresi: sabit genişlik, sağa dayalı
+        cell.setFixedWidth(ACT_CMD_W)
+        cl = QHBoxLayout(cell)
+        cl.setContentsMargins(0, 0, 0, 0)
+        cl.setSpacing(8)
+        cl.addStretch(1)
         if kind == "toggle":
             onoff = QLabel("OFF")
             onoff.setObjectName("onoff")
             onoff.setProperty("on", False)
             sw = ToggleSwitch(on_color="#1B8A4C")
             sw.toggled.connect(lambda checked, k=key: self._on_actuator_toggle(k, checked))
-            hl.addWidget(onoff)
-            hl.addWidget(sw)
+            cl.addWidget(onoff)
+            cl.addWidget(sw)
             entry.update(control=sw, onoff=onoff)
         else:
-            spin = QDoubleSpinBox()
-            spin.setObjectName("valueSpin")
-            spin.setRange(0.0, 100.0)
-            spin.setDecimals(1)
-            spin.setSuffix(" %")
-            spin.setKeyboardTracking(False)
-            spin.setMinimumWidth(108)
-            spin.valueChanged.connect(lambda v, k=key: self._on_actuator_value(k, v))
-            hl.addWidget(spin)
-            entry.update(control=spin)
-        lock = LockButton(26)
+            # Serbest değer kutusu: boş başlar, aralık/birim sınırı yok; Enter ile gönderilir.
+            box = QLineEdit()
+            box.setObjectName("actValue")
+            box.setPlaceholderText("değer")
+            box.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            box.setFixedWidth(ACT_CMD_W)
+            # yalnızca sayı: isteğe bağlı eksi, ondalık ayırıcı nokta VEYA virgül (okurken noktaya çevrilir)
+            box.setValidator(QRegularExpressionValidator(QRegularExpression(r"^-?\d*[.,]?\d*$"), box))
+            box.returnPressed.connect(lambda k=key: self._on_actuator_submit(k))
+            box.textEdited.connect(lambda _t, b=box: self._mark_actuator_box(b, False))
+            cl.addWidget(box)
+            entry.update(control=box)
+        hl.addWidget(cell)
+        lock = LockButton(ACT_LOCK_W)
         lock.lock_requested.connect(lambda want, k=key: self._on_actuator_lock(k, want))
-        hl.addWidget(lock)
+        mcell = QWidget()                                # MANUEL hücresi: kilit ortada
+        mcell.setFixedWidth(ACT_MAN_W)
+        ml = QHBoxLayout(mcell)
+        ml.setContentsMargins(0, 0, 0, 0)
+        ml.addWidget(lock, 0, Qt.AlignCenter)
+        hl.addWidget(mcell)
         entry["lock"] = lock
         entry["control"].setEnabled(False)
         self._act_rows[key] = entry
@@ -483,11 +518,32 @@ class DashboardTab(QWidget):
             return False
         return bool(self.writer(binding, float(value), label))
 
-    def _actuator_value(self, key: str) -> float:
-        e = self._act_rows[key]
-        if e["kind"] == "toggle":
-            return 1.0 if e["control"].isChecked() else 0.0
-        return float(e["control"].value())
+    def _actuator_text_value(self, key: str):
+        """Eyleyici kutusundaki sayı; kutu boş/geçersizse None."""
+        text = self._act_rows[key]["control"].text().strip().replace(",", ".")
+        if not text:
+            return None
+        try:
+            return float(text)
+        except ValueError:
+            return None
+
+    @staticmethod
+    def _mark_actuator_box(box, bad: bool):
+        box.setProperty("bad", bad)
+        box.style().unpolish(box)
+        box.style().polish(box)
+
+    def _on_actuator_submit(self, key: str):
+        """Enter: kilit AÇIKSA ve kutuda sayı varsa değeri yazar."""
+        if not self._act_open[key]:
+            return
+        v = self._actuator_text_value(key)
+        if v is None:
+            return
+        box = self._act_rows[key]["control"]
+        ok = self._write(self.config.actuator_map(key).value, v, f"{ACTUATOR_SHORT[key]} komutu")
+        self._mark_actuator_box(box, not ok)
 
     def _on_actuator_lock(self, key: str, want_open: bool):
         amap = self.config.actuator_map(key)
@@ -502,8 +558,10 @@ class DashboardTab(QWidget):
                 return
             if not self._confirm_override(label):
                 return
-            # önce değer, sonra anahtar: anahtar açıldığında ECU bilinen bir değer görür
-            if not self._write(amap.value, self._actuator_value(key), f"{label} değeri"):
+            # kutuda değer varsa önce değer, sonra anahtar (ECU anahtar açılınca bilinen değeri görür);
+            # kutu boşsa yalnızca anahtar (_sw = 1) yazılır
+            v = self._actuator_text_value(key)
+            if v is not None and not self._write(amap.value, v, f"{label} değeri"):
                 return
             if not self._write(amap.sw, 1.0, f"{label} anahtarı"):
                 return
@@ -530,11 +588,6 @@ class DashboardTab(QWidget):
             e["control"].setChecked(not checked)
             e["control"].blockSignals(False)
             e["onoff"].setText("ON" if not checked else "OFF")
-
-    def _on_actuator_value(self, key: str, value: float):
-        if not self._act_open[key]:
-            return
-        self._write(self.config.actuator_map(key).value, value, f"{ACTUATOR_SHORT[key]} komutu")
 
     def release_all_actuators(self, write: bool = True) -> list:
         """Bağlantı kapanırken: kilidi AÇIK her eyleyicinin anahtarını (_sw) kapatmayı dener
