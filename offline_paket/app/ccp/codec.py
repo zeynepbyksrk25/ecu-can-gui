@@ -13,6 +13,7 @@ ECU'ya hiçbir şey yazılmaz.
 import logging
 import math
 import struct
+from typing import NamedTuple
 
 log = logging.getLogger(__name__)
 
@@ -98,6 +99,28 @@ def decode_value(datatype: str, data: bytes, byte_order: str | None = None):
     if len(data) < size:
         raise ValueError(f"{datatype} için {size} bayt gerekir, {len(data)} bayt geldi.")
     return struct.unpack(_endian_char(byte_order) + code, bytes(data[:size]))[0]
+
+
+class Reading(NamedTuple):
+    """``read_value`` sonucu. Alanlar İSİMLE kullanılmalıdır (demet açma yapılmaz): ``raw_bytes`` ECU'dan
+    gelen baytlar, ``raw`` bunların çözülmüş sayısı, ``phys`` COMPU_METHOD uygulanmış fiziksel değer."""
+    raw_bytes: bytes
+    raw: object
+    phys: object
+
+
+def read_value(reader, info) -> Reading:
+    """A2L nesnesinin (Measurement/Characteristic) ECU'daki değerini okur (bayt, ham sayı, fiziksel).
+
+    ``reader`` ``read_memory(adres, uzunluk, adres_uzantısı)`` sunan herhangi bir nesnedir (açık
+    CCPClient ya da arayüz zamanlayıcıları için önbellek okuyucu). Hatalar (CCPError,
+    CCPTimeoutError, UnknownDatatypeError, ValueError) çağıran tarafa aynen yükselir; her çağıran
+    kendi hata gösterimini seçer (satıra yaz, göstergeye neden yaz, sessizce atla)."""
+    size = datatype_size(info.datatype)
+    byte_order = getattr(info, "byte_order", None)
+    raw_bytes = reader.read_memory(info.address, size, getattr(info, "address_extension", 0) or 0)
+    raw = decode_value(info.datatype, raw_bytes, byte_order)
+    return Reading(raw_bytes, raw, raw_to_physical(getattr(info, "compu_method", None), raw))
 
 
 def _converter(compu_method):

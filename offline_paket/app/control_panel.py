@@ -315,10 +315,7 @@ class ControlPanelConfig:
 # ---- CCP yardımcıları -----------------------------------------------------
 def ccp_read_value(client, info) -> float:
     """MeasurementInfo/CharacteristicInfo -> fiziksel değer."""
-    size = ccp_codec.datatype_size(info.datatype)
-    raw = client.read_memory(info.address, size, info.address_extension or 0)
-    return ccp_codec.raw_to_physical(info.compu_method,
-                                     ccp_codec.decode_value(info.datatype, raw, info.byte_order))
+    return ccp_codec.read_value(client, info).phys
 
 
 def ccp_write_value(client, info, phys: float, enforce_limits: bool = True, verify: bool = False):

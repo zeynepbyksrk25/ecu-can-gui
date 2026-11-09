@@ -988,12 +988,8 @@ class MainWindow(QMainWindow):
             )
             return
         try:
-            size = ccp_codec.datatype_size(obj.datatype)
-            raw_bytes = self.ccp_reader.read_memory(
-                address, size, getattr(obj, "address_extension", 0) or 0
-            )
-            raw_value = ccp_codec.decode_value(obj.datatype, raw_bytes, getattr(obj, "byte_order", None))
-            phys_value = ccp_codec.raw_to_physical(getattr(obj, "compu_method", None), raw_value)
+            reading = ccp_codec.read_value(self.ccp_reader, obj)
+            raw_value, phys_value = reading.raw, reading.phys
         except (ccp_protocol.CCPError, ccp_protocol.CCPTimeoutError,
                 ccp_codec.UnknownDatatypeError, ValueError) as exc:
             self.ccp_tab.set_read_value("-")
@@ -1055,12 +1051,7 @@ class MainWindow(QMainWindow):
         # devam eder.
         old_phys = None
         try:
-            old_size = ccp_codec.datatype_size(obj.datatype)
-            old_raw_bytes = self.ccp_client.read_memory(
-                address, old_size, getattr(obj, "address_extension", 0) or 0
-            )
-            old_raw = ccp_codec.decode_value(obj.datatype, old_raw_bytes, getattr(obj, "byte_order", None))
-            old_phys = ccp_codec.raw_to_physical(getattr(obj, "compu_method", None), old_raw)
+            old_phys = ccp_codec.read_value(self.ccp_client, obj).phys
         except (ccp_protocol.CCPError, ccp_protocol.CCPTimeoutError,
                 ccp_codec.UnknownDatatypeError, ValueError):
             old_phys = None
@@ -1242,9 +1233,7 @@ class MainWindow(QMainWindow):
     # ---- Parametre Listesi (çoklu parametre izleme/yazma) --------------------
     def _read_phys_best_effort(self, e):
         try:
-            size = ccp_codec.datatype_size(e.datatype)
-            raw = self.ccp_client.read_memory(e.address, size, e.address_extension or 0)
-            return ccp_codec.raw_to_physical(e.compu_method, ccp_codec.decode_value(e.datatype, raw, e.byte_order))
+            return ccp_codec.read_value(self.ccp_client, e).phys
         except (ccp_protocol.CCPError, ccp_protocol.CCPTimeoutError,
                 ccp_codec.UnknownDatatypeError, ValueError):
             return None
@@ -1259,10 +1248,7 @@ class MainWindow(QMainWindow):
             if not getattr(e, "resolved", True) or not e.datatype:
                 continue
             try:
-                size = ccp_codec.datatype_size(e.datatype)
-                raw = self.ccp_reader.read_memory(e.address, size, e.address_extension or 0)
-                phys = ccp_codec.raw_to_physical(
-                    e.compu_method, ccp_codec.decode_value(e.datatype, raw, e.byte_order))
+                reading = ccp_codec.read_value(self.ccp_reader, e)
             except ccp_protocol.CCPTimeoutError as exc:
                 self.watch_tab.set_row_error(row, str(exc) or "ECU cevap vermedi")
                 continue
@@ -1272,7 +1258,7 @@ class MainWindow(QMainWindow):
             except Exception as exc:
                 self.watch_tab.set_row_error(row, f"Okuma hatası: {exc}")
                 continue
-            self.watch_tab.set_row_value(row, raw, phys)
+            self.watch_tab.set_row_value(row, reading.raw_bytes, reading.phys)    # Parametre Listesi HAM BAYT bekler
 
     def _on_watch_write(self, rows: list):
         """Parametre Listesi: Değer hücresine Enter ile onaylanan değerleri RAM'e yazar (anında).
@@ -1336,7 +1322,11 @@ class MainWindow(QMainWindow):
             self.watch_tab.set_write_result(True, f"{done} parametre RAM'e yazıldı; ECU'dan doğrulanıyor…")
 
     # ---- Grafik (canlı Measurement çizimi) ---------------------------------
-    def _on_graph_tick(self, names: list):
+    def _iter_a2l_samples(self, names: list):
+        """Verilen A2L ölçüm adlarını (önbellekten, beklemeden) okuyup ``(ad, ölçüm, Reading)``
+        üretir. Okunamayanlar (A2L'de yok, adres yok, ECU cevap vermiyor, bilinmeyen veri tipi)
+        sessizce atlanır; ayrıntılı hata gösterimi isteyenler (Ana Sayfa, Parametre Listesi)
+        ``ccp_codec.read_value`` ile kendileri okur."""
         if self.ccp_client is None:
             return
         summary = self.a2l_tab.db.summary
@@ -1348,14 +1338,15 @@ class MainWindow(QMainWindow):
             if m is None or m.address is None:
                 continue
             try:
-                size = ccp_codec.datatype_size(m.datatype)
-                raw_bytes = self.ccp_reader.read_memory(m.address, size, m.address_extension or 0)
-                raw_value = ccp_codec.decode_value(m.datatype, raw_bytes, m.byte_order)
-                phys_value = ccp_codec.raw_to_physical(m.compu_method, raw_value)
+                reading = ccp_codec.read_value(self.ccp_reader, m)
             except (ccp_protocol.CCPError, ccp_protocol.CCPTimeoutError,
                     ccp_codec.UnknownDatatypeError, ValueError):
                 continue
-            self.graph_tab.append_sample(name, float(phys_value))
+            yield name, m, reading
+
+    def _on_graph_tick(self, names: list):
+        for name, _m, reading in self._iter_a2l_samples(names):
+            self.graph_tab.append_sample(name, float(reading.phys))
 
     # ---- Diagnostics --------------------------------------------------------
     def _on_diag_test_requested(self):
@@ -1605,25 +1596,8 @@ class MainWindow(QMainWindow):
 
     def _on_workspace_tick(self, names: list):
         """Çalışma Alanı'nda seçili A2L ölçümlerini CCP ile (arka planda) okuyup hub'a yazar."""
-        if self.ccp_client is None:
-            return
-        summary = self.a2l_tab.db.summary
-        if summary is None:
-            return
-        by_name = summary.readable_by_name()
-        for name in names:
-            m = by_name.get(name)
-            if m is None or m.address is None:
-                continue
-            try:
-                size = ccp_codec.datatype_size(m.datatype)
-                raw_bytes = self.ccp_reader.read_memory(m.address, size, m.address_extension or 0)
-                raw_value = ccp_codec.decode_value(m.datatype, raw_bytes, m.byte_order)
-                phys_value = ccp_codec.raw_to_physical(m.compu_method, raw_value)
-            except (ccp_protocol.CCPError, ccp_protocol.CCPTimeoutError,
-                    ccp_codec.UnknownDatatypeError, ValueError):
-                continue
-            self.workspace_tab.push(f"a2l:{name}", phys_value)
+        for name, _m, reading in self._iter_a2l_samples(names):
+            self.workspace_tab.push(f"a2l:{name}", reading.phys)
 
     def _sync_dashboard_measurements(self):
         summary = self.a2l_tab.db.summary
@@ -1677,10 +1651,8 @@ class MainWindow(QMainWindow):
                 fail("ECU adresi yok")
                 continue
             try:
-                size = ccp_codec.datatype_size(m.datatype)
-                raw_bytes = self.ccp_reader.read_memory(m.address, size, m.address_extension or 0)
-                raw_value = ccp_codec.decode_value(m.datatype, raw_bytes, m.byte_order)
-                phys_value = ccp_codec.raw_to_physical(m.compu_method, raw_value)
+                reading = ccp_codec.read_value(self.ccp_reader, m)
+                raw_value, phys_value = reading.raw, reading.phys
             except ccp_protocol.CCPTimeoutError as exc:
                 fail(str(exc) or "ECU cevap vermedi")
                 continue
