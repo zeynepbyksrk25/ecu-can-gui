@@ -5,7 +5,7 @@ import time
 from datetime import datetime
 
 import can
-from PySide6.QtCore import QTimer, Qt
+from PySide6.QtCore import QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QGuiApplication
 from PySide6.QtWidgets import (
     QApplication, QFrame, QGraphicsDropShadowEffect, QHBoxLayout, QLabel,
@@ -56,6 +56,16 @@ RECONNECT_INTERVAL_MS = 2000  # bağlantı koptuktan sonra otomatik yeniden bağ
 SILENT_NOTICE_S = 3.0  # bu kadar süre mesaj gelmezse bağlantı şeridinde "Hat sessiz" uyarısı
 CCP_AUTO_CONNECT_DELAY_MS = 300  # CAN bağlandıktan kaç ms sonra CCP otomatik bağlansın
 WATCH_FAIL_STREAK_LIMIT = 3  # Parametre Listesi'nde art arda bu kadar ECU-cevapsız turdan sonra sürekli okuma durur
+
+
+class _ClickLabel(QLabel):
+    """Tıklanabilir QLabel (bağlantı hapı)."""
+    clicked = Signal()
+
+    def mouseReleaseEvent(self, event):  # noqa: N802
+        if event.button() == Qt.LeftButton and self.rect().contains(event.position().toPoint()):
+            self.clicked.emit()
+        super().mouseReleaseEvent(event)
 
 
 class MainWindow(QMainWindow):
@@ -376,8 +386,11 @@ class MainWindow(QMainWindow):
         self.nav_bar.currentChanged.connect(self.stack.setCurrentIndex)
         outer.addWidget(self.nav_bar, 1)
 
-        self.header_conn_pill = QLabel("●  Bağlı değil")
+        self.header_conn_pill = _ClickLabel("●  Bağlı değil")
         self.header_conn_pill.setObjectName("connPillBad")
+        self.header_conn_pill.setCursor(Qt.PointingHandCursor)
+        self.header_conn_pill.setToolTip("Tıkla: bağlantı ayarları (CAN Monitor sekmesi)")
+        self.header_conn_pill.clicked.connect(self._open_connection_page)
         outer.addWidget(self.header_conn_pill)
         return header
 
@@ -399,6 +412,14 @@ class MainWindow(QMainWindow):
             btn.setFixedHeight(30)
             btn.setMinimumWidth(150)
             btn.setCursor(Qt.PointingHandCursor)
+            if btn is self.dashboard_tab.estop_button:
+                # Acil Durdurma normal komutlardan görsel olarak ayrılır
+                sep = QFrame()
+                sep.setObjectName("cmdSep")
+                sep.setFixedHeight(22)
+                layout.addSpacing(6)
+                layout.addWidget(sep)
+                layout.addSpacing(6)
             layout.addWidget(btn)
 
         layout.addStretch()
@@ -420,6 +441,13 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.mappings_button)
         self._update_role_label()
         return row
+
+    def _open_connection_page(self):
+        """Bağlantı hapına tıklanınca CAN Monitor (bağlantı şeridi) sekmesine geç."""
+        for i, (_icon, label, _page) in enumerate(self._nav_pages):
+            if label == "CAN Monitor":
+                self.nav_bar.setCurrentIndex(i)
+                return
 
     def _update_role_label(self):
         self.header_role_label.setText(f"Rol: <b style='color:#121A22'>{self.current_role.value}</b>")

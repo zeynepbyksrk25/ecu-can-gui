@@ -352,10 +352,9 @@ class DarkGauge(GaugeWidget):
 # Ana Sayfa koyu gösterge
 # ===========================================================================
 class DashGauge(QWidget):
-    """Koyu temalı yarım daire gösterge: gradyan bölgeli yay, ibre, değer + birim.
+    """Koyu temalı yarım daire gösterge: değere kadar dolan yay, ibre, değer + birim.
     Değer yoksa/bayatsa ibre başa yatar, değer "—" gösterilir."""
 
-    ZONES = [(0.0, 0.60, DK_GREEN), (0.60, 0.78, "#eab308"), (0.78, 0.90, DK_ORANGE), (0.90, 1.0, DK_RED)]
     _DW, _DH = 200.0, 140.0
 
     def __init__(self, minimum: float, maximum: float, unit: str = "", parent=None):
@@ -363,6 +362,7 @@ class DashGauge(QWidget):
         self._min, self._max, self._unit = minimum, maximum, unit
         self._value: float | None = None
         self._dim = False
+        self._alert = False
         self.setMinimumSize(90, 62)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
@@ -381,6 +381,12 @@ class DashGauge(QWidget):
             self._value = None
         self._dim = dim
         self.update()
+
+    def set_alert(self, alert: bool):
+        """Arıza durumunda yay dolgusu kırmızı çizilir."""
+        if alert != self._alert:
+            self._alert = alert
+            self.update()
 
     @property
     def value(self):
@@ -406,15 +412,18 @@ class DashGauge(QWidget):
         cx, cy, r, w = 100.0, 80.0, 68.0, 9.0
         rect = QRectF(cx - r, cy - r, 2 * r, 2 * r)
         p.setOpacity(0.45 if self._dim or self._value is None else 1.0)
-        pen = QPen(QColor("#DDE5EC"), w + 4)
+        # Yay: nötr iz + değere kadar dolan renkli kısım. Sensör eşikleri bilinmediği için
+        # uydurma yeşil/sarı/kırmızı bölgeler çizilmez; arıza durumunda dolgu kırmızıdır.
+        pen = QPen(QColor("#DDE5EC"), w + 2)
         pen.setCapStyle(Qt.FlatCap)
         p.setPen(pen)
         p.drawArc(rect, 180 * 16, -180 * 16)
-        for a, b, col in self.ZONES:
-            pen = QPen(QColor(col), w)
+        frac = self.fraction()
+        if self._value is not None and frac > 0:
+            pen = QPen(QColor(DK_RED if self._alert else DK_CYAN), w + 2)
             pen.setCapStyle(Qt.FlatCap)
             p.setPen(pen)
-            p.drawArc(rect, 180 * 16 - int(a * 180 * 16), -int((b - a) * 180 * 16))
+            p.drawArc(rect, 180 * 16, -int(frac * 180 * 16))
         p.setPen(QPen(QColor("#9AA8B5"), 1.2))
         for i in range(11):
             ang = math.radians(180 - 18 * i)
@@ -497,6 +506,7 @@ class GaugeCard(QFrame):
         else:
             css = "background:#FFF4DC; color:#9A6208; border:1px solid #D9A441;"
         self.tag.setStyleSheet(f"{css} border-radius:8px; padding:0 6px; font-size:11px; font-weight:700;")
+        self.gauge.set_alert(kind == "fault")
         state = kind
         if state != self._state:
             self._state = state

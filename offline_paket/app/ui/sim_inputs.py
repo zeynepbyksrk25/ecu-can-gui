@@ -338,7 +338,7 @@ class SimInputsPanel(QWidget):
         self.send_all_button.setEnabled(allowed)
         self.reset_button.setEnabled(allowed)
         if not allowed:
-            self.set_status("🔒 Operatör rolünde girişler kilitli.", False)
+            self.set_status("", True)     # kilit bilgisi Ana Sayfa'nın üstündeki rol bandında
         elif self.status_label.text().startswith("🔒"):
             self.set_status("", True)
 

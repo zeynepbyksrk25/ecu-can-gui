@@ -124,9 +124,14 @@ class DashboardTab(QWidget):
 
         left = QVBoxLayout()
         left.setSpacing(10)
+        self.role_banner = QLabel("")
+        self.role_banner.setObjectName("roleBanner")
+        self.role_banner.setWordWrap(True)
+        self.role_banner.setVisible(False)
+        left.addWidget(self.role_banner, 0)
         left.addWidget(self.sim_inputs, 0)
-        left.addWidget(self._build_actuators_card(), 0)
-        left.addStretch(1)      # pencere uzunsa artan boşluk kartın İÇİNDE değil, altında kalır
+        # Eyleyiciler kartı kalan yüksekliği alır: sağ sütunla aynı hizada biter, altta boşluk kalmaz
+        left.addWidget(self._build_actuators_card(), 1)
         left_w = QWidget()
         left_w.setLayout(left)
         # Genişlik sabit DEĞİL: alt sınırı içeriğin (yazı tipine göre) asgari genişliği belirler
@@ -204,6 +209,12 @@ class DashboardTab(QWidget):
         self.map_warn_label = QLabel("")
         self.map_warn_label.setObjectName("warnSmall")
         head.addWidget(self.map_warn_label)
+        self.map_warn_button = QPushButton("Eşleşmeleri yapılandır")
+        self.map_warn_button.setObjectName("linkWarn")
+        self.map_warn_button.setCursor(Qt.PointingHandCursor)
+        self.map_warn_button.setVisible(False)
+        self.map_warn_button.clicked.connect(self.open_mappings)
+        head.addWidget(self.map_warn_button)
         lay.addLayout(head)
 
         grid = QGridLayout()
@@ -231,8 +242,13 @@ class DashboardTab(QWidget):
         self._health_labels = []
         faults = dict(self._faults)
         if not faults:
-            w = QLabel("Arıza yok")
-            w.setObjectName("chipGreen")
+            # "Arıza yok" ancak gerçekten taze veri varken söylenir; veri yoksa bilinmiyor.
+            now = time.monotonic()
+            has_data = any((now - v[1]) <= STALE_S for v in self._values.values())
+            w = QLabel("Arıza yok" if has_data else "Sensör verisi yok")
+            w.setObjectName("chipGreen" if has_data else "chipMuted")
+            if not has_data:
+                w.setToolTip("Henüz sensör verisi gelmedi; arıza durumu bilinmiyor.")
             self._health_box.addWidget(w)
             self._health_labels.append(w)
         else:
@@ -274,7 +290,8 @@ class DashboardTab(QWidget):
             else:
                 gc.gauge.set_value(None if val is None else val[0], dim=val is not None)
                 if key in unbound:
-                    gc.set_status("Eşleşme yok")
+                    # hepsi eşlenmemişse başlıktaki tek uyarı yeterli (8 kez tekrarlanmaz)
+                    gc.set_status("" if len(unbound) == len(self._gauge_cards) else "Eşleşme yok")
                 elif val is not None:
                     gc.set_status(f"Veri yok ({STALE_S:.0f} sn)")
                 else:
@@ -429,7 +446,7 @@ class DashboardTab(QWidget):
         row = QFrame()
         row.setObjectName("rowFrame")
         row.setMinimumHeight(36)
-        row.setMaximumHeight(52)
+        row.setMaximumHeight(64)
         hl = QHBoxLayout(row)
         hl.setContentsMargins(0, 2, 0, 2)
         hl.setSpacing(10)
@@ -488,10 +505,16 @@ class DashboardTab(QWidget):
         e["name"].setEnabled(opened)
         e["icon"].setEnabled(opened)
         e["control"].setEnabled(opened)
-        e["name"].setStyleSheet("" if opened else "color:#7d93a8;")
+        e["name"].setStyleSheet("" if opened else "color:#5F7080;")
 
     def set_role(self, role: Role):
         self._role = role
+        locked = not can_override_actuator(role)
+        self.role_banner.setVisible(locked)
+        if locked:
+            self.role_banner.setText(
+                f"🔒 {role.value} rolü: girişler ve manuel (kilit) kontrolleri kapalı. "
+                "Açmak için Mühendis veya Yönetici rolü gerekir.")
 
     def _confirm_override(self, label: str) -> bool:
         if not can_override_actuator(self._role):
@@ -677,6 +700,7 @@ class DashboardTab(QWidget):
         self._rebuild_trend_series()
         miss = cfg.unbound_gauges()
         self.map_warn_label.setText(f"⚠ {len(miss)} sensör bağlı değil" if miss else "")
+        self.map_warn_button.setVisible(bool(miss))
         self.start_button.setEnabled(cfg.motor_start.binding.is_set)
         self.stop_button.setEnabled(cfg.motor_stop.binding.is_set)
         self.estop_button.setEnabled(cfg.estop.binding.is_set)
