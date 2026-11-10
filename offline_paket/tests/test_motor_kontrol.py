@@ -174,3 +174,21 @@ def test_recent_events_card_is_newest_first_capped_and_colored(win):
     for i in range(dt.EVENT_MAX + 20):
         win._log_event("AYAR", f"olay {i}")
     assert dt.events_list.count() == dt.EVENT_MAX
+
+
+def test_estop_warning_opens_mappings_and_auto_sw_covers_motor_commands(win, monkeypatch):
+    dt = win.dashboard_tab
+    opened = []
+    monkeypatch.setattr(type(dt), "open_mappings", lambda self: opened.append(1))
+    dt.estop_warn.clicked.disconnect()
+    dt.estop_warn.clicked.connect(dt.open_mappings)
+    dt.estop_warn.click()
+    assert opened == [1]                                              # uyarı tıklanınca Eşleşmeler açılır
+
+    from app.ui.mapping_dialog import MappingDialog
+    d = MappingDialog(win.dashboard_tab.config, win.dashboard_tab.sim_inputs, win.transmit_tab.dbc, None, win)
+    d.motor_ed["estop"][0].set_binding(Binding(SOURCE_CAN, "OVERRIDE", "pump_dc"))
+    d._auto_sw()                                                      # _sw, komutun ADINDAN bulunur
+    assert d.motor_sw_ed["estop"].binding() == Binding(SOURCE_CAN, "OVERRIDE", "pump_dc_sw")
+    assert not d.motor_ed["motor_stop"][0].text()                     # komutun KENDİSİ otomatik bağlanmaz
+    d.close()

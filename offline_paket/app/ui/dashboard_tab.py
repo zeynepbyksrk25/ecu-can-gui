@@ -182,10 +182,14 @@ class DashboardTab(QWidget):
         self.estop_button.clicked.connect(self._on_estop_clicked)
         # Eşleme yokken Acil Durdurma ÇALIŞMAZ; bunu operatör fark etmeli (düğme gri/tıklanamaz bırakılmaz,
         # yanında kalıcı bir uyarı gösterilir).
-        self.estop_warn = QLabel("⚠ Acil Durdurma eşlenmemiş")
+        self.estop_warn = QPushButton("⚠ Acil Durdurma eşlenmemiş: tanımla")
         self.estop_warn.setObjectName("estopWarn")
+        self.estop_warn.setCursor(Qt.PointingHandCursor)
+        self.estop_warn.setFlat(True)
+        self.estop_warn.clicked.connect(self.open_mappings)
         self.estop_warn.setToolTip("Acil Durdurma için DBC sinyali veya A2L değişkeni tanımlı değil: düğme komut GÖNDEREMEZ. "
-                                   "⚙ Eşleşmeler penceresinden tanımlayın; o zamana dek motoru manuel/fiziksel olarak durdurun.")
+                                   "Tıklayın: ⚙ Eşleşmeler > Sinyaller > Motor Komutları > Acil Durdurma satırından "
+                                   "CAN ya da A2L seçin. O zamana dek motoru manuel/fiziksel olarak durdurun.")
         self.estop_warn.setVisible(True)
 
     def _on_estop_clicked(self):

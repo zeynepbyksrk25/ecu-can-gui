@@ -384,9 +384,12 @@ class MappingDialog(QDialog):
 
     # ------------------------------------------------------------ otomatik
     def _auto_sw(self):
-        """Değeri girilmiş ama anahtarı boş olanlar için aynı kaynakta ``<ad>_sw`` bulur."""
-        for store in (self.sensor_ed, self.actuator_ed, self.control_ed):
-            for ed in store.values():
+        """Değeri girilmiş ama anahtarı boş olanlar için aynı kaynakta ``<ad>_sw`` bulur (sensör, eyleyici,
+        Motor Kontrol ve Motor Komutları). Yalnızca ANAHTAR aranır: komutun kendisi (özellikle Acil
+        Durdurma) isimden tahmin edilip otomatik bağlanmaz; onu siz seçersiniz."""
+        pairs = [{"value": be, "sw": self.motor_sw_ed[key]} for key, (be, _val) in self.motor_ed.items()]
+        for store in (self.sensor_ed.values(), self.actuator_ed.values(), self.control_ed.values(), pairs):
+            for ed in store:
                 if ed["sw"].text() or not ed["value"].text():
                     continue
                 kind = ed["value"].source_kind()

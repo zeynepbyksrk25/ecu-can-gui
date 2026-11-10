@@ -1,5 +1,6 @@
 """Acil Durdurma: eşleme yokken sessizce ÇALIŞMAMALI; operatör komutun gitmediğini açıkça görmeli."""
 import pytest
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QMessageBox
 
 from app.dashboard_config import SOURCE_CAN, Binding, DashboardConfig, MotorCommand
@@ -26,6 +27,7 @@ def test_estop_button_stays_clickable_and_warns_when_unmapped(win):
     dt.set_config(DashboardConfig())                    # hiçbir eşleme yok
     assert dt.estop_button.isEnabled()                  # gri/tıklanamaz DEĞİL
     assert not dt.estop_warn.isHidden() and "eşlenmemiş" in dt.estop_warn.text()
+    assert dt.estop_warn.cursor().shape() == Qt.PointingHandCursor          # tıklanabilir: Eşleşmeler'i açar
     assert "TANIMLI DEĞİL" in dt.estop_button.toolTip() or "tanımlı DEĞİL" in dt.estop_button.toolTip()
     # Başlat/Durdur eski davranışta: eşleme yoksa devre dışı
     assert not dt.start_button.isEnabled() and not dt.stop_button.isEnabled()
