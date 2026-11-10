@@ -1,6 +1,6 @@
 """Ana Sayfa'nın ortak (koyu tema) widget'ları: simgeler, anahtar, kilit
-düğmesi, gösterge. Eski açık temalı ``GaugeWidget`` Performans ve Çalışma
-Alanı sayfaları tarafından kullanıldığı için burada AYNEN korunur."""
+düğmesi ve yarım daire gösterge (``DashGauge``). Ana Sayfa, Performans ve Çalışma Alanı
+aynı göstergeyi kullanır."""
 
 import math
 
@@ -10,8 +10,6 @@ from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget,
 )
-
-from app.theme import INK, INK_2, INK_3
 
 # ---- Koyu tema renkleri (Ana Sayfa) ---------------------------------------
 DK_BG = "#EEF2F6"
@@ -218,153 +216,36 @@ def _format_scale_number(value: float) -> str:
 
 
 # ===========================================================================
-# Eski açık temalı gösterge (Performans / Çalışma Alanı kullanır) — DEĞİŞMEDİ
-# ===========================================================================
-class GaugeWidget(QWidget):
-    """Yarım daire (yay) ibreli gösterge (açık tema). Performans ve
-    Çalışma Alanı sayfalarında kullanılır."""
-
-    def __init__(self, label: str, minimum: float, maximum: float, unit: str = "", parent=None):
-        super().__init__(parent)
-        self._label = label
-        self._minimum = minimum
-        self._maximum = maximum
-        self._unit = unit
-        self._value: float | None = None
-        self.setMinimumSize(110, 120)
-        self.setMaximumHeight(168)
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-
-    def sizeHint(self):  # noqa: N802
-        return QSize(160, 172)
-
-    def set_range(self, minimum: float, maximum: float):
-        self._minimum = minimum
-        self._maximum = maximum
-        self.update()
-
-    def set_value(self, value: float | None):
-        self._value = value
-        self.update()
-
-    def _fraction(self) -> float:
-        if self._value is None:
-            return 0.0
-        span = (self._maximum - self._minimum) or 1.0
-        frac = (self._value - self._minimum) / span
-        return max(0.0, min(1.0, frac))
-
-    _DESIGN_W = 180.0
-    _DESIGN_H = 180.0
-    # renkler (koyu varyant alt sınıfta değişir)
-    C_ARC, C_TICK, C_NEEDLE, C_SCALE, C_PILL, C_VALUE, C_UNIT, C_LABEL = (
-        "#D6DEE6", "#9AA8B5", "#121A22", INK_3, "#13324A", "#FFFFFF", INK_2, INK)
-    ZONES = [(0.0, 0.70, "#1B8A4C"), (0.70, 0.90, "#B9790F"), (0.90, 1.0, "#C22A1D")]
-
-    def paintEvent(self, event):  # noqa: N802
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-        painter.setRenderHint(QPainter.TextAntialiasing)
-
-        scale = min(self.width() / self._DESIGN_W, self.height() / self._DESIGN_H)
-        if scale <= 0:
-            return
-        painter.translate((self.width() - self._DESIGN_W * scale) / 2,
-                          (self.height() - self._DESIGN_H * scale) / 2)
-        painter.scale(scale, scale)
-
-        cx, cy, radius, pen_w = 90.0, 84.0, 74.0, 12.0
-        rect = QRectF(cx - radius, cy - radius, 2 * radius, 2 * radius)
-
-        pen_bg = QPen(QColor(self.C_ARC), pen_w)
-        pen_bg.setCapStyle(Qt.FlatCap)
-        painter.setPen(pen_bg)
-        painter.drawArc(rect, 180 * 16, -180 * 16)
-
-        for z_start, z_end, color in self.ZONES:
-            pen = QPen(QColor(color), pen_w)
-            pen.setCapStyle(Qt.FlatCap)
-            painter.setPen(pen)
-            painter.drawArc(rect, 180 * 16 - int(z_start * 180 * 16), -int((z_end - z_start) * 180 * 16))
-
-        tick_pen = QPen(QColor(self.C_TICK), 1.4)
-        painter.setPen(tick_pen)
-        r_out = radius - pen_w / 2 - 3
-        for i in range(11):
-            a = math.radians(180 - 18 * i)
-            r_in = r_out - (8 if i % 5 == 0 else 4)
-            painter.drawLine(QPointF(cx + r_out * math.cos(a), cy - r_out * math.sin(a)),
-                             QPointF(cx + r_in * math.cos(a), cy - r_in * math.sin(a)))
-
-        angle_rad = math.radians(180 - 180 * self._fraction())
-        needle_len = (radius - pen_w / 2) * 0.95
-        tip = QPointF(cx + needle_len * math.cos(angle_rad), cy - needle_len * math.sin(angle_rad))
-        needle_pen = QPen(QColor(self.C_NEEDLE), 3.2)
-        needle_pen.setCapStyle(Qt.RoundCap)
-        painter.setPen(needle_pen)
-        painter.drawLine(QPointF(cx, cy), tip)
-        painter.setBrush(QColor(self.C_NEEDLE))
-        painter.setPen(Qt.NoPen)
-        painter.drawEllipse(QPointF(cx, cy), 5.0, 5.0)
-
-        def font(px: float, bold: bool = False, mono: bool = False) -> QFont:
-            f = QFont("IBM Plex Mono") if mono else QFont()
-            if mono:
-                f.setStyleHint(QFont.Monospace)
-            f.setPixelSize(max(1, int(round(px))))
-            f.setBold(bold)
-            return f
-
-        painter.setFont(font(12, bold=True))
-        painter.setPen(QColor(self.C_SCALE))
-        painter.drawText(QRectF(cx - radius - pen_w / 2, cy + 5, 56, 15),
-                         Qt.AlignLeft | Qt.AlignVCenter, _format_scale_number(self._minimum))
-        painter.drawText(QRectF(cx + radius + pen_w / 2 - 56, cy + 5, 56, 15),
-                         Qt.AlignRight | Qt.AlignVCenter, _format_scale_number(self._maximum))
-
-        value_text = f"{self._value:.4g}" if isinstance(self._value, (int, float)) else "—"
-        pill = QRectF((self._DESIGN_W - 84) / 2, cy + 22, 84, 30)
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor(self.C_PILL))
-        painter.drawRoundedRect(pill, 6, 6)
-        painter.setFont(font(20, bold=True, mono=True))
-        painter.setPen(QColor(self.C_VALUE))
-        painter.drawText(pill, Qt.AlignHCenter | Qt.AlignVCenter, value_text)
-
-        if self._unit:
-            painter.setFont(font(12))
-            painter.setPen(QColor(self.C_UNIT))
-            painter.drawText(QRectF(0, cy + 54, self._DESIGN_W, 16), Qt.AlignHCenter | Qt.AlignVCenter, self._unit)
-
-        painter.setFont(font(15, bold=True))
-        painter.setPen(QColor(self.C_LABEL))
-        painter.drawText(QRectF(0, cy + 70, self._DESIGN_W, 20), Qt.AlignHCenter | Qt.AlignVCenter, self._label)
-
-
-class DarkGauge(GaugeWidget):
-    """GaugeWidget'ın koyu temalı varyantı (Performans / Çalışma Alanı)."""
-    ZONES = [(0.0, 1.0, "#0E6E8C")]
-    C_ARC, C_TICK, C_NEEDLE, C_SCALE, C_PILL, C_VALUE, C_UNIT, C_LABEL = (
-        "#DDE5EC", "#9AA8B5", "#121A22", "#51616F", "#FFFFFF", "#121A22", "#51616F", "#243442")
-
-
-# ===========================================================================
 # Ana Sayfa koyu gösterge
 # ===========================================================================
 class DashGauge(QWidget):
-    """Koyu temalı yarım daire gösterge: gradyan bölgeli yay, ibre, değer + birim.
-    Değer yoksa/bayatsa ibre başa yatar, değer "—" gösterilir."""
+    """Koyu temalı yarım daire gösterge: değere kadar dolan yay, ibre, değer + birim.
+    Değer yoksa/bayatsa ibre başa yatar, değer "—" gösterilir. İsteğe bağlı ``label`` (Performans /
+    Çalışma Alanı) birimin altına bir başlık çizer; Ana Sayfa başlığı kartta gösterdiği için boş bırakır."""
 
-    ZONES = [(0.0, 0.60, DK_GREEN), (0.60, 0.78, "#eab308"), (0.78, 0.90, DK_ORANGE), (0.90, 1.0, DK_RED)]
     _DW, _DH = 200.0, 140.0
+    _LABEL_H = 24.0
 
-    def __init__(self, minimum: float, maximum: float, unit: str = "", parent=None):
+    def __init__(self, minimum: float, maximum: float, unit: str = "", parent=None, label: str = ""):
         super().__init__(parent)
         self._min, self._max, self._unit = minimum, maximum, unit
+        self._label = label
         self._value: float | None = None
         self._dim = False
+        self._alert = False
         self.setMinimumSize(90, 62)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+
+    def set_label(self, text: str):
+        self._label = text or ""
+        self.update()
+
+    @property
+    def label(self) -> str:
+        return self._label
+
+    def _design_h(self) -> float:
+        return self._DH + (self._LABEL_H if self._label else 0.0)
 
     def set_range(self, minimum: float, maximum: float, unit: str | None = None):
         if maximum <= minimum:
@@ -382,6 +263,12 @@ class DashGauge(QWidget):
         self._dim = dim
         self.update()
 
+    def set_alert(self, alert: bool):
+        """Arıza durumunda yay dolgusu kırmızı çizilir."""
+        if alert != self._alert:
+            self._alert = alert
+            self.update()
+
     @property
     def value(self):
         return self._value
@@ -392,29 +279,33 @@ class DashGauge(QWidget):
         return max(0.0, min(1.0, (self._value - self._min) / ((self._max - self._min) or 1.0)))
 
     def sizeHint(self):  # noqa: N802
-        return QSize(220, 150)
+        return QSize(220, 150 + (int(self._LABEL_H) if self._label else 0))
 
     def paintEvent(self, event):  # noqa: N802
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         p.setRenderHint(QPainter.TextAntialiasing)
-        s = min(self.width() / self._DW, self.height() / self._DH)
+        dh = self._design_h()
+        s = min(self.width() / self._DW, self.height() / dh)
         if s <= 0:
             return
-        p.translate((self.width() - self._DW * s) / 2, (self.height() - self._DH * s) / 2)
+        p.translate((self.width() - self._DW * s) / 2, (self.height() - dh * s) / 2)
         p.scale(s, s)
         cx, cy, r, w = 100.0, 80.0, 68.0, 9.0
         rect = QRectF(cx - r, cy - r, 2 * r, 2 * r)
         p.setOpacity(0.45 if self._dim or self._value is None else 1.0)
-        pen = QPen(QColor("#DDE5EC"), w + 4)
+        # Yay: nötr iz + değere kadar dolan renkli kısım. Sensör eşikleri bilinmediği için
+        # uydurma yeşil/sarı/kırmızı bölgeler çizilmez; arıza durumunda dolgu kırmızıdır.
+        pen = QPen(QColor("#DDE5EC"), w + 2)
         pen.setCapStyle(Qt.FlatCap)
         p.setPen(pen)
         p.drawArc(rect, 180 * 16, -180 * 16)
-        for a, b, col in self.ZONES:
-            pen = QPen(QColor(col), w)
+        frac = self.fraction()
+        if self._value is not None and frac > 0:
+            pen = QPen(QColor(DK_RED if self._alert else DK_CYAN), w + 2)
             pen.setCapStyle(Qt.FlatCap)
             p.setPen(pen)
-            p.drawArc(rect, 180 * 16 - int(a * 180 * 16), -int((b - a) * 180 * 16))
+            p.drawArc(rect, 180 * 16, -int(frac * 180 * 16))
         p.setPen(QPen(QColor("#9AA8B5"), 1.2))
         for i in range(11):
             ang = math.radians(180 - 18 * i)
@@ -450,6 +341,10 @@ class DashGauge(QWidget):
         p.setFont(font(13))
         p.setPen(QColor(DK_MUT))
         p.drawText(QRectF(0, cy + 46, self._DW, 16), Qt.AlignHCenter | Qt.AlignVCenter, self._unit)
+        if self._label:
+            p.setFont(font(15, True))
+            p.setPen(QColor("#243442"))
+            p.drawText(QRectF(0, cy + 64, self._DW, 20), Qt.AlignHCenter | Qt.AlignVCenter, self._label)
 
 
 class GaugeCard(QFrame):
@@ -497,6 +392,7 @@ class GaugeCard(QFrame):
         else:
             css = "background:#FFF4DC; color:#9A6208; border:1px solid #D9A441;"
         self.tag.setStyleSheet(f"{css} border-radius:8px; padding:0 6px; font-size:11px; font-weight:700;")
+        self.gauge.set_alert(kind == "fault")
         state = kind
         if state != self._state:
             self._state = state

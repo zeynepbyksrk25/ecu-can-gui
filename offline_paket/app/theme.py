@@ -45,7 +45,7 @@ SIDEBAR_TEXT = "#B9C7D3"
 SIDEBAR_TEXT_DIM = "#7E93A3"
 SIDEBAR_BORDER = "#1E3444"
 
-FONT_SANS = '"IBM Plex Sans", "Segoe UI", sans-serif'
+FONT_SANS = '"IBM Plex Sans", "Segoe UI", "DejaVu Sans", sans-serif'
 FONT_MONO = '"IBM Plex Mono", Consolas, monospace'
 
 def _arrow_icons() -> tuple[str, str]:
@@ -432,14 +432,35 @@ QFrame#actionStatusRow QPushButton[primary="true"] {{
 }}
 
 QFrame#actionStatusRow QPushButton[danger="true"] {{
-    background: #FBE9E7;
-    border-color: #E3A29B;
-    color: #C22A1D;
+    background: #C22A1D;
+    border: 1px solid #8E1D14;
+    color: #FFFFFF;
+    font-weight: 700;
 }}
 
 QFrame#actionStatusRow QPushButton[danger="true"]:hover {{
-    background: #F6CFC9;
-    color: #A8241A;
+    background: #A8241A;
+    border-color: #6F160F;
+    color: #FFFFFF;
+}}
+
+QFrame#actionStatusRow QPushButton[danger="true"]:disabled {{
+    background: #FBE9E7;
+    border: 1px solid #E3A29B;
+    color: #B98A85;
+}}
+
+QFrame#actionStatusRow QFrame#cmdSep {{
+    background: #D6DEE6;
+    max-width: 1px;
+    min-width: 1px;
+}}
+
+QLabel#estopWarn {{
+    color: #C22A1D;
+    font-size: 13px;
+    font-weight: 700;
+    background: transparent;
 }}
 
 QLabel#ccpChip {{

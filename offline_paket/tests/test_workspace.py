@@ -67,3 +67,19 @@ def test_floating_window_is_independent_toplevel(qapp):
     assert fl.parent() is None, "ayrılan pencere ana pencereye bağlı olmamalı"
     assert fl.windowFlags() & Qt.Window
     w.shutdown()
+
+
+def test_old_layout_with_removed_control_panel_loads_without_it(qapp):
+    """Çalışma Alanı'ndan giriş (Kontrol) paneli kaldırıldı; eski yerleşimdeki 'control' paneli
+    atlanır, kalan paneller yüklenir."""
+    w = make_tab(qapp)
+    state = {"version": 1, "span": 1, "derived": {}, "panels": [
+        {"kind": "plot", "title": "Grafik 1", "geometry": [10, 10, 400, 300], "state": {}},
+        {"kind": "control", "title": "Kontrol 1", "geometry": [20, 20, 320, 360], "state": {}},
+        {"kind": "table", "title": "Tablo 1", "geometry": [30, 30, 400, 200], "state": {}},
+    ]}
+    w.apply_state(state)
+    kinds = sorted(p.kind for p in w._panels)
+    assert kinds == ["plot", "table"]
+    assert "control" not in [p.kind for p in w._panels]
+    assert not hasattr(w, "send_input")

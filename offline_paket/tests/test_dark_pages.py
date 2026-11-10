@@ -14,12 +14,15 @@ def luminance(c):
 def test_dark_wrapper_keeps_page_aliases_and_navigation(qapp):
     from app.ui.main_window import MainWindow
     w = MainWindow()
-    scroll = w.stack.widget(w.stack.indexOf(w._page_scrolls[w.a2l_tab]))
+    scroll = w.stack.widget(w.stack.indexOf(w._page_scrolls[w.kalibrasyon_tab]))
     body = scroll.widget()
-    assert body.objectName() == "darkBody" and body.inner is w.a2l_tab
-    w.setCurrentWidget(w.a2l_tab)
-    assert w.nav_bar.tabText(w.nav_bar.currentIndex()) == "A2L"
-    assert w.current_page() is w.a2l_tab
+    assert body.objectName() == "darkBody" and body.inner is w.kalibrasyon_tab
+    w.setCurrentWidget(w.kalibrasyon_tab)
+    assert w.nav_bar.tabText(w.nav_bar.currentIndex()) == "Kalibrasyon"
+    assert w.current_page() is w.kalibrasyon_tab
+    # A2L artık üst sekme değil, Kalibrasyon'un ilk iç sekmesi; takma ad korunur
+    assert "A2L" not in [w.nav_bar.tabText(i) for i in range(w.nav_bar.count())]
+    assert w.kalibrasyon_tab.a2l is w.a2l_tab and w.kalibrasyon_tab.inner_tabs.widget(0) is w.a2l_tab
     w.close()
 
 
@@ -76,8 +79,13 @@ def test_small_pages_dark_and_accessors(tmp_path):
     from PySide6.QtWidgets import QApplication
     from app.ui.main_window import MainWindow
     w = MainWindow()
-    for page in (w.tanilama_tab, w.session_tab, w.user_tab):
-        assert page in w._dark_pages
+    assert w.tanilama_tab in w._dark_pages
+    # Profil artık üst sekme değil, Ayarlar penceresinde
+    assert "Profil" not in [w.nav_bar.tabText(i) for i in range(w.nav_bar.count())]
+    assert w.settings_dialog.user_tab is w.user_tab
+    assert w.session_tab is w.tanilama_tab.session
+    labels = [w.nav_bar.tabText(i) for i in range(w.nav_bar.count())]
+    assert "Tanılama ve Oturum" in labels and "Test Oturumu" not in labels
     s = w.session_tab
     assert s.stop_button.isEnabled() is False and s.state_chip.text() == "Oturum yok"
     assert hasattr(w.tanilama_tab, "diagnostics") and hasattr(w.tanilama_tab, "errors")
@@ -90,16 +98,18 @@ def test_kalibrasyon_dark_and_aliases():
     w = MainWindow()
     assert w.kalibrasyon_tab in w._dark_pages
     k = w.kalibrasyon_tab
-    assert k.inner_tabs.count() == 4 and k.watch is not None and k.map_editor is not None
+    assert k.inner_tabs.count() == 5 and k.watch is not None and k.map_editor is not None
     w.close()
 
 
-def test_graph_performance_dark_no_captions():
+def test_analiz_performance_dark_no_captions():
     from app.ui.main_window import MainWindow
     w = MainWindow()
-    assert w.graph_tab in w._dark_pages and w.performance_tab in w._dark_pages
+    assert w.performance_tab in w._dark_pages
     assert "geri okunuşu" not in "".join(b.toolTip() for b in w.performance_tab._flight_boxes.values())
-    assert w.graph_tab._tiles[0].crosshair_label.text() == ""
+    # Grafik sekmesi kaldırıldı: Analiz = Çalışma Alanı + Performans
+    labels = [w.analiz_tab.inner_tabs.tabText(i) for i in range(w.analiz_tab.inner_tabs.count())]
+    assert labels == ["Çalışma Alanı", "Performans"] and not hasattr(w, "graph_tab")
     w.close()
 
 

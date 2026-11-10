@@ -16,7 +16,7 @@ from app.sim_interface import (
     INPUT_BY_KEY, PERF_BY_KEY, PERF_DEFS, SimConfig, auto_match, list_sources, threshold_level,
 )
 from app.ui.dark_theme import style_plot
-from app.ui.dashboard_tab import GaugeWidget
+from app.ui.dash_widgets import DashGauge
 from app.ui.sim_widgets import ColorCard, DigitalBox, SignalPickerDialog, ThresholdDialog
 
 POLL_MS = 300
@@ -28,16 +28,14 @@ GRAPH_COLORS = ["#0E6E8C", "#C2570F", "#1B8A4C", "#7B3FD1", "#B58900", "#0E8C7C"
                 "#D6336C", "#5B8A00", "#6B7C8A"]
 
 
-class PerfGauge(GaugeWidget):
-    ZONES = [(0.0, 1.0, "#0E6E8C")]
-    C_ARC, C_TICK, C_NEEDLE, C_SCALE, C_PILL, C_VALUE, C_UNIT, C_LABEL = (
-        "#DDE5EC", "#9AA8B5", "#121A22", "#51616F", "#FFFFFF", "#ffffff", "#51616F", "#243442")
+class PerfGauge(DashGauge):
     bind_requested = Signal(str)
     unbind_requested = Signal(str)
     range_requested = Signal(str)
 
     def __init__(self, key, label, unit, parent=None):
-        super().__init__(label, 0.0, 100.0, unit, parent)
+        super().__init__(0.0, 100.0, unit, parent, label=label)
+        self.setMaximumHeight(168)          # eski GaugeWidget gibi: büyük kartlarda orantısız büyümesin
         self.key = key
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self._menu)

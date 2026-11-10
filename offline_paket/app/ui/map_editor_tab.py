@@ -24,11 +24,12 @@ from PySide6.QtGui import QColor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QGroupBox, QHBoxLayout,
     QLabel, QLineEdit, QPushButton, QSplitter, QTableWidget,
-    QTableWidgetItem, QTabWidget, QTreeWidget, QTreeWidgetItem,
+    QTableWidgetItem, QTabWidget, QTreeWidgetItem,
     QVBoxLayout, QWidget, QHeaderView,
 )
 
-ROLE_OBJECT = Qt.UserRole
+from app.ui.a2l_tree import ROLE_OBJECT, filter_tree, new_tree, payload_item  # noqa: F401 (ROLE_OBJECT: eski içe aktarma yolu)
+
 MODIFIED_BG = QColor("#FFE8A8")   # değişen hücre (ısı haritası kapalıyken)
 MODIFIED_FG = QColor("#7A4F00")   # değişen hücrede kalın/turuncu yazı (ısı haritası açıkken)
 PLACEHOLDER = "-"                 # ECU'dan okunmamış hücre yer tutucusu
@@ -694,9 +695,7 @@ class MapEditorTab(QWidget):
         self.search_edit.setPlaceholderText("İsme göre ara...")
         self.search_edit.textChanged.connect(self._apply_filter)
 
-        self.tree = QTreeWidget()
-        self.tree.setHeaderHidden(True)
-        self.tree.itemClicked.connect(self._on_item_clicked)
+        self.tree = new_tree(self._on_item_clicked)
 
         layout = QVBoxLayout()
         layout.addWidget(self.search_edit)
@@ -735,28 +734,13 @@ class MapEditorTab(QWidget):
         for c in self.a2l_db.summary.characteristics:
             if c.kind not in roots:
                 continue
-            item = QTreeWidgetItem([c.name])
-            item.setData(0, ROLE_OBJECT, c)
-            roots[c.kind].addChild(item)
+            roots[c.kind].addChild(payload_item(c.name, c))
         for root in roots.values():
             self.tree.addTopLevelItem(root)
         self.tree.expandAll()
 
     def _apply_filter(self, text: str):
-        text = text.strip().lower()
-
-        def filter_children(parent: QTreeWidgetItem) -> bool:
-            any_visible = False
-            for i in range(parent.childCount()):
-                child = parent.child(i)
-                visible = text in child.text(0).lower()
-                child.setHidden(not visible)
-                any_visible = any_visible or visible
-            return any_visible
-
-        for i in range(self.tree.topLevelItemCount()):
-            top = self.tree.topLevelItem(i)
-            top.setHidden(not filter_children(top) and bool(text))
+        filter_tree(self.tree, text)
 
     def _on_item_clicked(self, item: QTreeWidgetItem, _column: int):
         obj = item.data(0, ROLE_OBJECT)

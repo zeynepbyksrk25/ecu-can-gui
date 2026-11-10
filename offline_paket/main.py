@@ -79,6 +79,18 @@ def main():
     app = QApplication(sys.argv)
     # Net yazı: tam hinting + tam sayı piksel boyutu (QSS'teki font-size ile uyumlu)
     from PySide6.QtGui import QFont
+    # Paketlenen DejaVu Sans'ı kaydet: QSS'teki "IBM Plex Sans/Segoe UI" yoksa her makinede
+    # aynı (Türkçe karakter destekli) yazı tipi kullanılsın.
+    try:
+        import os
+        from PySide6.QtGui import QFontDatabase
+        from app.report import _bundled_font_dir
+        for fname in ("DejaVuSans.ttf", "DejaVuSans-Bold.ttf"):
+            fpath = os.path.join(_bundled_font_dir(), fname)
+            if os.path.exists(fpath):
+                QFontDatabase.addApplicationFont(fpath)
+    except Exception:  # noqa: BLE001  (yazı tipi yüklenemezse sistem yazı tipiyle devam)
+        logging.getLogger(__name__).warning("Paketlenen yazı tipi yüklenemedi", exc_info=True)
     base_font = app.font()
     base_font.setHintingPreference(QFont.HintingPreference.PreferFullHinting)
     base_font.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)

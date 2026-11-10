@@ -6,12 +6,13 @@ görüntüleme ve PDF test raporu oluşturma.
 import time
 
 from PySide6.QtWidgets import (
-    QFileDialog, QGridLayout, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMessageBox, QPushButton,
-    QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+    QFileDialog, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton,
+    QVBoxLayout, QWidget,
 )
 
 from app.report import build_session_report
 from app.ui.dash_widgets import make_card
+from app.ui.event_log_table import EventLogTable
 
 
 class SessionTab(QWidget):
@@ -70,18 +71,9 @@ class SessionTab(QWidget):
 
     def _build_log_card(self):
         card, v, _head = make_card("Olay günlüğü", "trend")
-        self.table = QTableWidget()
-        self.table.setColumnCount(4)
-        self.table.setHorizontalHeaderLabels(["Zaman", "Kullanıcı / Rol", "Kategori", "Mesaj"])
-        self.table.horizontalHeader().setStretchLastSection(True)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
-        self.table.verticalHeader().setVisible(False)
-        self.table.setAlternatingRowColors(True)
-        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.table.setColumnWidth(0, 80)
-        self.table.setColumnWidth(1, 150)
-        self.table.setColumnWidth(2, 110)
-        v.addWidget(self.table, 1)
+        self.log_table = EventLogTable()
+        self.table = self.log_table.table      # eski erişim yolu
+        v.addWidget(self.log_table, 1)
         return card
 
     def _on_start(self):
@@ -122,14 +114,7 @@ class SessionTab(QWidget):
     def refresh_log(self):
         if self.event_log is None:
             return
-        entries = self.event_log.entries
-        self.table.setRowCount(len(entries))
-        for row, e in enumerate(entries):
-            self.table.setItem(row, 0, QTableWidgetItem(time.strftime("%H:%M:%S", time.localtime(e.timestamp))))
-            self.table.setItem(row, 1, QTableWidgetItem(f"{e.user} / {e.role}"))
-            self.table.setItem(row, 2, QTableWidgetItem(e.category))
-            self.table.setItem(row, 3, QTableWidgetItem(e.message))
-        self.table.scrollToBottom()
+        self.log_table.set_entries(self.event_log.entries)
 
     def _on_export_pdf(self):
         if self.event_log is None:

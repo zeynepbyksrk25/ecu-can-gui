@@ -6,13 +6,12 @@ import os
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton,
-    QSplitter, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+    QSplitter, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
 from app.a2l import A2LDatabase
+from app.ui.a2l_tree import ROLE_OBJECT, filter_tree, measurements_root, new_tree, payload_item  # noqa: F401
 from app.ui.dash_widgets import DK_CYAN, IconLabel
-
-ROLE_OBJECT = Qt.UserRole
 
 
 class A2LTab(QWidget):
@@ -120,9 +119,7 @@ class A2LTab(QWidget):
         self.search_edit.setPlaceholderText("İsme göre ara… (ör. clbc_)")
         self.search_edit.setClearButtonEnabled(True)
         self.search_edit.textChanged.connect(self._apply_filter)
-        self.tree = QTreeWidget()
-        self.tree.setHeaderHidden(True)
-        self.tree.itemClicked.connect(self._on_item_clicked)
+        self.tree = new_tree(self._on_item_clicked)
         v.addWidget(self.search_edit)
         v.addWidget(self.tree, 1)
         return card
@@ -130,12 +127,8 @@ class A2LTab(QWidget):
     def _populate_tree(self, summary):
         self.tree.clear()
 
-        measurements_root = QTreeWidgetItem([f"Measurements ({len(summary.measurements)})"])
-        for m in summary.measurements:
-            item = QTreeWidgetItem([m.name])
-            item.setData(0, ROLE_OBJECT, ("measurement", m))
-            measurements_root.addChild(item)
-        self.tree.addTopLevelItem(measurements_root)
+        self.tree.addTopLevelItem(
+            measurements_root(f"Measurements ({len(summary.measurements)})", summary.measurements))
 
         characteristics_root = QTreeWidgetItem([f"Characteristics ({len(summary.characteristics)})"])
         groups = {"SCALAR": QTreeWidgetItem(["Scalar"]),
@@ -146,10 +139,8 @@ class A2LTab(QWidget):
         for kind_item in groups.values():
             characteristics_root.addChild(kind_item)
         for c in summary.characteristics:
-            item = QTreeWidgetItem([c.name])
-            item.setData(0, ROLE_OBJECT, ("characteristic", c))
             key = c.kind if c.kind in groups else "SCALAR"
-            groups[key].addChild(item)
+            groups[key].addChild(payload_item(c.name, ("characteristic", c)))
             counts[key] += 1
         for key, item in groups.items():
             item.setText(0, f"{item.text(0)} ({counts[key]})")
@@ -157,23 +148,7 @@ class A2LTab(QWidget):
         self.tree.expandAll()
 
     def _apply_filter(self, text: str):
-        text = text.strip().lower()
-
-        def filter_children(parent: QTreeWidgetItem) -> bool:
-            any_visible = False
-            for i in range(parent.childCount()):
-                child = parent.child(i)
-                if child.childCount() > 0:
-                    visible = filter_children(child)
-                else:
-                    visible = text in child.text(0).lower()
-                child.setHidden(not visible)
-                any_visible = any_visible or visible
-            return any_visible
-
-        for i in range(self.tree.topLevelItemCount()):
-            top = self.tree.topLevelItem(i)
-            top.setHidden(not filter_children(top) and bool(text))
+        filter_tree(self.tree, text)
 
     # ---- Detay paneli ---------------------------------------------------------
     _DETAIL_ROWS = [

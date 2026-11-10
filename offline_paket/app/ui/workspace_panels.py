@@ -5,7 +5,9 @@
                 (Δ, ortalama, min, maks), dondurunca yakınlaştırma.
   GaugePanel  — tek sinyallik ibreli gösterge.
   TablePanel  — sinyallerin anlık değer / ortalama / min / maks tablosu.
-  ControlPanel— Simülasyon Girişleri'ni (Throttle vb.) buradan göndermek için.
+
+Giriş gönderimi (Start/Throttle vb.) burada YOKTUR: Ana Sayfa (Uçuş Koşulları / Motor Kontrol) ve
+Kontrol Paneli sekmesi bunu yapar.
 
 Hepsi ortak SignalHub'tan okur; kendi başına veri toplamaz.
 """
@@ -16,7 +18,7 @@ import pyqtgraph as pg
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
-    QCheckBox, QColorDialog, QComboBox, QDoubleSpinBox, QGridLayout, QHBoxLayout,
+    QCheckBox, QColorDialog, QComboBox, QDoubleSpinBox, QHBoxLayout,
     QHeaderView, QLabel, QLineEdit, QMenu, QPushButton, QSizePolicy, QSplitter,
     QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
@@ -501,9 +503,8 @@ class GaugePanel(PanelBase):
 
     def __init__(self, hub):
         super().__init__(hub)
-        from app.ui.dashboard_tab import GaugeWidget
-        from app.ui.dash_widgets import DarkGauge
-        self.gauge = DarkGauge("—", 0.0, 100.0, "")
+        from app.ui.dash_widgets import DashGauge
+        self.gauge = DashGauge(0.0, 100.0, "", label="—")
         self.gauge.setMaximumHeight(16777215)
         self.name_label = QLabel("")
         self.name_label.setAlignment(Qt.AlignCenter)
@@ -540,18 +541,15 @@ class GaugePanel(PanelBase):
 
     def _signals_changed(self):
         sid = self.signals_ids[0] if self.signals_ids else None
-        self.gauge._label = label_of(sid) if sid else "—"
+        self.gauge.set_label(label_of(sid) if sid else "—")
         self.name_label.setText(sid or "")
-        self.gauge.update()
         self.changed.emit()
 
     def _on_range(self, *_):
         lo, hi = self.min_spin.value(), self.max_spin.value()
         if hi <= lo:
             hi = lo + 1.0
-        self.gauge.set_range(lo, hi)
-        self.gauge._unit = self.unit_edit.text()
-        self.gauge.update()
+        self.gauge.set_range(lo, hi, self.unit_edit.text())
         self.changed.emit()
 
     def refresh(self, span, frozen):
@@ -638,54 +636,3 @@ class TablePanel(PanelBase):
                 it = self.table.item(r, c)
                 if it is not None:
                     it.setText(fmt(val))
-
-
-# ============================================================ Kontrol
-class ControlPanel(PanelBase):
-    """Simülasyon Girişleri'ni (Start, Spark, Throttle, Altitude ...) gönderir.
-    Gönderim rolü/eşleme kontrolleri Ana Sayfa'daki panelle AYNIDIR."""
-    kind = "control"
-    title = "Kontrol"
-
-    def __init__(self, hub, input_defs, send_cb, values_cb):
-        super().__init__(hub)
-        self._send = send_cb
-        grid = QGridLayout()
-        grid.setColumnStretch(1, 1)
-        row = 0
-        self._widgets = {}
-        cur = values_cb() if values_cb else {}
-        for d in input_defs:
-            if not d.enabled:
-                continue
-            grid.addWidget(QLabel(f"{d.label}" + (f" [{d.unit}]" if d.unit else "")), row, 0)
-            if d.kind == "switch":
-                w = QCheckBox("Açık")
-                w.setChecked(bool(cur.get(d.key, 0)))
-                w.toggled.connect(lambda v, k=d.key: self._send(k, 1.0 if v else 0.0))
-            else:
-                w = QDoubleSpinBox()
-                w.setRange(d.minimum, d.maximum)
-                w.setDecimals(3 if d.kind == "const" else 1)
-                w.setSingleStep(0.5 if d.kind == "slider" else 0.01)
-                w.setValue(float(cur.get(d.key, d.minimum)))
-                w.editingFinished.connect(lambda k=d.key, ww=w: self._send(k, ww.value()))
-            grid.addWidget(w, row, 1)
-            self._widgets[d.key] = w
-            row += 1
-        note = QLabel("")
-        note.setVisible(False)
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(8, 8, 8, 8)
-        lay.addLayout(grid)
-        lay.addWidget(note)
-        lay.addStretch()
-
-    def add_signal(self, sid):      # kontrol panelinde sinyal kavramı yok
-        return False
-
-    def to_state(self):
-        return {}
-
-    def from_state(self, state):
-        pass

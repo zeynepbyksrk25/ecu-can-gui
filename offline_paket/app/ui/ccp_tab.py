@@ -13,11 +13,12 @@ sağlar.
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QCheckBox, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
-    QMessageBox, QPushButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
+    QMessageBox, QPushButton, QTreeWidgetItem, QVBoxLayout,
     QWidget,
 )
 
-ROLE_OBJECT = Qt.UserRole
+from app.ui.a2l_tree import ROLE_OBJECT, filter_tree, measurements_root, new_tree, payload_item  # noqa: F401 (ROLE_OBJECT: eski içe aktarma yolu)
+
 POLL_INTERVAL_MS = 250   # seçili nesne HER ZAMAN canlı okunur (önbellekten; bloklamaz)
 
 
@@ -164,9 +165,7 @@ class CCPTab(QWidget):
         self.search_edit.setPlaceholderText("İsme göre ara...")
         self.search_edit.textChanged.connect(self._apply_filter)
 
-        self.tree = QTreeWidget()
-        self.tree.setHeaderHidden(True)
-        self.tree.itemClicked.connect(self._on_item_clicked)
+        self.tree = new_tree(self._on_item_clicked)
 
         layout = QVBoxLayout()
         layout.addWidget(self.search_edit)
@@ -188,12 +187,7 @@ class CCPTab(QWidget):
             return
         summary = self.a2l_db.summary
 
-        measurements_root = QTreeWidgetItem(["Measurements (salt okunur)"])
-        for m in summary.measurements:
-            item = QTreeWidgetItem([m.name])
-            item.setData(0, ROLE_OBJECT, ("measurement", m))
-            measurements_root.addChild(item)
-        self.tree.addTopLevelItem(measurements_root)
+        self.tree.addTopLevelItem(measurements_root("Measurements (salt okunur)", summary.measurements))
 
         # Değiştirilebilir (tuneable) ve salt okunur Characteristic'leri ayrı
         # alt gruplarda gösteriyoruz — kullanıcının hangi parametreleri
@@ -203,8 +197,7 @@ class CCPTab(QWidget):
         tuneable_root = QTreeWidgetItem(["Değiştirilebilir (tuneable)"])
         readonly_root = QTreeWidgetItem(["Salt okunur"])
         for c in summary.characteristics:
-            item = QTreeWidgetItem([f"{c.name}  [{c.kind}]"])
-            item.setData(0, ROLE_OBJECT, ("characteristic", c))
+            item = payload_item(f"{c.name}  [{c.kind}]", ("characteristic", c))
             (readonly_root if c.read_only else tuneable_root).addChild(item)
         characteristics_root.addChild(tuneable_root)
         characteristics_root.addChild(readonly_root)
@@ -212,22 +205,7 @@ class CCPTab(QWidget):
         self.tree.expandAll()
 
     def _apply_filter(self, text: str):
-        text = text.strip().lower()
-
-        def filter_recursive(item: QTreeWidgetItem) -> bool:
-            if item.childCount() == 0:
-                visible = text in item.text(0).lower()
-                item.setHidden(not visible and bool(text))
-                return visible or not text
-            any_visible = False
-            for i in range(item.childCount()):
-                if filter_recursive(item.child(i)):
-                    any_visible = True
-            item.setHidden(not any_visible and bool(text))
-            return any_visible
-
-        for i in range(self.tree.topLevelItemCount()):
-            filter_recursive(self.tree.topLevelItem(i))
+        filter_tree(self.tree, text)
 
     # ---- Değer paneli ------------------------------------------------------
     def _build_value_panel(self) -> QGroupBox:

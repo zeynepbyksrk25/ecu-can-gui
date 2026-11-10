@@ -1,4 +1,4 @@
-"""Kullanıcı / Profil sekmesi (SRS Faz 5): rol seçimi (Operatör/Mühendis/
+"""Kullanıcı / Profil içeriği (SRS Faz 5; artık Ayarlar penceresinde, bkz. settings_dialog.py): rol seçimi (Operatör/Mühendis/
 Yönetici) ve bağlantı+CCP ayarlarını isimli profiller olarak kaydedip
 yeniden uygulama.
 

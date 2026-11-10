@@ -16,29 +16,36 @@ DashboardTab QFrame#rowFrame { background: transparent; border: none; border-bot
 DashboardTab QFrame#vsep { background: #D6DEE6; border: none; }
 DashboardTab QLabel#cardTitle { color: #243442; font-size: 13px; font-weight: 700; letter-spacing: 1px; }
 DashboardTab QLabel#rowName { color: #121A22; font-size: 14px; font-weight: 600; }
-DashboardTab QLabel#rowName:disabled { color: #7C8B98; }
+DashboardTab QLabel#rowName:disabled { color: #5F7080; }
 DashboardTab QLabel#mutedSmall { color: #51616F; font-size: 12px; }
 DashboardTab QLabel#okSmall { color: #1B8A4C; font-size: 12px; }
 DashboardTab QLabel#errSmall { color: #C22A1D; font-size: 12px; }
 DashboardTab QLabel#warnSmall, DashboardTab QLabel#warnDot { color: #9A6208; font-size: 12px; font-weight: 700; }
-DashboardTab QLabel#colHead { color: #7C8B98; font-size: 12px; font-weight: 700; letter-spacing: 1px; }
+DashboardTab QLabel#colHead { color: #5F7080; font-size: 12px; font-weight: 700; letter-spacing: 1px; }
 DashboardTab QLabel#onoff { color: #51616F; font-size: 12px; font-weight: 700; }
 DashboardTab QLabel#onoff[on="true"] { color: #1B8A4C; }
 DashboardTab QLabel#legendItem { color: #243442; font-size: 13px; }
 DashboardTab QLabel#chipGreen { background: #E6F4EC; color: #1B8A4C; border: 1px solid #9AD1B2;
     border-radius: 10px; padding: 1px 9px; font-size: 12px; font-weight: 600; }
+DashboardTab QLabel#chipMuted { background: #EEF2F6; color: #51616F; border: 1px solid #C9D3DC;
+    border-radius: 10px; padding: 1px 9px; font-size: 12px; font-weight: 600; }
+DashboardTab QLabel#roleBanner { background: #FFF4DC; color: #7A4E05; border: 1px solid #D9A441;
+    border-radius: 8px; padding: 6px 10px; font-size: 13px; font-weight: 600; }
+DashboardTab QPushButton#linkWarn { background: #FFF4DC; color: #7A4E05; border: 1px solid #D9A441;
+    border-radius: 10px; padding: 1px 10px; font-size: 12px; font-weight: 700; min-height: 18px; }
+DashboardTab QPushButton#linkWarn:hover { background: #FBE6B8; border-color: #9A6208; }
 DashboardTab QLabel#chipBad { background: #FBE9E7; color: #C22A1D; border: 1px solid #E3A29B;
     border-radius: 10px; padding: 1px 9px; font-size: 12px; font-weight: 700; }
 DashboardTab QLabel#trendReadout { background: rgba(10,24,40,235); border: 1px solid #B7C4D0;
     border-radius: 7px; padding: 5px 8px; font-size: 12px; }
 DashboardTab QDoubleSpinBox#valueSpin { background: #FFFFFF; border: 1px solid #B7C4D0; border-radius: 6px;
     padding: 1px 16px 1px 8px; color: #121A22; font-size: 14px; font-weight: 700; min-height: 20px; }
-DashboardTab QDoubleSpinBox#valueSpin:disabled { color: #8A98A5; border-color: #D6DEE6; }
+DashboardTab QDoubleSpinBox#valueSpin:disabled { color: #5F7080; border-color: #D6DEE6; }
 DashboardTab QDoubleSpinBox#valueSpin:focus { border-color: #0E6E8C; }
 DashboardTab QDoubleSpinBox#flightSpin { background: transparent; border: 1px solid transparent; border-radius: 6px;
     padding: 1px 20px 1px 2px; color: #121A22; font-size: 15px; font-weight: 700; min-height: 24px; }
 DashboardTab QDoubleSpinBox#flightSpin::up-button, DashboardTab QDoubleSpinBox#flightSpin::down-button { width: 16px; }
-DashboardTab QDoubleSpinBox#flightSpin:disabled { color: #8A98A5; }
+DashboardTab QDoubleSpinBox#flightSpin:disabled { color: #5F7080; }
 DashboardTab QDoubleSpinBox#flightSpin:focus { background: #FFFFFF; border: 1px solid #0E6E8C; }
 DashboardTab QPushButton { background: #F4F7FA; border: 1px solid #B7C4D0; border-radius: 8px; color: #121A22;
     padding: 6px 14px; font-weight: 600; }

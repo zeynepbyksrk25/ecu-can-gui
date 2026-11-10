@@ -131,4 +131,8 @@ def test_sensor_health_lists_faulty_sensor_with_reason(tab):
     labels = [l.text() for l in tab._health_labels]
     assert "1 arıza" in labels and any("Tt2" in t and "Açık devre" in t for t in labels)
     tab.set_sensor_fault("Tt2", None)
+    # taze veri yokken "Arıza yok" denmez: durum bilinmiyor
+    assert [l.text() for l in tab._health_labels] == ["Sensör verisi yok"]
+    tab.set_gauge_value("RPM", 1000.0)
+    tab.refresh_sensor_health()
     assert [l.text() for l in tab._health_labels] == ["Arıza yok"]

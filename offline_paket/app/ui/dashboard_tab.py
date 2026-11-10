@@ -27,8 +27,8 @@ from PySide6.QtWidgets import QLineEdit
 from app.dashboard_config import (
     ACTUATOR_KEYS, ACTUATOR_KINDS, ACTUATOR_LABELS, GAUGE_KEYS, Binding, DashboardConfig,
 )
-from app.ui.dash_widgets import (  # noqa: F401  (GaugeWidget/ToggleSwitch: eski import yolları)
-    DK_CYAN, DK_MUT, DashGauge, GaugeCard, GaugeWidget, IconLabel, LockButton, ToggleSwitch,
+from app.ui.dash_widgets import (  # noqa: F401  (ToggleSwitch: eski import yolu)
+    DK_CYAN, DK_MUT, DashGauge, GaugeCard, IconLabel, LockButton, ToggleSwitch,
     format_value,
 )
 from app.ui.dark_theme import dark_qss
@@ -77,7 +77,6 @@ class DashboardTab(QWidget):
     estop_requested = Signal()
     config_saved = Signal(object)        # DashboardConfig
     tick = Signal(list)                  # o an okunması gereken A2L ölçüm adları
-    open_graph_requested = Signal()
     gauge_sample = Signal(str, float)    # gösterge anahtarı, değer (Çalışma Alanı için)
     mappings_requested = Signal()        # "Eşleşmeler" penceresini aç
 
@@ -124,9 +123,14 @@ class DashboardTab(QWidget):
 
         left = QVBoxLayout()
         left.setSpacing(10)
+        self.role_banner = QLabel("")
+        self.role_banner.setObjectName("roleBanner")
+        self.role_banner.setWordWrap(True)
+        self.role_banner.setVisible(False)
+        left.addWidget(self.role_banner, 0)
         left.addWidget(self.sim_inputs, 0)
-        left.addWidget(self._build_actuators_card(), 0)
-        left.addStretch(1)      # pencere uzunsa artan boşluk kartın İÇİNDE değil, altında kalır
+        # Eyleyiciler kartı kalan yüksekliği alır: sağ sütunla aynı hizada biter, altta boşluk kalmaz
+        left.addWidget(self._build_actuators_card(), 1)
         left_w = QWidget()
         left_w.setLayout(left)
         # Genişlik sabit DEĞİL: alt sınırı içeriğin (yazı tipine göre) asgari genişliği belirler
@@ -167,8 +171,19 @@ class DashboardTab(QWidget):
         self.start_button.clicked.connect(self.motor_start_requested.emit)
         self.stop_button.clicked.connect(self.motor_stop_requested.emit)
         self.estop_button.clicked.connect(self._on_estop_clicked)
+        # Eşleme yokken Acil Durdurma ÇALIŞMAZ; bunu operatör fark etmeli (düğme gri/tıklanamaz bırakılmaz,
+        # yanında kalıcı bir uyarı gösterilir).
+        self.estop_warn = QLabel("⚠ Acil Durdurma eşlenmemiş")
+        self.estop_warn.setObjectName("estopWarn")
+        self.estop_warn.setToolTip("Acil Durdurma için DBC sinyali veya A2L değişkeni tanımlı değil: düğme komut GÖNDEREMEZ. "
+                                   "⚙ Eşleşmeler penceresinden tanımlayın; o zamana dek motoru manuel/fiziksel olarak durdurun.")
+        self.estop_warn.setVisible(True)
 
     def _on_estop_clicked(self):
+        if not self.config.estop.binding.is_set:
+            # Onay sorusu anlamsız: gönderilecek bir şey yok. MainWindow hatayı açıkça bildirir ve günlüğe yazar.
+            self.estop_requested.emit()
+            return
         confirm = QMessageBox.warning(
             self, "ACİL DURDURMA gönderilsin mi?",
             "Motoru derhal durdurmak üzere ACİL DURDURMA komutu gönderilecek. Devam edilsin mi?",
@@ -204,6 +219,12 @@ class DashboardTab(QWidget):
         self.map_warn_label = QLabel("")
         self.map_warn_label.setObjectName("warnSmall")
         head.addWidget(self.map_warn_label)
+        self.map_warn_button = QPushButton("Eşleşmeleri yapılandır")
+        self.map_warn_button.setObjectName("linkWarn")
+        self.map_warn_button.setCursor(Qt.PointingHandCursor)
+        self.map_warn_button.setVisible(False)
+        self.map_warn_button.clicked.connect(self.open_mappings)
+        head.addWidget(self.map_warn_button)
         lay.addLayout(head)
 
         grid = QGridLayout()
@@ -231,8 +252,13 @@ class DashboardTab(QWidget):
         self._health_labels = []
         faults = dict(self._faults)
         if not faults:
-            w = QLabel("Arıza yok")
-            w.setObjectName("chipGreen")
+            # "Arıza yok" ancak gerçekten taze veri varken söylenir; veri yoksa bilinmiyor.
+            now = time.monotonic()
+            has_data = any((now - v[1]) <= STALE_S for v in self._values.values())
+            w = QLabel("Arıza yok" if has_data else "Sensör verisi yok")
+            w.setObjectName("chipGreen" if has_data else "chipMuted")
+            if not has_data:
+                w.setToolTip("Henüz sensör verisi gelmedi; arıza durumu bilinmiyor.")
             self._health_box.addWidget(w)
             self._health_labels.append(w)
         else:
@@ -274,7 +300,8 @@ class DashboardTab(QWidget):
             else:
                 gc.gauge.set_value(None if val is None else val[0], dim=val is not None)
                 if key in unbound:
-                    gc.set_status("Eşleşme yok")
+                    # hepsi eşlenmemişse başlıktaki tek uyarı yeterli (8 kez tekrarlanmaz)
+                    gc.set_status("" if len(unbound) == len(self._gauge_cards) else "Eşleşme yok")
                 elif val is not None:
                     gc.set_status(f"Veri yok ({STALE_S:.0f} sn)")
                 else:
@@ -422,6 +449,7 @@ class DashboardTab(QWidget):
 
         for key in ACTUATOR_KEYS:
             lay.addWidget(self._build_actuator_row(key), 1)
+        lay.addStretch(1)       # artan yükseklik başlıkla satırlar arasına DEĞİL, kartın altına gider
         return card
 
     def _build_actuator_row(self, key: str) -> QFrame:
@@ -488,17 +516,23 @@ class DashboardTab(QWidget):
         e["name"].setEnabled(opened)
         e["icon"].setEnabled(opened)
         e["control"].setEnabled(opened)
-        e["name"].setStyleSheet("" if opened else "color:#7d93a8;")
+        e["name"].setStyleSheet("" if opened else "color:#5F7080;")
 
     def set_role(self, role: Role):
         self._role = role
+        locked = not can_override_actuator(role)
+        self.role_banner.setVisible(locked)
+        if locked:
+            self.role_banner.setText(
+                f"🔒 {role.value} rolü: girişler ve manuel (kilit) kontrolleri kapalı. "
+                "Açmak için Mühendis veya Yönetici rolü gerekir.")
 
     def _confirm_override(self, label: str) -> bool:
         if not can_override_actuator(self._role):
             QMessageBox.warning(
                 self, "Yetki yok",
                 f"{label} için manuel değeri açmak için Mühendis veya Yönetici rolü gerekir "
-                "(Kullanıcı / Profil sekmesinden rol seçin).")
+                "(sağ üstteki ⚙ Ayarlar penceresinden rol seçin).")
             return False
         if not self._override_confirmed_session:
             confirm = QMessageBox.warning(
@@ -677,13 +711,18 @@ class DashboardTab(QWidget):
         self._rebuild_trend_series()
         miss = cfg.unbound_gauges()
         self.map_warn_label.setText(f"⚠ {len(miss)} sensör bağlı değil" if miss else "")
+        self.map_warn_button.setVisible(bool(miss))
         self.start_button.setEnabled(cfg.motor_start.binding.is_set)
         self.stop_button.setEnabled(cfg.motor_stop.binding.is_set)
-        self.estop_button.setEnabled(cfg.estop.binding.is_set)
+        # Acil Durdurma HER ZAMAN tıklanabilir kalır: eşleme yoksa basınca açık bir hata verir (gri/sessiz değil).
+        self.estop_button.setEnabled(True)
+        self.estop_warn.setVisible(not cfg.estop.binding.is_set)
         for btn, cmd, label in ((self.start_button, cfg.motor_start, "Motoru Başlat"),
-                                 (self.stop_button, cfg.motor_stop, "Motoru Durdur"),
-                                 (self.estop_button, cfg.estop, "Acil Durdurma")):
+                                 (self.stop_button, cfg.motor_stop, "Motoru Durdur")):
             btn.setToolTip("" if btn.isEnabled() else f"{label} için ⚙ Eşleşmeler penceresinden DBC sinyali veya A2L değişkeni seçin.")
+        self.estop_button.setToolTip(
+            "" if cfg.estop.binding.is_set else
+            "UYARI: Acil Durdurma için eşleme tanımlı DEĞİL; basınca komut gönderilemez. ⚙ Eşleşmeler penceresinden tanımlayın.")
         for key in GAUGE_KEYS:
             if key not in cfg.gauge_a2l_map() and key not in cfg.gauge_can_map():
                 self._values.pop(key, None)

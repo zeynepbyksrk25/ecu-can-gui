@@ -81,12 +81,9 @@ Sürücü kurulduktan sonra adaptörü takıp Aygıt Yöneticisi'nde
 |---|---|
 | **Ana Sayfa** | Annunciator lamba şeridi (RED STOP LAMP/MIL LAMP/vb.), Motor Komutları, 8 ibre göstergeli Motor Parametreleri (RPM/İtki/PLA/Tt5/FP/FT/Ps2/Tt2), Sensör Durumu ve Arıza Tablosu, gömülü canlı grafik, **Eyleyiciler** (manuel override anahtarları — MATLAB/Simulink ile donanım testi için). Aşağıdaki "Ayarlar" bölümüne bakın — bu sekmenin çalışması için DBC/A2L eşlemelerini bir kere girmeniz gerekir. |
 | **CAN Monitor** | Bağlantı (arayüz/kanal/baudrate — arayüz seçimi "▸ Gelişmiş ayarlar" arkasında, varsayılan arayüz `virtual` — **gerçek test için `pcan` seçin**), İzleme (gelen/giden CAN trafiği), Gönderim (manuel/periyodik mesaj + DBC yükleme — Ana Sayfa'daki motor komutları ve eyleyici override'ları da aynı DBC'yi kullanır), Log (CAN trafiğini CSV'ye kaydetme) — tek sekmede birleşik |
-| A2L | A2L dosyası yükleyip Measurement/Characteristic nesnelerini gezme |
-| **Kalibrasyon** | İç sekmeler (4): **CCP** (canlı değer okuma, RAM'e geçici yazma, **Yönetici rolüyle flaşa kalıcı yazma**), **Harita Editörü** (1D/2D kalibrasyon tabloları, geri al/yinele, ısı haritası), **Parametre Listesi** (adres/hex ile serbest satırlar, toplu yaz/oku), **Geçmiş** (RAM ve FLAŞ yazımlarının eski/yeni değerleri, geri alma — FLAŞ kaydı uygulama kapansa bile kalıcıdır) |
-| Grafik | Birden fazla bağımsız grafik paneli ekleyip her birinde ayrı sinyaller izleme; fareyle "sensör takibi" (crosshair) |
-| **Tanılama** | CCP bağlantı testi + ham DIAG_SERVICE isteği, CAN bağlantı sağlığı + tüm CAN/CCP/kalibrasyon hatalarının tek listesi — birleşik |
-| Test Oturumu | Oturum başlat/bitir, olay günlüğü, PDF test raporu |
-| Kullanıcı / Profil | Rol seçimi (Operatör/Mühendis/Yönetici) ve bağlantı+CCP ayarlarını profil olarak kaydetme |
+| **Kalibrasyon** | İç sekmeler (5): **A2L** (A2L dosyası yükleyip Measurement/Characteristic nesnelerini gezme; kalibrasyonun ilk adımı), **CCP** (canlı değer okuma, RAM'e geçici yazma, **Yönetici rolüyle flaşa kalıcı yazma**), **Harita Editörü** (1D/2D kalibrasyon tabloları, geri al/yinele, ısı haritası), **Parametre Listesi** (adres/hex ile serbest satırlar, toplu yaz/oku), **Geçmiş** (RAM ve FLAŞ yazımlarının eski/yeni değerleri, geri alma — FLAŞ kaydı uygulama kapansa bile kalıcıdır) |
+| **Tanılama ve Oturum** | CCP bağlantı testi + ham DIAG_SERVICE isteği, CAN bağlantı sağlığı, test oturumu (başlat/bitir, PDF test raporu) ve TEK olay günlüğü ("Tümü / Yalnız hatalar" süzgeci) — birleşik |
+| **⚙ Ayarlar** (komut şeridi; sekme değil) | Rol seçimi (Operatör/Mühendis/Yönetici), bağlantı+CCP ayarlarını profil olarak kaydetme ve Eşleşmeler. "Rol: …" etiketine tıklayarak da açılır |
 
 ### Eyleyici manuel override (MATLAB/Simulink donanım testi)
 
@@ -104,13 +101,13 @@ girilir (bkz. aşağıdaki bölüm).
 
 **Ana Sayfa → Simülasyon Girişleri (sol panel):** Start / Spark / Primary Fuel anahtarları, Throttle (0–120 %), Altitude (0–30 kft), Alfa/Beta (±90°, şimdilik pasif) ve sabit değerler (Ma, Toplam Giriş Basıncı, Ortam Basıncı, Ortam Sıcaklığı). Anahtarlar anında, sürgüler bırakılınca, sabit değer kutuları Enter ile gönderilir; "Hepsini gönder" tümünü yollar. Girişler DBC sinyallerine bağlanır: panel ilk DBC yüklemesinde isimle otomatik eşler, olmayanlar **⚙ Bağla** ile seçilir. Gönderim için Mühendis/Yönetici rolü ve CAN bağlantısı gerekir. Kontrol Paneli ile aynı değeri paylaşır.
 
-**Performans (sol menü):** Compressor / Combustion / Turbine / Nozzle kartları (kadran + siyah dijital kutular), A kartında gönderilen uçuş koşullarının geri okunuşu ve 3 grafik. Değerler DBC (CAN) ya da A2L (CCP) kaynağından okunur; eşleme isimle otomatik denenir, eşleşmeyen kutuya **sağ tık → Sinyal bağla…**. Kutuya sağ tık → **Eşik ayarla…** (ör. Surge Margin altında sarı/kırmızı); eşik girilmezse renk değişmez. Kadran aralığı A2L min/max'tan alınır, yoksa otomatiktir (sağ tık → Aralığı ayarla). Grafiklerde "Seç…" ile sinyaller, "Normalize" ile farklı birimler tek eksende karşılaştırılır. Ayarlar `sim_interface.json` içinde saklanır.
+**Analiz → Performans:** Compressor / Combustion / Turbine / Nozzle kartları (kadran + siyah dijital kutular), A kartında gönderilen uçuş koşullarının geri okunuşu ve 3 grafik. Değerler DBC (CAN) ya da A2L (CCP) kaynağından okunur; eşleme isimle otomatik denenir, eşleşmeyen kutuya **sağ tık → Sinyal bağla…**. Kutuya sağ tık → **Eşik ayarla…** (ör. Surge Margin altında sarı/kırmızı); eşik girilmezse renk değişmez. Kadran aralığı A2L min/max'tan alınır, yoksa otomatiktir (sağ tık → Aralığı ayarla). Grafiklerde "Seç…" ile sinyaller, "Normalize" ile farklı birimler tek eksende karşılaştırılır. Ayarlar `sim_interface.json` içinde saklanır.
 
 ### Kontrol Paneli (Simulink/MATLAB tabanlı ECU testi)
 
 Sol menüde **Kontrol Paneli**: uçak girişlerini, sensör override'larını, çıkışları ve iç sinyalleri TEK sayfada toplar.
 
-1. **CAN Monitor → DBC yükle** ve **A2L** sekmesinden A2L dosyasını yükleyin. Sinyal kataloğu bu dosyalardan otomatik çıkar (CSV gerekmez).
+1. **CAN Monitor → DBC yükle** ve **Kalibrasyon → A2L** sekmesinden A2L dosyasını yükleyin. Sinyal kataloğu bu dosyalardan otomatik çıkar (CSV gerekmez).
 2. Sınıflandırma: DBC mesajının göndericisi `AIRCRAFT / UCAK / TESTER / HOST` ise **Uçak girişi** (GUI'den periyodik gönderilir; bir mesajın tüm sinyalleri TEK karede gider). Diğer DBC mesajları **Çıkış**. A2L'de `<İsim>_Ovr_Val` + `<İsim>_Ovr_En` çifti **Sensör girişi** (önce değer, sonra bayrak CCP ile yazılır; "ECU'nun gördüğü" = A2L'deki `<İsim>` ölçümü). Diğer A2L ölçümleri **Çıkış**; istenirse İç sinyal yapılır.
 3. **+ Sinyal kataloğu** ile ağaçtan işaretleyip **Panele ekle**. Görünümler, çalışma listesi ve senaryolar `kontrol_paneli.json` içinde saklanır.
 4. Değerleri yazın (sarı = bekliyor), **Uygula (N)** ile hepsini birlikte gönderin. Aralık dışı değer onay sorar. **Bekleyenleri geri al**, **Tüm override'ları kapat** ve **Gönderimi durdur/başlat** düğmeleri vardır.
@@ -145,8 +142,8 @@ uygulamada donanımla doğrulanmamıştır**. Bu yüzden:
 - Kalibrasyon (CCP) sekmesinde flaş yazma varsayılan olarak **kapalıdır**;
   "Deneysel flaş yazmayı etkinleştir" kutusunu işaretleyip güçlü bir onay
   diyaloğunu geçmeniz gerekir.
-- Flaşa yazmak/geri almak yalnızca **Yönetici** rolüyle mümkündür (Kullanıcı
-  / Profil sekmesinden rol seçin).
+- Flaşa yazmak/geri almak yalnızca **Yönetici** rolüyle mümkündür (sağ üstteki
+  ⚙ Ayarlar penceresinden rol seçin).
 - Her flaş yazımından önceki değer Kalibrasyon Geçmişi'ne **diske kalıcı**
   olarak kaydedilir; "eski haline getir" uygulama kapanıp açılsa bile
   çalışır (geri alma = eski değeri tekrar flaşa yazmaktır).
@@ -163,6 +160,17 @@ uygulamada donanımla doğrulanmamıştır**. Bu yüzden:
   her değişkenin **Değer** ve **Anahtar (`_sw`)** eşleşmesi ayrı ayrı **CAN (DBC) ya da A2L**
   olarak seçilir (sensörlerde isteğe bağlı *Arıza* biti de). Motoru Başlat / Durdur / Acil
   Durdurma da CAN veya A2L olabilir. Eski `dashboard_config.json` otomatik göç eder.
+- **Acil Durdurma ve Motoru Durdur güvenlik komutlarıdır:** (Acil Durdurma için) eşleme yoksa düğmenin yanında kalıcı "⚠ Acil Durdurma
+  eşlenmemiş" uyarısı görünür ve basınca komut GİTMEDİĞİ açıkça bildirilir. Eşleme varsa A2L min/max,
+  READ_ONLY ve DBC min/max denetimi komutu ENGELLEMEZ (sınır dışıysa olay günlüğüne not düşülür);
+  değer veri tipine / sinyalin bit genişliğine sığmıyorsa yine gönderilmez ve HATA olarak günlüğe yazılır.
+  Güvenlik komutları (Acil Durdurma, Motoru Durdur) CAN'da ilk kareden sonra AYNI kareyi 20 ms aralıkla
+  4 kez daha yollar (toplam 5; arayüzü bloklamaz, olay günlüğüne yazılır); A2L/CCP'de iletişim hatasında
+  en çok 3 kez yeniden yazar. Yazma sonrası geri OKUMA doğrulaması bilerek yoktur: komut bayrağını ECU modeli
+  tüketip sıfırlayabilir, bu yüzden uyuşmazlık başarısızlık sayılmaz.
+  Aynı sınır muafiyeti Motoru Durdur için de geçerlidir; Motoru Başlat ve eyleyici yazımlarında sınır
+  denetimi aynen geçerlidir. Bu davranış otomatik
+  testlerle yazılım düzeyinde sınanmıştır; gerçek ECU'da motoru durdurduğu donanımda ayrıca doğrulanmalıdır.
 - **Kilit (`_sw`)**: kilitli (anahtar=0) iken değer değiştirilemez. Kilit açılınca (Mühendis/Yönetici
   + onay) önce değer, sonra `<ad>_sw = 1` yazılır; tekrar kilitleyince `<ad>_sw = 0`.
 - **Canlı Trendler**: normalize yok, her sinyal gerçek birimiyle (çoklu Y ekseni); 60 sn/5 dk/10 dk/1 sa,
@@ -272,12 +280,11 @@ haberleşmeyi test edebilirsiniz.
 
 ## Ana Sayfa – seçilebilir Canlı Grafik
 - Canlı Grafik'in sağ üstündeki **Sinyalleri seç** düğmesiyle istediğiniz sayıda sinyal çizdirilir: 8 gösterge sinyali (RPM, İtki, PLA ...) ve yüklü A2L'deki tüm ölçümler. Penceredeki **İsme göre ara...** kutusu listeyi süzer.
-- Seçim kaydedilir (dashboard_config.json) ve Grafik sayfasındaki seçimden bağımsızdır. A2L ölçümlerinin okunması için CCP bağlantısı gerekir.
-- Grafik sayfasındaki her panelde de **İsme göre ara...** kutusu vardır.
+- Seçim kaydedilir (dashboard_config.json) ve Analiz → Çalışma Alanı'ndaki grafik panellerinden bağımsızdır. A2L ölçümlerinin okunması için CCP bağlantısı gerekir.
 
 ## Çalışma Alanı (Concerto / Data Inspector tarzı)
-Sol menüde **Çalışma Alanı**. Tek ekranda istediğiniz pencereleri kurarsınız:
-- **+ Grafik / + Gösterge / + Tablo / + Kontrol** düğmeleriyle pencere ekleyin; başlıklarından sürükleyip kenarlarından boyutlandırın. **Döşe / Kademeli** otomatik düzenler.
+**Analiz → Çalışma Alanı** iç sekmesi. Tek ekranda istediğiniz pencereleri kurarsınız:
+- **+ Grafik / + Gösterge / + Tablo** düğmeleriyle pencere ekleyin (giriş gönderimi için Ana Sayfa veya Kontrol Paneli kullanılır; eski yerleşimlerdeki "Kontrol" pencereleri açılışta atlanır); başlıklarından sürükleyip kenarlarından boyutlandırın. **Döşe / Kademeli** otomatik düzenler.
 - **Yerleşimi kaydet** ile düzeni isimle saklayın, listeden seçince yüklenir. Son düzen program kapanırken otomatik hatırlanır (workspace_layouts.json).
 - Soldaki **Sinyaller** listesi: A2L ölçümleri (CCP ile okunur), DBC sinyalleri (CAN'den çözülür), göstergeler, girişler, matematik ve içe aktarılan kayıtlar. **İsme göre ara...** ile süzün, çift tıklayıp etkin pencereye ekleyin.
 - **Dondur:** ekran sabitlenir, veri arka planda kaydedilmeye devam eder; fareyle yakınlaştırıp kaydırabilirsiniz. **Devam** canlı akışa döner.
@@ -314,3 +321,21 @@ Sol menüde **Çalışma Alanı**. Tek ekranda istediğiniz pencereleri kurarsı
 - Ana Sayfa'da sensör sağlığı ince bir şerit: yalnızca arızalı sensörler listelenir ("Arıza yok" / "N arıza").
 - Eyleyiciler: her kartta CAN | A2L kanal seçici. CAN = DBC mesajı; A2L = CCP ile değişken yazımı
   (⚙ Eşlemeler'de A2L enable / değer değişkenleri girilir). Seçim kalıcıdır.
+
+## Donanım devreye alma kontrol listesi (M220)
+Aşağıdakiler yazılımın otomatik testleriyle **kanıtlanamaz**; gerçek ECU ile ilk kullanımda elle denenmelidir
+(yazılım bu maddelerin ECU'da nasıl davranacağını bilmez, sonuçları not edin):
+1. **Acil Durdurma / Motoru Durdur:** Motor çalışırken basın; motor durdu mu, ne kadar sürede? Komut ECU'da
+   **mandallanıyor mu**, yoksa kare akışı kesilince varsayılana mı dönüyor (CAN alım zaman aşımı)? Sonucuna
+   göre komutun sürekli tutulması gerekebilir (yazılım şimdilik 5 kare gönderir, sonra bırakır).
+2. **Sınır dışı komut değeri:** Acil Durdurma/Durdur için yapılandırılan değer A2L/DBC sınırının dışındaysa
+   yazılım yine gönderir (olay günlüğünde "sınır denetimi atlandı" notu görünür); ECU'nun bu değere tepkisini doğrulayın.
+3. **Eyleyici / sensör override:** Ana Sayfa'dan ve Kontrol Paneli'nden AYNI CAN mesajına yazın; override
+   anahtarı ECU'da açık kalıyor mu? (Ana Sayfa ve Kontrol Paneli artık tek değer tablosunu paylaşır ve mesaj
+   periyodik gönderilir; ECU'nun periyodik değeri beklediğini doğrulayın.)
+4. **Bus-off ve kopma:** Hattı/kabloyu çıkarıp takın; yazılımın toparlanması ve sonrasında komutların
+   gönderilmesi (README "Doğrulanmayanlar": PCAN bus-off davranışı ve ECU açılış süresi donanımda doğrulanmadı).
+5. **Performans kadranları:** Gerçek veriyle iğne, değer ve etiketler okunuyor mu? Aralıklar (sağ tık →
+   Aralığı ayarla) doğru mu?
+6. **Eşleşmeler:** Acil Durdurma dahil tüm motor komutları ⚙ Eşleşmeler'de tanımlı mı? (Tanımsızsa komut
+   şeridinde "⚠ Acil Durdurma eşlenmemiş" görünür.)

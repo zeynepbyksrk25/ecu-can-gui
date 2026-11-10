@@ -155,7 +155,7 @@ class _GroupTable(QTableWidget):
         h.setMinimumSectionSize(40)
         self.setColumnWidth(0, 26)
         widths = {ROLE_AIRCRAFT_IN: [26, 190, 150, 60, 110, 150, 100],
-                  ROLE_SENSOR_OVR: [26, 190, 120, 130, 120, 60, 170],
+                  ROLE_SENSOR_OVR: [26, 190, 120, 130, 150, 60, 170],
                   ROLE_OUTPUT: [26, 190, 120, 100, 80, 60, 110, 130],
                   ROLE_INTERNAL: [26, 190, 120, 100, 80, 60, 110, 130]}[role]
         for i, w in enumerate(widths):
@@ -216,10 +216,11 @@ class _Section(QWidget):
         self.button.setText(f"{self.title}  ·  {count}")
         self.subtitle.setText(extra or "")
         self.empty_label.setVisible(count == 0 and self.button.isChecked())
+        self.table.setVisible(count > 0 and self.button.isChecked())   # boşken yalnızca başlık satırı görünmesin
 
     def _on_toggle(self, on: bool):
         self.button.setArrowType(Qt.DownArrow if on else Qt.RightArrow)
-        self.table.setVisible(on)
+        self.table.setVisible(on and self.table.rowCount() > 0)
         self.empty_label.setVisible(on and self.table.rowCount() == 0)
         self.toggled.emit(self.role, on)
 
@@ -597,7 +598,8 @@ class ControlPanelTab(QWidget):
         self.view_combo.activated.connect(self._on_view_selected)
         self.view_save = QPushButton("Görünümü kaydet…")
         self.view_save.clicked.connect(self._save_view)
-        self.view_delete = QPushButton("Sil")
+        self.view_delete = QPushButton("Görünümü sil")
+        self.view_delete.setToolTip("Seçili kayıtlı görünümü (sinyal listesi) siler; senaryolarla ilgisi yoktur")
         self.view_delete.clicked.connect(self._delete_view)
 
         self.search = QLineEdit()
@@ -617,7 +619,9 @@ class ControlPanelTab(QWidget):
 
         bar = QHBoxLayout()
         bar.addWidget(self.catalog_button)
-        bar.addWidget(QLabel("Görünüm:"))
+        lbl_view = QLabel("Görünüm:")
+        lbl_view.setToolTip("Görünüm = panelde hangi sinyallerin listelendiği (isimle kaydedilir)")
+        bar.addWidget(lbl_view)
         bar.addWidget(self.view_combo)
         bar.addWidget(self.view_save)
         bar.addWidget(self.view_delete)
@@ -636,6 +640,9 @@ class ControlPanelTab(QWidget):
                     "QPushButton:checked{background:#0E6E8C;color:#FFFFFF;border-color:#0E6E8C;}")
         chips = QHBoxLayout()
         chips.setSpacing(6)
+        lbl_show = QLabel("Göster:")
+        lbl_show.setToolTip("Tek seçim: hangi grup listelensin")
+        chips.addWidget(lbl_show)
         for key, label in (("all", "Tümü"), (ROLE_AIRCRAFT_IN, "Uçak girişleri"),
                            (ROLE_SENSOR_OVR, "Sensör girişleri"), (ROLE_OUTPUT, "Çıkışlar")):
             b = QPushButton(label)
@@ -647,6 +654,15 @@ class ControlPanelTab(QWidget):
             if key == "all":
                 b.setChecked(True)
         self._role_group.buttonClicked.connect(lambda _b: self._apply_filters())
+        sep = QFrame()
+        sep.setFrameShape(QFrame.VLine)
+        sep.setStyleSheet("color:#C9D3DC;")
+        chips.addSpacing(6)
+        chips.addWidget(sep)
+        chips.addSpacing(6)
+        lbl_state = QLabel("Süz:")
+        lbl_state.setToolTip("Birlikte geçerli: seçilen koşulların hepsini sağlayan satırlar kalır")
+        chips.addWidget(lbl_state)
         for key, label in (("pending", "Bekleyenler"), ("changed", "Değişenler"),
                            ("fault", "Arızalı"), ("ovr", "Override açık")):
             b = QPushButton(label)
@@ -660,8 +676,8 @@ class ControlPanelTab(QWidget):
         self.compact_check.setStyleSheet(chip_css)
         self.compact_check.setChecked(self.config.compact)
         self.compact_check.toggled.connect(self._on_compact)
-        chips.addWidget(self.compact_check)
         chips.addStretch()
+        chips.addWidget(self.compact_check)      # "Süz" grubundan ayrı: yalnızca satır yüksekliği
 
         # --- özet şeridi ---
         self.pending_label = QLabel("")
@@ -691,6 +707,21 @@ class ControlPanelTab(QWidget):
         self.status_label = QLabel("")
         self.status_label.setWordWrap(True)
 
+        # --- boş durum yönlendirmesi (hiç sinyal yokken 4 boş bölüm yerine) ---
+        self.onboarding = QLabel(
+            "<b>Kontrol Paneli — ECU'ya test girdisi verin ve çıkışları izleyin</b><br><br>"
+            "1. DBC (CAN Monitor sekmesi) ve A2L (Kalibrasyon &gt; A2L) dosyalarını yükleyin.<br>"
+            "2. <b>+ Sinyal kataloğu</b> ile istediğiniz sinyalleri panele ekleyin.<br>"
+            "3. Değer hücresine yazın (sarı = bekleyen), sensör için <b>Override</b> kutusunu işaretleyin.<br>"
+            "4. <b>Uygula</b> ile gönderin; sonucu <b>ECU'nun gördüğü</b> ve çıkış tablosunda izleyin.<br>"
+            "5. İşiniz bitince <b>Tüm override'ları kapat</b>.<br><br>"
+            "<span style='color:#51616F'>Değer göndermek için Mühendis veya Yönetici rolü gerekir.</span>")
+        self.onboarding.setTextFormat(Qt.RichText)
+        self.onboarding.setWordWrap(True)
+        self.onboarding.setStyleSheet("background:#FFFFFF;border:1px solid #C9D3DC;border-radius:10px;"
+                                      "padding:16px 20px;color:#121A22;")
+        self.onboarding.setVisible(False)
+
         # --- bölümler ---
         self.sections: dict[str, _Section] = {}
         sec_lay = QVBoxLayout()
@@ -705,15 +736,16 @@ class ControlPanelTab(QWidget):
             sec_lay.addWidget(sec)
             if role in self.config.collapsed:
                 sec.button.setChecked(False)
+        sec_lay.insertWidget(0, self.onboarding)
         sec_lay.addStretch()
         sec_box = QWidget()
         sec_box.setLayout(sec_lay)
 
         # --- sağ panel ---
         self.pending_list = QListWidget()
-        self.pending_list.setMinimumHeight(110)
+        self.pending_list.setMinimumHeight(70)
         self.effects_list = QListWidget()
-        self.effects_list.setMinimumHeight(110)
+        self.effects_list.setMinimumHeight(70)
         self.effects_title = QLabel("Son uygulamanın etkisi")
         self.scenario_combo = QComboBox()
         self.scenario_combo.setEditable(True)
@@ -723,6 +755,7 @@ class ControlPanelTab(QWidget):
         b_save = QPushButton("Kaydet")
         b_save.clicked.connect(self._scenario_save)
         b_del = QPushButton("Sil")
+        b_del.setToolTip("Seçili senaryoyu siler")
         b_del.clicked.connect(self._scenario_delete)
         srow = QHBoxLayout()
         srow.addWidget(b_load)
@@ -736,11 +769,14 @@ class ControlPanelTab(QWidget):
         self.effects_title.setText("<b>Son uygulamanın etkisi</b>")
         right.addWidget(self.effects_title)
         right.addWidget(self.effects_list)
-        right.addWidget(QLabel("<b>Senaryo</b>"))
+        scen_lab = QLabel("<b>Senaryo</b>")
+        scen_lab.setToolTip("Senaryo = sinyal DEĞERLERİ seti. Yükle, değerleri bekleyen olarak koyar; Uygula'ya basılana dek gönderilmez.")
+        right.addWidget(scen_lab)
         right.addWidget(self.scenario_combo)
         right.addLayout(srow)
         right.addStretch()
         right_box = QWidget()
+        self.right_box = right_box
         right_box.setLayout(right)
         right_box.setMinimumWidth(250)
         right_box.setMaximumWidth(330)
@@ -1463,7 +1499,6 @@ class ControlPanelTab(QWidget):
                 t.setRowHidden(r, hide)
                 if not hide:
                     visible_count += 1
-            sec.setVisible(sec_vis or t.rowCount() > 0 and role_filter == "all")
             sec.setVisible(sec_vis)
             t.fit_height(self.compact_check.isChecked())
             extra = ""
@@ -1475,6 +1510,13 @@ class ControlPanelTab(QWidget):
                           if tt is t and self._is_fault_active(self._sig(k), self._st(k)["live"]))
                 extra = f"{n_f} arıza"
             sec.set_summary(t.rowCount(), extra)
+        # hiç sinyal yoksa 4 boş bölüm yerine kısa kullanım yönlendirmesi göster
+        total = sum(sec.table.rowCount() for sec in self.sections.values())
+        self.onboarding.setVisible(total == 0)
+        self.right_box.setVisible(total > 0)     # boşken yan panel (bekleyen/etki/senaryo) gizli
+        if total == 0:
+            for sec in self.sections.values():
+                sec.setVisible(False)
 
     def _refresh_summary(self, light: bool = False):
         items = self.pending_items()
@@ -1557,19 +1599,43 @@ class ControlPanelTab(QWidget):
         if on:
             self.splitter.setSizes([420, 900])
 
+    def _view_dirty(self) -> bool:
+        """Seçili kayıtlı görünümün içeriği çalışma listesinden farklı mı (sinyal eklendi/çıkarıldı)?"""
+        cv = self.config.current_view
+        return bool(cv) and cv in self.config.views and list(self.config.views[cv]) != list(self.config.pinned)
+
     def _reload_views_combo(self):
+        """Görünüm listesi. Öğenin GERÇEK adı itemData'dadır; kaydedilmemiş değişiklik varsa görünen metne
+        "(değişti)" eklenir (ad aynı kalıp içerik farklıymış gibi görünmesin)."""
         self.view_combo.blockSignals(True)
         self.view_combo.clear()
-        self.view_combo.addItem("(Çalışma listesi)")
+        self.view_combo.addItem("(Çalışma listesi)", None)
+        dirty = self._view_dirty()
         for name in sorted(self.config.views):
-            self.view_combo.addItem(name)
-        i = self.view_combo.findText(self.config.current_view) if self.config.current_view else 0
+            label = f"{name} (değişti)" if dirty and name == self.config.current_view else name
+            self.view_combo.addItem(label, name)
+        i = self.view_combo.findData(self.config.current_view) if self.config.current_view else 0
         self.view_combo.setCurrentIndex(max(0, i))
+        self.view_combo.setToolTip("Kaydedilmemiş değişiklik var: başka görünüme geçerken sorulur; "
+                                   "'Görünümü kaydet…' ile güncelleyin." if dirty else "")
         self.view_combo.blockSignals(False)
         self.view_delete.setEnabled(self.view_combo.currentIndex() > 0)
 
     def _on_view_selected(self, idx: int):
-        name = self.view_combo.itemText(idx)
+        name = self.view_combo.itemData(idx) if idx > 0 else None
+        if self._view_dirty():
+            cv = self.config.current_view
+            ans = QMessageBox.question(
+                self, "Kaydedilmemiş değişiklik",
+                f"“{cv}” görünümünde kaydedilmemiş değişiklik var (sinyal eklendi/çıkarıldı).\n\n"
+                "Evet: görünüme kaydet ve devam et\nHayır: kaydetmeden devam et (değişiklik kaybolur)\n"
+                "İptal: olduğu gibi kal",
+                QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel, QMessageBox.Yes)
+            if ans == QMessageBox.Cancel:
+                self._reload_views_combo()          # seçimi eski haline döndür
+                return
+            if ans == QMessageBox.Yes:
+                self.config.views[cv] = list(self.config.pinned)
         if idx <= 0 or name not in self.config.views:
             self.config.current_view = ""
         else:
@@ -1578,7 +1644,7 @@ class ControlPanelTab(QWidget):
         self.config.save()
         self.catalog_panel.set_pinned(self.config.pinned)
         self._rebuild_tables()
-        self.view_delete.setEnabled(idx > 0)
+        self._reload_views_combo()
 
     def _save_view(self):
         name, ok = QInputDialog.getText(self, "Görünümü kaydet", "Görünüm ismi:",
@@ -1593,7 +1659,7 @@ class ControlPanelTab(QWidget):
         self._set_status(f"“{name}” görünümü kaydedildi ({len(self.config.pinned)} sinyal).", True)
 
     def _delete_view(self):
-        name = self.view_combo.currentText()
+        name = self.view_combo.currentData()
         if name in self.config.views:
             del self.config.views[name]
             self.config.current_view = ""
