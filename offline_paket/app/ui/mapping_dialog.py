@@ -16,10 +16,10 @@ from PySide6.QtWidgets import (
 )
 
 from app.dashboard_config import (
-    ACTUATOR_KEYS, ACTUATOR_LABELS, MOTOR_COMMAND_KEYS, MOTOR_COMMAND_LABELS, SENSOR_KEYS,
+    ACTUATOR_LABELS, CONTROL_KEYS, EYLEYICI_KEYS, MOTOR_COMMAND_KEYS, MOTOR_COMMAND_LABELS, SENSOR_KEYS,
     SENSOR_LABELS, SOURCE_A2L, SOURCE_CAN, Binding, DashboardConfig, MotorCommand, SignalMap,
 )
-from app.sim_interface import INPUT_DEFS, auto_match
+from app.sim_interface import FLIGHT_DEFS, auto_match
 from app.ui.dark_theme import dark_qss
 from app.ui.dash_widgets import DK_CYAN, IconLabel
 
@@ -172,8 +172,9 @@ class MappingDialog(QDialog):
     """Koyu temalı, 2 sekmeli Eşleşmeler penceresi.
 
     * **Sinyaller**: Sensörler (Değer / Anahtar / Arıza) tam genişlikte; altında yan yana
-      Eyleyiciler (Değer / Anahtar) ve Motor Komutları.
-    * **Girişler**: Uçuş Koşulları ve Motor Kontrol girişlerinin DBC sinyalleri (yan yana).
+      Eyleyiciler ve Motor Kontrol (ikisi de Değer / Anahtar, CAN ya da A2L); en altta Motor Komutları
+      (Komut + Değer + isteğe bağlı Anahtar).
+    * **Uçuş Koşulları**: uçaktan gelen girişlerin DBC sinyalleri (yalnızca CAN).
     """
 
     def __init__(self, config: DashboardConfig, sim_panel, dbc, a2l_summary, parent=None):
@@ -207,8 +208,9 @@ class MappingDialog(QDialog):
         if not self._a2l:
             warn += "   <span style='color:#9A6208'>⚠ A2L yüklü değil.</span>"
         info = QLabel(
-            "Her sensör ve eyleyici için <b>Değer</b> ve <b>Anahtar (_sw)</b> ayrı ayrı CAN (DBC) ya da "
-            "A2L olarak seçilir. Anahtar 1 iken değer arayüzden değiştirilebilir, 0 iken değiştirilemez." + warn)
+            "Her sensör, eyleyici ve Motor Kontrol girişi için <b>Değer</b> ve <b>Anahtar (_sw)</b> ayrı ayrı CAN (DBC) "
+            "ya da A2L olarak seçilir. Anahtar 1 iken değer arayüzden değiştirilebilir, 0 iken değiştirilemez. "
+            "CAN için ad <b>MESAJ.SİNYAL</b> biçimindedir; kutunun solundaki kutudan CAN/A2L seçin." + warn)
         info.setObjectName("mutedSmall")
         info.setTextFormat(Qt.RichText)
         info.setWordWrap(True)
@@ -216,12 +218,14 @@ class MappingDialog(QDialog):
 
         self.sensor_ed: dict = {}
         self.actuator_ed: dict = {}
+        self.control_ed: dict = {}
         self.motor_ed: dict = {}
+        self.motor_sw_ed: dict = {}
         self.input_ed: dict = {}
 
         self.tabs = QTabWidget()
         self.tabs.addTab(self._build_signals_tab(), "Sinyaller")
-        self.tabs.addTab(self._build_inputs_tab(), "Girişler (Uçuş / Motor Kontrol)")
+        self.tabs.addTab(self._build_inputs_tab(), "Uçuş Koşulları")
         root.addWidget(self.tabs, 1)
 
         bar = QHBoxLayout()
@@ -275,7 +279,7 @@ class MappingDialog(QDialog):
         card, grid, _h = _card("Eyleyiciler", "actuator")
         for c, t in enumerate(("", "Değer", "Anahtar (_sw)")):
             grid.addWidget(_col_head(t), 0, c)
-        for r, key in enumerate(ACTUATOR_KEYS, start=1):
+        for r, key in enumerate(EYLEYICI_KEYS, start=1):
             smap = self._cfg.actuators.get(key, SignalMap())
             grid.addWidget(_row_label(ACTUATOR_LABELS[key]), r, 0)
             ed = {"value": self._editor(smap.value), "sw": self._editor(smap.sw)}
@@ -285,15 +289,34 @@ class MappingDialog(QDialog):
         grid.setColumnMinimumWidth(0, 140)
         grid.setColumnStretch(1, 1)
         grid.setColumnStretch(2, 1)
-        row.addWidget(card, 3)
+        row.addWidget(card, 1)
 
+        # Motor Kontrol: Eyleyicilerle aynı model (CAN ya da A2L); _sw burada İSTEĞE BAĞLI
+        card, grid, _h = _card("Motor Kontrol", "sliders")
+        for c, t in enumerate(("", "Değer", "Anahtar (_sw, isteğe bağlı)")):
+            grid.addWidget(_col_head(t), 0, c)
+        for r, key in enumerate(CONTROL_KEYS, start=1):
+            smap = self._cfg.actuators.get(key, SignalMap())
+            grid.addWidget(_row_label(ACTUATOR_LABELS[key]), r, 0)
+            ed = {"value": self._editor(smap.value), "sw": self._editor(smap.sw)}
+            grid.addWidget(ed["value"], r, 1)
+            grid.addWidget(ed["sw"], r, 2)
+            self.control_ed[key] = ed
+        grid.setColumnMinimumWidth(0, 140)
+        grid.setColumnStretch(1, 1)
+        grid.setColumnStretch(2, 1)
+        row.addWidget(card, 1)
+        v.addLayout(row)
+
+        # Motor Komutları (Başlat / Durdur / Acil Durdurma): komut + yazılacak değer + isteğe bağlı _sw
         card, grid, _h = _card("Motor Komutları", "play")
-        for c, t in enumerate(("", "Komut", "Değer")):
+        for c, t in enumerate(("", "Komut (CAN ya da A2L)", "Değer", "Anahtar (_sw, isteğe bağlı: değerden sonra 1 yazılır)")):
             grid.addWidget(_col_head(t), 0, c)
         for r, key in enumerate(MOTOR_COMMAND_KEYS, start=1):
             cmd: MotorCommand = getattr(self._cfg, key)
             grid.addWidget(_row_label(MOTOR_COMMAND_LABELS[key]), r, 0)
             be = self._editor(cmd.binding)
+            sw = self._editor(cmd.sw)
             val = QDoubleSpinBox()
             val.setRange(-1e9, 1e9)
             val.setDecimals(3)
@@ -301,11 +324,13 @@ class MappingDialog(QDialog):
             val.setFixedWidth(96)
             grid.addWidget(be, r, 1)
             grid.addWidget(val, r, 2)
+            grid.addWidget(sw, r, 3)
             self.motor_ed[key] = (be, val)
-        grid.setColumnMinimumWidth(0, 120)
-        grid.setColumnStretch(1, 1)
-        row.addWidget(card, 2)
-        v.addLayout(row)
+            self.motor_sw_ed[key] = sw
+        grid.setColumnMinimumWidth(0, 140)
+        grid.setColumnStretch(1, 2)
+        grid.setColumnStretch(3, 2)
+        v.addWidget(card)
         v.addStretch(1)
         return _scroll(page)
 
@@ -329,13 +354,13 @@ class MappingDialog(QDialog):
 
         row = QHBoxLayout()
         row.setSpacing(10)
-        for title, icon, group in (("Uçuş Koşulları", "plane", "aircraft"), ("Motor Kontrol", "sliders", "control")):
+        for title, icon, group in (("Uçuş Koşulları", "plane", "aircraft"),):
             card, grid, _h = _card(title, icon)
             grid.setVerticalSpacing(12)           # az satırlı sekme daha ferah dursun
             grid.addWidget(_col_head(""), 0, 0)
             grid.addWidget(_col_head("DBC sinyali"), 0, 1)
             r = 1
-            for d in INPUT_DEFS:
+            for d in FLIGHT_DEFS:
                 if d.group != group:
                     continue
                 grid.addWidget(_row_label(d.display + (f"  [{d.unit}]" if d.unit else "")), r, 0)
@@ -360,7 +385,7 @@ class MappingDialog(QDialog):
     # ------------------------------------------------------------ otomatik
     def _auto_sw(self):
         """Değeri girilmiş ama anahtarı boş olanlar için aynı kaynakta ``<ad>_sw`` bulur."""
-        for store in (self.sensor_ed, self.actuator_ed):
+        for store in (self.sensor_ed, self.actuator_ed, self.control_ed):
             for ed in store.values():
                 if ed["sw"].text() or not ed["value"].text():
                     continue
@@ -373,7 +398,7 @@ class MappingDialog(QDialog):
 
     def _auto_inputs(self):
         sources = self._sim.sources()
-        for d in INPUT_DEFS:
+        for d in FLIGHT_DEFS:
             be = self.input_ed[d.key]
             if be.text():
                 continue
@@ -388,14 +413,15 @@ class MappingDialog(QDialog):
         for key, ed in self.sensor_ed.items():
             cfg.sensors[key] = SignalMap(value=ed["value"].binding(), sw=ed["sw"].binding(),
                                          fault=ed["fault"].binding())
-        for key, ed in self.actuator_ed.items():
+        for key, ed in list(self.actuator_ed.items()) + list(self.control_ed.items()):
             cfg.actuators[key] = SignalMap(value=ed["value"].binding(), sw=ed["sw"].binding())
         for key, (be, val) in self.motor_ed.items():
-            setattr(cfg, key, MotorCommand(binding=be.binding(), value=float(val.value())))
+            setattr(cfg, key, MotorCommand(binding=be.binding(), value=float(val.value()),
+                                           sw=self.motor_sw_ed[key].binding()))
         return cfg
 
     def accept(self):
-        # giriş (uçuş / motor kontrol) eşleşmeleri SimConfig'te tutulur
+        # uçuş koşulları eşleşmeleri SimConfig'te tutulur (Motor Kontrol artık DashboardConfig'te)
         new_map = {}
         for key, be in self.input_ed.items():
             b = be.binding()

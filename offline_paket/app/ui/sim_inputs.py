@@ -1,26 +1,26 @@
-"""Ana Sayfa'daki iki giriş kartı: **Uçuş Koşulları** (uçaktan gelen değerler) ve
-**Motor Kontrol** (kullanıcı komutları). Değerler CAN hattından (DBC) basılır;
-gönderimi MainWindow yapar, bu widget yalnızca ``values_changed({anahtar: değer})``
-sinyali yayar. Sinyal eşleşmeleri "Eşleşmeler" penceresinden yapılır."""
+"""Ana Sayfa'daki **Uçuş Koşulları** kartı (uçaktan gelen değerler). Değerler CAN hattından (DBC)
+basılır; gönderimi MainWindow yapar, bu widget yalnızca ``values_changed({anahtar: değer})``
+sinyali yayar. Sinyal eşleşmeleri "Eşleşmeler" penceresinden yapılır.
+
+Motor Kontrol (Start/Spark/Gaz Kolu/Birincil Yakıt) artık buradan GİTMEZ: Eyleyiciler gibi kilitli
+satırlardır (bkz. DashboardTab)."""
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QDoubleSpinBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QSlider, QVBoxLayout, QWidget,
+    QDoubleSpinBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget,
 )
 
 from app.ui.noscroll import no_wheel
-from app.sim_interface import INPUT_BY_KEY, INPUT_DEFS, SimConfig, auto_match, list_sources
-from app.ui.dash_widgets import DK_CYAN, DK_MUT, IconLabel, ToggleSwitch
+from app.sim_interface import FLIGHT_DEFS, INPUT_BY_KEY, SimConfig, auto_match, list_sources
+from app.ui.dash_widgets import ACCENTS, DK_MUT, IconLabel
 
 FLIGHT_LEFT = ["altitude", "ma", "alfa", "beta"]
 FLIGHT_RIGHT = ["p_amb", "t_amb", "p_total"]
-CONTROL_ORDER = ["start", "spark", "throttle", "primary_fuel"]
 
 ICON_OF = {
     "altitude": "alt", "ma": "mach", "alfa": "alpha", "beta": "beta",
     "p_amb": "cloud", "t_amb": "temp", "p_total": "pin",
-    "start": "power", "spark": "spark", "throttle": "throttle", "primary_fuel": "fuel",
 }
-DECIMALS = {"altitude": 1, "ma": 2, "alfa": 1, "beta": 1, "p_amb": 3, "t_amb": 1, "p_total": 3, "throttle": 1}
+DECIMALS = {"altitude": 1, "ma": 2, "alfa": 1, "beta": 1, "p_amb": 3, "t_amb": 1, "p_total": 3}
 
 _FALLBACK_DEFAULTS = {"ma": 0.0, "p_total": 1.013, "p_amb": 1.013, "t_amb": 15.0}
 
@@ -28,7 +28,7 @@ _FALLBACK_DEFAULTS = {"ma": 0.0, "p_total": 1.013, "p_amb": 1.013, "t_amb": 15.0
 def card_title(text: str, icon: str) -> QHBoxLayout:
     row = QHBoxLayout()
     row.setSpacing(8)
-    row.addWidget(IconLabel(icon, DK_CYAN, 18))
+    row.addWidget(IconLabel(icon, ACCENTS["blue"], 18))
     t = QLabel(text.upper())
     t.setObjectName("cardTitle")
     row.addWidget(t)
@@ -60,6 +60,7 @@ class SimInputsPanel(QWidget):
         # ---- Uçuş Koşulları
         self.flight_card = QFrame()
         self.flight_card.setObjectName("card")
+        self.flight_card.setProperty("accent", "blue")
         fl = QVBoxLayout(self.flight_card)
         fl.setContentsMargins(14, 8, 14, 6)
         fl.setSpacing(2)
@@ -67,6 +68,15 @@ class SimInputsPanel(QWidget):
         self.flight_cycle = QLabel("")
         self.flight_cycle.setObjectName("mutedSmall")
         head.addWidget(self.flight_cycle)
+        self.send_all_button = QPushButton("Hepsini gönder")
+        self.send_all_button.setProperty("compact", True)
+        self.send_all_button.setProperty("tone", "go")
+        self.send_all_button.clicked.connect(self._send_all)
+        self.reset_button = QPushButton("Varsayılan")
+        self.reset_button.setProperty("compact", True)
+        self.reset_button.clicked.connect(self._reset)
+        head.addWidget(self.reset_button)
+        head.addWidget(self.send_all_button)
         fl.addLayout(head)
         # Izgara: sol ve sağ sütun satır satır AYNI yükseklikte hizalanır; etiket sütunları
         # yazı tipine göre kendi metin genişliğini ister (kırpılmaz).
@@ -86,25 +96,6 @@ class SimInputsPanel(QWidget):
         fl.addLayout(grid)
         root.addWidget(self.flight_card)
 
-        # ---- Motor Kontrol
-        self.control_card = QFrame()
-        self.control_card.setObjectName("card")
-        cl = QVBoxLayout(self.control_card)
-        cl.setContentsMargins(14, 8, 14, 6)
-        cl.setSpacing(0)
-        head = card_title("Motor Kontrol", "sliders")
-        self.send_all_button = QPushButton("Hepsini gönder")
-        self.send_all_button.setProperty("compact", True)
-        self.send_all_button.setProperty("tone", "go")
-        self.send_all_button.clicked.connect(self._send_all)
-        self.reset_button = QPushButton("Varsayılan")
-        self.reset_button.setProperty("compact", True)
-        self.reset_button.clicked.connect(self._reset)
-        head.addWidget(self.reset_button)
-        head.addWidget(self.send_all_button)
-        cl.addLayout(head)
-        for k in CONTROL_ORDER:
-            cl.addLayout(self._control_row(INPUT_BY_KEY[k]))
         # Tek satırlık durum: gönderim sonucu varsa o, yoksa eşleşme uyarısı
         self._info_text = ""
         self._status_text = ""
@@ -112,11 +103,10 @@ class SimInputsPanel(QWidget):
         self.status_label = QLabel("")
         self.status_label.setObjectName("mutedSmall")
         self.status_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        cl.addWidget(self.status_label)
-        root.addWidget(self.control_card)
+        fl.addWidget(self.status_label)
 
         self._building = False
-        for d in INPUT_DEFS:
+        for d in FLIGHT_DEFS:
             self._set_widget(d.key, self._initial(d.key))
         self._refresh_warn()
 
@@ -167,52 +157,6 @@ class SimInputsPanel(QWidget):
         wrap.setMinimumHeight(36)
         return wrap
 
-    def _control_row(self, d) -> QVBoxLayout:
-        box = QVBoxLayout()
-        box.setSpacing(0)
-        box.setContentsMargins(0, 0, 0, 0)
-        row = QHBoxLayout()
-        row.setSpacing(10)
-        row.setContentsMargins(0, 0, 0, 0)
-        lab = self._name_label(d)
-        warn = QLabel("")
-        warn.setObjectName("warnDot")
-        row.addWidget(IconLabel(ICON_OF[d.key], DK_MUT, 18))
-        row.addWidget(lab, 1)
-        row.addWidget(warn)
-        if d.kind == "switch":
-            sw = ToggleSwitch()
-            sw.toggled.connect(lambda checked, k=d.key: self._on_switch(k, checked))
-            row.addWidget(sw)
-            self._ctrl[d.key] = {"kind": "switch", "w": sw, "warn": warn, "label": lab}
-        else:
-            spin = self._spin(d)
-            spin.setMinimumWidth(108)
-            sl = no_wheel(QSlider(Qt.Horizontal))
-            sl.setRange(int(d.minimum * 10), int(d.maximum * 10))
-            sl.sliderReleased.connect(lambda k=d.key: self._emit_one(k))
-            sl.valueChanged.connect(lambda v, k=d.key: self._slider_moved(k, v))
-            spin.editingFinished.connect(lambda k=d.key: self._spin_done(k))
-            row.addWidget(spin)
-            self._ctrl[d.key] = {"kind": "slider", "w": spin, "slider": sl, "warn": warn, "label": lab}
-        wrap = QFrame()
-        wrap.setObjectName("rowFrame")
-        wrap.setLayout(row)
-        wrap.setMinimumHeight(34)
-        box.addWidget(wrap)
-        if d.kind == "slider":
-            srow = QHBoxLayout()
-            srow.setContentsMargins(28, 0, 0, 2)
-            srow.setSpacing(8)
-            lo, hi = QLabel(f"{d.minimum:g}%"), QLabel(f"{d.maximum:g}%")
-            for x in (lo, hi):
-                x.setObjectName("mutedSmall")
-            srow.addWidget(lo)
-            srow.addWidget(self._ctrl[d.key]["slider"], 1)
-            srow.addWidget(hi)
-            box.addLayout(srow)
-        return box
-
     # ------------------------------------------------------------ değerler
     def _default_of(self, key: str) -> float:
         d = INPUT_BY_KEY[key]
@@ -248,7 +192,7 @@ class SimInputsPanel(QWidget):
         return float(c["w"].value())
 
     def values(self) -> dict:
-        return {d.key: self.value_of(d.key) for d in INPUT_DEFS}
+        return {d.key: self.value_of(d.key) for d in FLIGHT_DEFS}
 
     def send_value(self, key: str, value: float):
         """Dışarıdan (Çalışma Alanı > Kontrol) değer gönderir: widget'ı günceller ve
@@ -272,31 +216,9 @@ class SimInputsPanel(QWidget):
         return (s.where, s.name) if s is not None else None
 
     def sendable_keys(self) -> list:
-        return [d.key for d in INPUT_DEFS if d.enabled and self.mapped(d.key) is not None]
+        return [d.key for d in FLIGHT_DEFS if d.enabled and self.mapped(d.key) is not None]
 
     # ------------------------------------------------------------ olaylar
-    def _on_switch(self, key, checked):
-        if self._building:
-            return
-        self._emit({key: 1.0 if checked else 0.0})
-
-    def _slider_moved(self, key, v):
-        if self._building:
-            return
-        c = self._ctrl[key]
-        self._building = True
-        c["w"].setValue(v / 10.0)
-        self._building = False
-        if not c["slider"].isSliderDown():       # ok tuşları / tekerlek
-            self._emit({key: v / 10.0})
-
-    def _spin_done(self, key):
-        c = self._ctrl[key]
-        self._building = True
-        c["slider"].setValue(int(round(c["w"].value() * 10)))
-        self._building = False
-        self._emit({key: self.value_of(key)})
-
     def _emit_one(self, key):
         if self._building:
             return
@@ -320,7 +242,7 @@ class SimInputsPanel(QWidget):
         self._emit({k: self.value_of(k) for k in keys})
 
     def _reset(self):
-        for d in INPUT_DEFS:
+        for d in FLIGHT_DEFS:
             self._set_widget(d.key, self._default_of(d.key))
             self.config.input_values.pop(d.key, None)
         self.config.save()
@@ -329,7 +251,7 @@ class SimInputsPanel(QWidget):
     # ------------------------------------------------------------ dışarıdan
     def set_allowed(self, allowed: bool):
         self._allowed = allowed
-        for d in INPUT_DEFS:
+        for d in FLIGHT_DEFS:
             c = self._ctrl[d.key]
             on = allowed and d.enabled
             c["w"].setEnabled(on)
@@ -370,7 +292,7 @@ class SimInputsPanel(QWidget):
         self._sources = list_sources(ok, None, dbc_only=True)
         self._src = {s.key: s for s in self._sources}
         changed = False
-        for d in INPUT_DEFS:
+        for d in FLIGHT_DEFS:
             cur = self.config.input_map.get(d.key)
             if cur:
                 continue
@@ -390,7 +312,7 @@ class SimInputsPanel(QWidget):
     def _refresh_warn(self):
         missing = []
         show = bool(self._sources)  # DBC hiç yokken satır satır uyarı yok; tek banner
-        for d in INPUT_DEFS:
+        for d in FLIGHT_DEFS:
             c = self._ctrl[d.key]
             bound = self.mapped(d.key) is not None
             c["warn"].setText("" if (bound or not d.enabled or not show) else "⚠")

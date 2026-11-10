@@ -263,6 +263,57 @@ def test_motor_stop_over_can_ignores_dbc_limits_but_not_bit_width(win, can_out):
     assert len(can_out) == 1 and any("Motor Stop GÖNDERİLEMEDİ" in m for m in _hata(win))
 
 
+def test_motor_command_with_sw_on_same_can_message_goes_in_one_frame(win, can_out):
+    """Komut + _sw aynı CAN mesajındaysa TEK karede gider (ikinci kare birincinin değerini sıfırlamasın)."""
+    cfg = DashboardConfig()
+    cfg.motor_start = MotorCommand(Binding(SOURCE_CAN, "OVERRIDE", "valf_cmd"), 50.0,
+                                   sw=Binding(SOURCE_CAN, "OVERRIDE", "valf_cmd_sw"))
+    win.dashboard_tab.set_config(cfg)
+    win._on_motor_start()
+    assert len(can_out) == 1
+    v = win.transmit_tab.dbc.get_message("OVERRIDE").decode(can_out[0][1], decode_choices=False)
+    assert v["valf_cmd"] == pytest.approx(50.0, abs=0.1) and v["valf_cmd_sw"] == 1
+    assert any("OVERRIDE.valf_cmd_sw=1" in m for m in _motor_notes(win))
+
+
+def test_motor_command_with_sw_mixed_sources_writes_value_then_sw(win, ccp, can_out):
+    name = "clbc_Fuel_pump_dc_perc"
+    addr = _addr(win, name)
+    cfg = DashboardConfig()
+    cfg.motor_start = MotorCommand(Binding(SOURCE_A2L, a2l_name=name), 1.0,
+                                   sw=Binding(SOURCE_CAN, "OVERRIDE", "pump_dc_sw"))
+    win.dashboard_tab.set_config(cfg)
+    win._on_motor_start()
+    assert struct.unpack("<f", ccp.read_memory_bytes(addr, 4))[0] == pytest.approx(1.0)   # değer A2L'ye yazıldı
+    assert len(can_out) == 1 and win.transmit_tab.dbc.get_message("OVERRIDE").decode(
+        can_out[0][1], decode_choices=False)["pump_dc_sw"] == 1                # sonra _sw=1 CAN'dan
+
+
+def test_motor_command_sw_is_not_sent_if_value_write_fails(win, can_out):
+    cfg = DashboardConfig()
+    cfg.motor_start = MotorCommand(Binding(SOURCE_A2L, a2l_name="yok_boyle_degisken"), 1.0,
+                                   sw=Binding(SOURCE_CAN, "OVERRIDE", "pump_dc_sw"))
+    win.dashboard_tab.set_config(cfg)
+    win._on_motor_start()                                                      # CCP bağlı değil -> değer yazılamaz
+    assert can_out == []                                                       # _sw gönderilmedi
+    assert any("Motor Start GÖNDERİLEMEDİ" in m for m in _hata(win))
+
+
+def test_safety_command_pair_series_repeats_the_combined_frame(win, can_out):
+    from PySide6.QtTest import QTest
+    cfg = DashboardConfig()
+    cfg.motor_stop = MotorCommand(Binding(SOURCE_CAN, "OVERRIDE", "valf_cmd"), 0.0,
+                                  sw=Binding(SOURCE_CAN, "OVERRIDE", "valf_cmd_sw"))
+    win.dashboard_tab.set_config(cfg)
+    win._on_motor_stop()
+    end = 0
+    while len(can_out) < 5 and end < 5000:
+        QTest.qWait(20)
+        end += 20
+    assert len(can_out) == 5 and len(set(can_out)) == 1
+    assert win.transmit_tab.dbc.get_message("OVERRIDE").decode(can_out[0][1], decode_choices=False)["valf_cmd_sw"] == 1
+
+
 def test_dbc_encode_strict_default_rejects_out_of_range_and_non_strict_allows_it(win):
     dbc = win.transmit_tab.dbc
     with pytest.raises(ValueError):

@@ -22,9 +22,9 @@ from app.ccp.worker import CONNECTING, IDLE, LOST, ONLINE, CcpSession
 from app import control_panel as cpanel
 from app.ui.control_panel_tab import ControlPanelTab
 from app.ui.performance_tab import PerformanceTab
-from app.sim_interface import INPUT_DEFS, SimConfig
+from app.sim_interface import FLIGHT_DEFS, SimConfig
 from app.dashboard_config import (
-    GAUGE_KEYS, SOURCE_A2L, SOURCE_CAN, Binding, DashboardConfigStore,
+    CONTROL_KEYS, GAUGE_KEYS, SOURCE_A2L, SOURCE_CAN, Binding, DashboardConfigStore,
 )
 from app.eventlog import EventLog
 from app.history import CalibrationHistory
@@ -180,6 +180,7 @@ class MainWindow(QMainWindow):
         self._build_ui_chrome()
 
         self.dashboard_tab.set_config(self.dashboard_config_store.load())
+        self._migrate_control_bindings()
         self._rebuild_dash_can_map()
         self.watch_tab.set_storage_path(data_path("watchlist.json"))
 
@@ -568,6 +569,7 @@ class MainWindow(QMainWindow):
 
     def _log_event(self, category: str, message: str):
         self.event_log.add(category, message, user=self.current_user, role=self.current_role.value)
+        self.dashboard_tab.add_event(self.event_log.entries[-1])
         self.session_tab.refresh_log()
 
     # ---- Bağlantı ----------------------------------------------------
@@ -1462,12 +1464,15 @@ class MainWindow(QMainWindow):
         return self._write_can(binding, value, label, merge, safety)
 
     def _write_can(self, binding: Binding, value: float, label: str, merge: bool = True,
-                   safety: bool = False) -> bool:
+                   safety: bool = False, extra: dict | None = None) -> bool:
+        """``extra``: aynı mesajın ek sinyalleri ({sinyal: değer}); komut + _sw tek karede gitsin diye."""
         if not self.connection.is_connected:
             QMessageBox.warning(self, "CAN bağlantısı yok",
                                 f"{label} göndermeden önce CAN hattına bağlanın.")
             return False
         vals = {binding.signal: value}
+        if extra:
+            vals.update(extra)
         try:
             if merge and not safety:
                 # Ortak değer tablosu: Kontrol Paneli'nin periyodik göndericisi aynı mesajı eski değerle
@@ -1584,10 +1589,20 @@ class MainWindow(QMainWindow):
         if not cmd.binding.is_set:
             self._log_event("HATA", f"{command_name} GÖNDERİLEMEDİ: eşleme tanımlı değil")
             return False
-        # Komutlar tek sinyallik darbedir: diğer sinyallerin eski değerleri taşınmaz.
-        ok = self._write_binding(cmd.binding, cmd.value, command_name, merge=False, safety=safety)
+        # Komutlar darbedir: mesajın diğer sinyallerinin eski değerleri taşınmaz. _sw tanımlıysa (eyleyiciler
+        # gibi) değer YAZILDIKTAN SONRA sw = 1 yazılır; aynı CAN mesajındaysa ikisi TEK karede gider.
+        sw = cmd.sw if getattr(cmd, "sw", None) is not None and cmd.sw.is_set else None
+        if sw is not None and cmd.binding.source == SOURCE_CAN and sw.source == SOURCE_CAN \
+                and cmd.binding.message == sw.message:
+            ok = self._write_can(cmd.binding, cmd.value, command_name, merge=False, safety=safety,
+                                 extra={sw.signal: 1.0})
+        else:
+            ok = self._write_binding(cmd.binding, cmd.value, command_name, merge=False, safety=safety)
+            if ok and sw is not None:
+                ok = self._write_binding(sw, 1.0, f"{command_name} anahtarı", merge=False, safety=safety)
         if ok:
-            self._log_event("MOTOR", f"{command_name} gönderildi ({cmd.binding.text}={cmd.value:g})")
+            extra_txt = f", {sw.text}=1" if sw is not None else ""
+            self._log_event("MOTOR", f"{command_name} gönderildi ({cmd.binding.text}={cmd.value:g}{extra_txt})")
         else:
             self._log_event("HATA", f"{command_name} GÖNDERİLEMEDİ ({cmd.binding.text})")
         return ok
@@ -1613,6 +1628,27 @@ class MainWindow(QMainWindow):
             return
         # Güvenlik komutu: A2L/DBC sınırı ya da READ_ONLY yüzünden reddedilmez (bkz. _write_binding).
         self._send_motor_command("ACİL DURDURMA", cmd, safety=True)
+
+    def _migrate_control_bindings(self):
+        """Eski sürümde Motor Kontrol girişleri (Start/Spark/Gaz Kolu/Birincil Yakıt) ``sim_interface.json``
+        içinde "dbc:MESAJ.SİNYAL" olarak tutuluyordu ve doğrudan gönderiliyordu. Artık Eyleyiciler gibi
+        (kilitli, değer + isteğe bağlı _sw, CAN/A2L): eski DBC eşlemesi DEĞER bağlaması olarak taşınır."""
+        cfg = self.dashboard_tab.config
+        legacy = self.sim_config.input_map
+        changed = False
+        for key in CONTROL_KEYS:
+            old = legacy.pop(key, None)
+            m = cfg.actuator_map(key)
+            if old and old.startswith("dbc:") and "." in old and not m.value.is_set:
+                msg, sig = old[4:].split(".", 1)
+                m.value = Binding(SOURCE_CAN, msg, sig)
+                changed = True
+        if legacy is not None and any(k in self.sim_config.input_values for k in CONTROL_KEYS):
+            for k in CONTROL_KEYS:
+                self.sim_config.input_values.pop(k, None)
+        if changed:
+            self.dashboard_config_store.save(cfg)
+        self.sim_config.save()
 
     def _on_dashboard_config_saved(self, cfg):
         if not self.dashboard_config_store.save(cfg):
@@ -1780,7 +1816,7 @@ class MainWindow(QMainWindow):
         """Kontrol Paneli'nden gönderilen değerleri Ana Sayfa girişlerine yansıtır."""
         panel = self.dashboard_tab.sim_inputs
         vals = {}
-        for d in INPUT_DEFS:
+        for d in FLIGHT_DEFS:
             m = panel.mapped(d.key)
             if m is None:
                 continue
