@@ -54,6 +54,9 @@ INPUT_DEFS: list[InputDef] = [
              aliases=("ambienttemperature", "tamb", "tambient", "ta", "ambtemp", "acambtemp"), title="Ortam Sıcaklığı"),
 ]
 INPUT_BY_KEY = {d.key: d for d in INPUT_DEFS}
+# Uçuş Koşulları (uçaktan gelen değerler): yalnızca CAN, anında gönderilir. Motor Kontrol girişleri
+# (start/spark/throttle/primary_fuel) artık Eyleyiciler gibi çalışır (bkz. dashboard_config.CONTROL_KEYS).
+FLIGHT_DEFS = [d for d in INPUT_DEFS if d.group == "aircraft"]
 
 
 # ======================= Çıkışlar (Performans Arayüzü) =======================

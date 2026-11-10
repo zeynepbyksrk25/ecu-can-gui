@@ -93,6 +93,7 @@ class TrendPanel(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("trendCard")
+        self.setProperty("accent", "purple")
         self._series: dict[str, _Series] = {}
         self._order: list[str] = []
         self._window = 60.0

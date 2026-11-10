@@ -26,6 +26,13 @@ DK_GREEN = "#1B8A4C"
 DK_AMBER = "#B9790F"
 DK_RED = "#C22A1D"
 DK_PURPLE = "#7B3FD1"
+
+# Kart/kadran vurgu renkleri: her bölüm ayrı bir renkle ayırt edilir (Ana Sayfa "renksiz" görünmesin).
+ACCENTS = {"blue": "#1F6FE0", "green": "#1B8A4C", "orange": "#D9710B", "teal": "#0E6E8C",
+           "purple": "#7B3FD1", "slate": "#51616F"}
+# Her gösterge kendi renginde: Canlı Trend'deki seri renkleriyle uyumlu (RPM teal, Tt5 turuncu, FP mor ...).
+GAUGE_ACCENT = {"RPM": "#0E6E8C", "İtki": "#1F6FE0", "PLA": "#1B8A4C", "Tt5": "#D9710B",
+                "FP": "#7B3FD1", "FT": "#B9790F", "Ps2": "#0E8C7C", "Tt2": "#D6336C"}
 DK_ORANGE = "#D9710B"
 
 # ---- Çizgi simgeleri (20x20) ----------------------------------------------
@@ -233,6 +240,7 @@ class DashGauge(QWidget):
         self._value: float | None = None
         self._dim = False
         self._alert = False
+        self._accent = DK_CYAN
         self.setMinimumSize(90, 62)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
@@ -261,6 +269,11 @@ class DashGauge(QWidget):
         except (TypeError, ValueError):
             self._value = None
         self._dim = dim
+        self.update()
+
+    def set_accent(self, color: str):
+        """Yayın dolgu rengi (boş durumda aynı rengin açık tonu iz olarak görünür)."""
+        self._accent = color
         self.update()
 
     def set_alert(self, alert: bool):
@@ -293,16 +306,18 @@ class DashGauge(QWidget):
         p.scale(s, s)
         cx, cy, r, w = 100.0, 80.0, 68.0, 9.0
         rect = QRectF(cx - r, cy - r, 2 * r, 2 * r)
-        p.setOpacity(0.45 if self._dim or self._value is None else 1.0)
+        p.setOpacity(0.8 if self._dim or self._value is None else 1.0)
         # Yay: nötr iz + değere kadar dolan renkli kısım. Sensör eşikleri bilinmediği için
         # uydurma yeşil/sarı/kırmızı bölgeler çizilmez; arıza durumunda dolgu kırmızıdır.
-        pen = QPen(QColor("#DDE5EC"), w + 2)
+        track = QColor(self._accent)
+        track.setAlpha(46)                     # vurgu renginin açık tonu: veri yokken de renkli görünür
+        pen = QPen(track, w + 2)
         pen.setCapStyle(Qt.FlatCap)
         p.setPen(pen)
         p.drawArc(rect, 180 * 16, -180 * 16)
         frac = self.fraction()
         if self._value is not None and frac > 0:
-            pen = QPen(QColor(DK_RED if self._alert else DK_CYAN), w + 2)
+            pen = QPen(QColor(DK_RED if self._alert else self._accent), w + 2)
             pen.setCapStyle(Qt.FlatCap)
             p.setPen(pen)
             p.drawArc(rect, 180 * 16, -int(frac * 180 * 16))
@@ -356,13 +371,15 @@ class GaugeCard(QFrame):
     def __init__(self, key: str, label: str, minimum: float, maximum: float, unit: str, parent=None):
         super().__init__(parent)
         self.key = key
+        self._accent = GAUGE_ACCENT.get(key, DK_CYAN)
         self.setObjectName("gaugeCard")
         lay = QVBoxLayout(self)
         lay.setContentsMargins(8, 5, 8, 3)
         lay.setSpacing(0)
         head = QHBoxLayout()
         head.setSpacing(6)
-        self.title = QLabel(label)
+        self.title = QLabel(f'<span style="color:{self._accent}; font-size:16px;">●</span>&nbsp;{label}')
+        self.title.setTextFormat(Qt.RichText)
         self.title.setObjectName("gaugeTitle")
         self.tag = QLabel("")
         self.tag.setVisible(False)
@@ -374,6 +391,7 @@ class GaugeCard(QFrame):
         head.addWidget(self.lock)
         lay.addLayout(head)
         self.gauge = DashGauge(minimum, maximum, unit)
+        self.gauge.set_accent(self._accent)
         lay.addWidget(self.gauge, 1)
         self.status = QLabel("")
         self.status.setObjectName("gaugeStatus")

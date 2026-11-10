@@ -32,13 +32,23 @@ SENSOR_LABELS = {
 }
 
 # Eyleyiciler (manuel override).
-ACTUATOR_KEYS = ["pompa_start", "pompa_fuel", "valf", "glow_plug", "starter"]
+EYLEYICI_KEYS = ["pompa_start", "pompa_fuel", "valf", "glow_plug", "starter"]
+# Motor Kontrol (Çalıştırma, Ateşleme, Gaz Kolu, Birincil Yakıt): Eyleyicilerle AYNI model — değer + _sw,
+# her biri CAN (DBC) ya da A2L, kilitle (rol + onay) açılır. Fark: _sw bu satırlarda İSTEĞE BAĞLIDIR
+# (eşlenmemişse kilit yalnızca değeri açar; kilitlenince değer 0'a çekilir).
+CONTROL_KEYS = ["start", "spark", "throttle", "primary_fuel"]
+# Manuel-override (kilitli) davranışı olan TÜM satırlar.
+ACTUATOR_KEYS = EYLEYICI_KEYS + CONTROL_KEYS
 ACTUATOR_LABELS = {
     "pompa_start": "Yakıt Pompası Start",
     "pompa_fuel": "Yakıt Pompası Fuel",
     "valf": "Yakıt Debisi Valfi",
     "glow_plug": "Glow Plug",
     "starter": "Başlatma Motoru",
+    "start": "Çalıştırma (Start)",
+    "spark": "Ateşleme (Spark)",
+    "throttle": "Gaz Kolu (PLA)",
+    "primary_fuel": "Birincil Yakıt",
 }
 # "valve" -> 0-100 arası sayısal komut (kilit açılınca _sw=1, değer % olarak girilir);
 # "toggle" -> yalnızca ON/OFF (0/1) anahtarı. Tüm eyleyiciler 0-100 değer alabilsin diye "valve".
@@ -48,6 +58,11 @@ ACTUATOR_KINDS = {
     "valf": "valve",
     "glow_plug": "valve",
     "starter": "valve",
+    # Motor Kontrol: anahtarlar ON/OFF, gaz kolu 0-120 % değer
+    "start": "toggle",
+    "spark": "toggle",
+    "throttle": "valve",
+    "primary_fuel": "toggle",
 }
 
 MOTOR_COMMAND_KEYS = ["motor_start", "motor_stop", "estop"]
@@ -94,9 +109,12 @@ class SignalMap:
 
 @dataclass
 class MotorCommand:
-    """Motor Başlat/Durdur/Acil Durdurma: CAN veya A2L; ``value`` yazılacak değer."""
+    """Motor Başlat/Durdur/Acil Durdurma: CAN veya A2L; ``value`` yazılacak değer.
+    ``sw`` (isteğe bağlı): eyleyicilerdeki gibi anahtar (``<ad>_sw``); tanımlıysa değer yazıldıktan sonra
+    ``sw = 1`` yazılır (ECU değeri yalnızca anahtar 1 iken kabul ediyorsa)."""
     binding: Binding = field(default_factory=Binding)
     value: float = 1.0
+    sw: Binding = field(default_factory=Binding)
 
 
 def _default_sensors() -> dict:
@@ -220,7 +238,8 @@ def config_from_dict(raw: dict) -> DashboardConfig:
         if not isinstance(sub, dict):
             continue
         if "binding" in sub:
-            cfg_cmd = MotorCommand(binding=_binding_from(sub.get("binding")), value=_float(sub.get("value")))
+            cfg_cmd = MotorCommand(binding=_binding_from(sub.get("binding")), value=_float(sub.get("value")),
+                                   sw=_binding_from(sub.get("sw")))
         else:  # eski biçim: yalnız DBC
             cfg_cmd = MotorCommand(
                 binding=Binding(SOURCE_CAN, str(sub.get("message", "") or ""), str(sub.get("signal", "") or "")),

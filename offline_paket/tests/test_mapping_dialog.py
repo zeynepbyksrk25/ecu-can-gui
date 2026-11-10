@@ -43,7 +43,10 @@ def test_dialog_has_value_sw_and_fault_columns_for_sensors_and_value_sw_for_actu
     w, d = dlg
     assert set(d.sensor_ed["RPM"]) == {"value", "sw", "fault"}
     assert set(d.actuator_ed["pompa_fuel"]) == {"value", "sw"}
-    assert [d.tabs.tabText(i) for i in range(d.tabs.count())] == ["Sinyaller", "Girişler (Uçuş / Motor Kontrol)"]
+    assert set(d.control_ed) == {"start", "spark", "throttle", "primary_fuel"}      # Motor Kontrol: Eyleyici modeli
+    assert set(d.control_ed["start"]) == {"value", "sw"}
+    assert set(d.motor_sw_ed) == {"motor_start", "motor_stop", "estop"}               # komutlarda isteğe bağlı _sw
+    assert [d.tabs.tabText(i) for i in range(d.tabs.count())] == ["Sinyaller", "Uçuş Koşulları"]
 
 
 def test_result_config_keeps_independent_sources_and_auto_sw(dlg):

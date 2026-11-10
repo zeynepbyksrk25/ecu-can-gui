@@ -17,18 +17,19 @@ import time
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
-    QFrame, QGridLayout, QHBoxLayout, QInputDialog, QLabel, QMessageBox, QPushButton,
-    QSizePolicy, QVBoxLayout, QWidget,
+    QFrame, QGridLayout, QHBoxLayout, QInputDialog, QLabel, QListWidget, QListWidgetItem, QMessageBox,
+    QPushButton, QSizePolicy, QVBoxLayout, QWidget,
 )
 from PySide6.QtCore import QRegularExpression
-from PySide6.QtGui import QRegularExpressionValidator
+from PySide6.QtGui import QColor, QRegularExpressionValidator
 from PySide6.QtWidgets import QLineEdit
 
 from app.dashboard_config import (
-    ACTUATOR_KEYS, ACTUATOR_KINDS, ACTUATOR_LABELS, GAUGE_KEYS, Binding, DashboardConfig,
+    ACTUATOR_KEYS, ACTUATOR_KINDS, ACTUATOR_LABELS, CONTROL_KEYS, EYLEYICI_KEYS, GAUGE_KEYS, Binding,
+    DashboardConfig,
 )
 from app.ui.dash_widgets import (  # noqa: F401  (ToggleSwitch: eski import yolu)
-    DK_CYAN, DK_MUT, DashGauge, GaugeCard, IconLabel, LockButton, ToggleSwitch,
+    ACCENTS, DK_CYAN, DK_MUT, DashGauge, GaugeCard, IconLabel, LockButton, ToggleSwitch,
     format_value,
 )
 from app.ui.dark_theme import dark_qss
@@ -60,9 +61,14 @@ ACTUATOR_SHORT = {
     "valf": "Yakıt Debisi Valfi",
     "glow_plug": "Buji Isıtıcı (Glow Plug)",
     "starter": "Başlatma Motoru",
+    "start": "Çalıştırma (Start)",
+    "spark": "Ateşleme (Spark)",
+    "throttle": "Gaz Kolu (PLA)",
+    "primary_fuel": "Birincil Yakıt",
 }
 ACTUATOR_ICON = {"pompa_start": "pump", "pompa_fuel": "pump", "valf": "valve",
-                 "glow_plug": "glow", "starter": "starter"}
+                 "glow_plug": "glow", "starter": "starter",
+                 "start": "power", "spark": "spark", "throttle": "throttle", "primary_fuel": "fuel"}
 
 DASH_QSS = dark_qss("dashBody")
 
@@ -129,8 +135,11 @@ class DashboardTab(QWidget):
         self.role_banner.setVisible(False)
         left.addWidget(self.role_banner, 0)
         left.addWidget(self.sim_inputs, 0)
-        # Eyleyiciler kartı kalan yüksekliği alır: sağ sütunla aynı hizada biter, altta boşluk kalmaz
-        left.addWidget(self._build_actuators_card(), 1)
+        # Motor Kontrol ve Eyleyiciler AYNI mekanizmayla çalışır (kilit, rol + onay, değer + _sw, CAN/A2L)
+        left.addWidget(self._build_actuators_card("MOTOR KONTROL", "sliders", CONTROL_KEYS), 0)
+        left.addWidget(self._build_actuators_card("EYLEYİCİLER", "actuator", EYLEYICI_KEYS), 0)
+        # Kalan yükseklik boş bırakılmaz: son olaylar (komut gönderildi / hata) burada görünür
+        left.addWidget(self._build_events_card(), 1)
         left_w = QWidget()
         left_w.setLayout(left)
         # Genişlik sabit DEĞİL: alt sınırı içeriğin (yazı tipine göre) asgari genişliği belirler
@@ -173,10 +182,14 @@ class DashboardTab(QWidget):
         self.estop_button.clicked.connect(self._on_estop_clicked)
         # Eşleme yokken Acil Durdurma ÇALIŞMAZ; bunu operatör fark etmeli (düğme gri/tıklanamaz bırakılmaz,
         # yanında kalıcı bir uyarı gösterilir).
-        self.estop_warn = QLabel("⚠ Acil Durdurma eşlenmemiş")
+        self.estop_warn = QPushButton("⚠ Acil Durdurma eşlenmemiş: tanımla")
         self.estop_warn.setObjectName("estopWarn")
+        self.estop_warn.setCursor(Qt.PointingHandCursor)
+        self.estop_warn.setFlat(True)
+        self.estop_warn.clicked.connect(self.open_mappings)
         self.estop_warn.setToolTip("Acil Durdurma için DBC sinyali veya A2L değişkeni tanımlı değil: düğme komut GÖNDEREMEZ. "
-                                   "⚙ Eşleşmeler penceresinden tanımlayın; o zamana dek motoru manuel/fiziksel olarak durdurun.")
+                                   "Tıklayın: ⚙ Eşleşmeler > Sinyaller > Motor Komutları > Acil Durdurma satırından "
+                                   "CAN ya da A2L seçin. O zamana dek motoru manuel/fiziksel olarak durdurun.")
         self.estop_warn.setVisible(True)
 
     def _on_estop_clicked(self):
@@ -193,17 +206,69 @@ class DashboardTab(QWidget):
             self.estop_requested.emit()
 
     # ======================================================================
+    # Son olaylar (komut gönderildi, hata, bağlantı...): sol sütunun kalan yüksekliğini doldurur
+    # ======================================================================
+    EVENT_COLORS = {"HATA": "#C22A1D", "MOTOR": "#1B8A4C", "EYLEYICI": "#D9710B", "BAGLANTI": "#0E6E8C",
+                    "KULLANICI": "#7B3FD1", "SİMÜLASYON": "#1F6FE0", "SIMÜLASYON": "#1F6FE0", "AYAR": "#51616F"}
+    EVENT_MAX = 60
+
+    def _build_events_card(self) -> QFrame:
+        card = QFrame()
+        card.setObjectName("card")
+        card.setProperty("accent", "slate")
+        lay = QVBoxLayout(card)
+        lay.setContentsMargins(14, 8, 14, 8)
+        lay.setSpacing(4)
+        head = QHBoxLayout()
+        head.setSpacing(8)
+        head.addWidget(IconLabel("trend", ACCENTS["slate"], 18))
+        t = QLabel("SON OLAYLAR")
+        t.setObjectName("cardTitle")
+        head.addWidget(t)
+        head.addStretch(1)
+        lay.addLayout(head)
+        self.events_list = QListWidget()
+        self.events_list.setObjectName("eventsList")
+        self.events_list.setSelectionMode(QListWidget.NoSelection)
+        self.events_list.setFocusPolicy(Qt.NoFocus)
+        self.events_list.setFrameShape(QFrame.NoFrame)
+        self.events_list.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.events_list.setWordWrap(True)
+        self.events_list.setMinimumHeight(60)
+        lay.addWidget(self.events_list, 1)
+        self.events_empty = QLabel("Henüz olay yok.\nKomutlar (Başlat/Durdur/Acil Durdurma), kilit açma, "
+                                   "hatalar ve bağlantı olayları burada görünür.")
+        self.events_empty.setObjectName("mutedSmall")
+        self.events_empty.setWordWrap(True)
+        lay.addWidget(self.events_empty)
+        return card
+
+    def add_event(self, entry):
+        """Olay günlüğünün yeni bir girişini listenin başına ekler (kategoriye göre renkli)."""
+        import time as _t
+        text = (f"{_t.strftime('%H:%M:%S', _t.localtime(entry.timestamp))}  "
+                f"{entry.category}  ·  {entry.message}")
+        item = QListWidgetItem(text)
+        item.setForeground(QColor(self.EVENT_COLORS.get(entry.category, "#51616F")))
+        item.setToolTip(f"{entry.user} / {entry.role}\n{entry.message}")
+        self.events_empty.setVisible(False)
+        self.events_list.insertItem(0, item)
+        while self.events_list.count() > self.EVENT_MAX:
+            self.events_list.takeItem(self.events_list.count() - 1)
+
+    # ======================================================================
     # Motor Parametreleri (8 gösterge) + sensör sağlığı
     # ======================================================================
     def _build_gauges_card(self) -> QFrame:
         card = QFrame()
         card.setObjectName("card")
+        card.setProperty("accent", "teal")
         lay = QVBoxLayout(card)
         lay.setContentsMargins(14, 8, 14, 10)
         lay.setSpacing(6)
         head = QHBoxLayout()
         head.setSpacing(8)
-        head.addWidget(IconLabel("gauge", DK_CYAN, 18))
+        head.addWidget(IconLabel("gauge", ACCENTS["teal"], 18))
         t = QLabel("MOTOR PARAMETRELERİ")
         t.setObjectName("cardTitle")
         head.addWidget(t)
@@ -410,16 +475,19 @@ class DashboardTab(QWidget):
     # ======================================================================
     # Eyleyiciler
     # ======================================================================
-    def _build_actuators_card(self) -> QFrame:
+    def _build_actuators_card(self, title: str = "EYLEYİCİLER", icon: str = "actuator",
+                              keys=EYLEYICI_KEYS) -> QFrame:
         card = QFrame()
         card.setObjectName("card")
+        accent = "green" if keys is CONTROL_KEYS else "orange"
+        card.setProperty("accent", accent)
         lay = QVBoxLayout(card)
         lay.setContentsMargins(14, 10, 14, 8)
         lay.setSpacing(0)
         head = QHBoxLayout()
         head.setSpacing(8)
-        head.addWidget(IconLabel("actuator", DK_CYAN, 18))
-        t = QLabel("EYLEYİCİLER")
+        head.addWidget(IconLabel(icon, ACCENTS[accent], 18))
+        t = QLabel(title)
         t.setObjectName("cardTitle")
         head.addWidget(t)
         head.addStretch(1)
@@ -432,7 +500,7 @@ class DashboardTab(QWidget):
         spacer = QWidget()
         spacer.setFixedWidth(18)                      # simge sütunu
         cols.addWidget(spacer)
-        c0 = QLabel("EYLEYİCİ")
+        c0 = QLabel("GİRİŞ" if keys is CONTROL_KEYS else "EYLEYİCİ")
         c0.setObjectName("colHead")
         cols.addWidget(c0, 1)
         self.act_head_cmd = QLabel("KOMUT")
@@ -447,7 +515,7 @@ class DashboardTab(QWidget):
         cols.addWidget(c2)
         lay.addLayout(cols)
 
-        for key in ACTUATOR_KEYS:
+        for key in keys:
             lay.addWidget(self._build_actuator_row(key), 1)
         lay.addStretch(1)       # artan yükseklik başlıkla satırlar arasına DEĞİL, kartın altına gider
         return card
@@ -583,11 +651,14 @@ class DashboardTab(QWidget):
         amap = self.config.actuator_map(key)
         label = ACTUATOR_SHORT[key]
         e = self._act_rows[key]
+        # Motor Kontrol satırlarında _sw İSTEĞE BAĞLIDIR; Eyleyicilerde zorunludur.
+        sw_required = key not in CONTROL_KEYS
         if want_open:
-            if not amap.sw.is_set or not amap.value.is_set:
+            if not amap.value.is_set or (sw_required and not amap.sw.is_set):
+                need = "değer ve anahtar (_sw)" if sw_required else "değer"
                 QMessageBox.information(
                     self, "Eşleşme yok",
-                    f"{label} için değer ve anahtar (_sw) eşleşmesi tanımlı değil.\n"
+                    f"{label} için {need} eşleşmesi tanımlı değil.\n"
                     "⚙ Eşleşmeler penceresinden tanımlayın.")
                 return
             if not self._confirm_override(label):
@@ -597,16 +668,37 @@ class DashboardTab(QWidget):
             v = self._actuator_text_value(key)
             if v is not None and not self._write(amap.value, v, f"{label} değeri"):
                 return
-            if not self._write(amap.sw, 1.0, f"{label} anahtarı"):
+            if amap.sw.is_set and not self._write(amap.sw, 1.0, f"{label} anahtarı"):
                 return
             self._act_open[key] = True
             e["lock"].set_open(True)
         else:
-            if not self._write(amap.sw, 0.0, f"{label} anahtarı"):
+            if not self._release_actuator(key, amap, label):
                 return
             self._act_open[key] = False
             e["lock"].set_open(False)
         self._style_actuator_row(key)
+
+    def _release_actuator(self, key: str, amap, label: str) -> bool:
+        """Kilitlerken: _sw = 0. _sw eşlenmemiş Motor Kontrol satırında (anahtarı yok) bırakmak için DEĞER
+        0'a çekilir (periyodik CAN gönderimi eski değerle sürmesin); anahtar/ değer yazılamazsa False."""
+        if amap.sw.is_set:
+            return self._write(amap.sw, 0.0, f"{label} anahtarı")
+        if not amap.value.is_set:
+            return True
+        ok = self._write(amap.value, 0.0, f"{label} değeri (bırakılıyor)")
+        if ok:
+            e = self._act_rows[key]
+            ctl = e["control"]
+            if e["kind"] == "toggle":
+                ctl.blockSignals(True)
+                ctl.setChecked(False)
+                ctl.blockSignals(False)
+                e["onoff"].setText("OFF")
+                e["onoff"].setProperty("on", False)
+                e["onoff"].style().unpolish(e["onoff"])
+                e["onoff"].style().polish(e["onoff"])
+        return ok
 
     def _on_actuator_toggle(self, key: str, checked: bool):
         e = self._act_rows[key]
@@ -635,7 +727,7 @@ class DashboardTab(QWidget):
             closed = False
             if write and self.writer is not None:
                 try:
-                    closed = self._write(self.config.actuator_map(key).sw, 0.0, f"{label} anahtarı")
+                    closed = self._release_actuator(key, self.config.actuator_map(key), label)
                 except Exception:  # noqa: BLE001
                     closed = False
             if not closed:

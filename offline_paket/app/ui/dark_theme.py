@@ -34,6 +34,8 @@ DashboardTab QLabel#roleBanner { background: #FFF4DC; color: #7A4E05; border: 1p
 DashboardTab QPushButton#linkWarn { background: #FFF4DC; color: #7A4E05; border: 1px solid #D9A441;
     border-radius: 10px; padding: 1px 10px; font-size: 12px; font-weight: 700; min-height: 18px; }
 DashboardTab QPushButton#linkWarn:hover { background: #FBE6B8; border-color: #9A6208; }
+DashboardTab QListWidget#eventsList { background: transparent; border: none; outline: none; font-size: 12px; }
+DashboardTab QListWidget#eventsList::item { padding: 3px 2px; border-bottom: 1px solid #EEF2F6; }
 DashboardTab QLabel#chipBad { background: #FBE9E7; color: #C22A1D; border: 1px solid #E3A29B;
     border-radius: 10px; padding: 1px 9px; font-size: 12px; font-weight: 700; }
 DashboardTab QLabel#trendReadout { background: rgba(10,24,40,235); border: 1px solid #B7C4D0;
@@ -66,6 +68,19 @@ DashboardTab QFrame#gaugeCard[state="fault"] { border: 1px solid #C22A1D; backgr
 DashboardTab QLabel#gaugeTitle { font-weight: 700; font-size: 14px; color: #243442; }
 DashboardTab QLabel#gaugeStatus { color: #9A6208; font-size: 12px; }
 """
+
+def _accent_qss() -> str:
+    """QFrame#card / #trendCard için ``accent`` özelliğine göre üst çizgi + başlık rengi."""
+    colors = {"blue": "#1F6FE0", "green": "#1B8A4C", "orange": "#D9710B", "teal": "#0E6E8C",
+              "purple": "#7B3FD1", "slate": "#51616F"}
+    out = []
+    for name, col in colors.items():
+        out.append(f'DashboardTab QFrame#card[accent="{name}"], DashboardTab QFrame#trendCard[accent="{name}"] '
+                   f'{{ border-top: 3px solid {col}; }}\n'
+                   f'DashboardTab QFrame#card[accent="{name}"] QLabel#cardTitle, '
+                   f'DashboardTab QFrame#trendCard[accent="{name}"] QLabel#cardTitle {{ color: {col}; }}\n')
+    return "".join(out)
+
 
 _EXTRA = """
 DashboardTab QAbstractItemView { background: #FFFFFF; color: #121A22; selection-background-color: #1F6FE0;
@@ -155,7 +170,7 @@ DashboardTab QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 
 
 
 def dark_qss(root_id: str = "dashBody") -> str:
-    q = _BASE + _EXTRA
+    q = _BASE + _EXTRA + _accent_qss()
     return q.replace("DashboardTab {", f"QWidget#{root_id} {{").replace("DashboardTab ", f"QWidget#{root_id} ")
 
 

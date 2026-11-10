@@ -99,7 +99,11 @@ girilir (bkz. aşağıdaki bölüm).
 
 ### Simülasyon Girişleri (Ana Sayfa) ve Performans sayfası
 
-**Ana Sayfa → Simülasyon Girişleri (sol panel):** Start / Spark / Primary Fuel anahtarları, Throttle (0–120 %), Altitude (0–30 kft), Alfa/Beta (±90°, şimdilik pasif) ve sabit değerler (Ma, Toplam Giriş Basıncı, Ortam Basıncı, Ortam Sıcaklığı). Anahtarlar anında, sürgüler bırakılınca, sabit değer kutuları Enter ile gönderilir; "Hepsini gönder" tümünü yollar. Girişler DBC sinyallerine bağlanır: panel ilk DBC yüklemesinde isimle otomatik eşler, olmayanlar **⚙ Bağla** ile seçilir. Gönderim için Mühendis/Yönetici rolü ve CAN bağlantısı gerekir. Kontrol Paneli ile aynı değeri paylaşır.
+**Ana Sayfa → Uçuş Koşulları (sol panel):** Altitude (0–30 kft), Alfa/Beta (±90°) ve sabit değerler (Ma, Toplam Giriş Basıncı, Ortam Basıncı, Ortam Sıcaklığı). Değerler Enter/bırakma ile anında CAN'dan gönderilir; "Hepsini gönder" tümünü yollar. Girişler DBC sinyallerine bağlanır: panel ilk DBC yüklemesinde isimle otomatik eşler, olmayanlar ⚙ Eşleşmeler > Uçuş Koşulları'ndan seçilir. Gönderim için Mühendis/Yönetici rolü ve CAN bağlantısı gerekir. Kontrol Paneli ile aynı değer tablosunu paylaşır.
+
+**Ana Sayfa → Motor Kontrol** (Çalıştırma/Start, Ateşleme/Spark, Gaz Kolu/PLA, Birincil Yakıt) **Eyleyiciler gibi çalışır:** her satırın **Değer** ve **Anahtar (`_sw`)** eşleşmesi ayrı ayrı **CAN (DBC) ya da A2L** seçilir (⚙ Eşleşmeler > Sinyaller > Motor Kontrol); satır **kilitli** açılır (Mühendis/Yönetici + ilk kullanımda onay). Eyleyicilerden tek fark: `_sw` burada **isteğe bağlıdır** (eşlenmemişse kilit yalnızca değeri açar, kilitlenince değer 0'a çekilir). Eski sürümde doğrudan gönderilen Start/Spark/Gaz Kolu/Yakıt eşleşmeleri ilk açılışta otomatik olarak yeni modele taşınır (yalnızca değer bağlaması; `_sw`'yi siz seçin).
+
+**Motor Komutları (Başlat / Durdur / Acil Durdurma)** ⚙ Eşleşmeler'de **Komut** (CAN `MESAJ.SİNYAL` ya da A2L değişken) + **Değer** + isteğe bağlı **Anahtar (`_sw`)** alır. Düğmeye basınca önce değer, sonra `_sw = 1` yazılır; ikisi aynı CAN mesajındaysa tek karede gider. Komutlar kilitsizdir (Acil Durdurma her zaman basılabilir).
 
 **Analiz → Performans:** Compressor / Combustion / Turbine / Nozzle kartları (kadran + siyah dijital kutular), A kartında gönderilen uçuş koşullarının geri okunuşu ve 3 grafik. Değerler DBC (CAN) ya da A2L (CCP) kaynağından okunur; eşleme isimle otomatik denenir, eşleşmeyen kutuya **sağ tık → Sinyal bağla…**. Kutuya sağ tık → **Eşik ayarla…** (ör. Surge Margin altında sarı/kırmızı); eşik girilmezse renk değişmez. Kadran aralığı A2L min/max'tan alınır, yoksa otomatiktir (sağ tık → Aralığı ayarla). Grafiklerde "Seç…" ile sinyaller, "Normalize" ile farklı birimler tek eksende karşılaştırılır. Ayarlar `sim_interface.json` içinde saklanır.
 
@@ -154,8 +158,8 @@ uygulamada donanımla doğrulanmamıştır**. Bu yüzden:
 
 - Üstte yatay sekme çubuğu; **Ana Sayfa sekmesi sabittir** (kapatılamaz/taşınamaz) ve
   16" laptopta (en az ~1280x720 etkin çözünürlük) **kaydırma olmadan** tek ekrana sığar.
-- Sol: **Uçuş Koşulları** ve **Motor Kontrol** (CAN/DBC üzerinden gönderilen girişler) +
-  **Eyleyiciler**. Sağ: **Motor Parametreleri** (8 gösterge) + **Canlı Trendler**.
+- Sol: **Uçuş Koşulları**, **Motor Kontrol** ve **Eyleyiciler** (ikisi kilitli, değer + `_sw`, CAN/A2L) +
+  **Son olaylar** (komut gönderildi / hata / bağlantı, renkli). Sağ: **Motor Parametreleri** (8 gösterge) + **Canlı Trendler**.
 - **⚙ Eşleşmeler**: sensör, eyleyici, motor komutu ve giriş sinyalleri. Sensör ve eyleyicilerde
   her değişkenin **Değer** ve **Anahtar (`_sw`)** eşleşmesi ayrı ayrı **CAN (DBC) ya da A2L**
   olarak seçilir (sensörlerde isteğe bağlı *Arıza* biti de). Motoru Başlat / Durdur / Acil
