@@ -7,6 +7,7 @@ nesneleriyle UI kodunu doğrudan karıştırmamak için bu ince katman var.
 from dataclasses import dataclass, field
 
 from pya2l import import_a2l
+from sqlalchemy.orm import selectinload
 import pya2l.api.inspect as insp
 import pya2l.model as model
 
@@ -164,40 +165,43 @@ def _compu(compu_method):
 
 class A2LDatabase:
     def __init__(self):
-        self._session = None
+        self._session = None          # yalnızca ayrıştırma SIRASINDA yaşar (aşağıya bakın)
         self.path: str | None = None
         self.summary: A2LSummary | None = None
 
     @property
     def is_loaded(self) -> bool:
-        return self._session is not None
+        return self.summary is not None
 
     def load(self, path: str) -> A2LSummary:
-        """A2L dosyasını belleğe (SQLite :memory:) yükler ve parse hatalarını
-        (varsa) ValueError olarak fırlatır — çağıran taraf bunu yakalayıp
-        kullanıcıya gösterir (GUI-A2L-003: actionable error information)."""
+        """A2L dosyasını ayrıştırır (SQLite :memory:) ve parse hatalarını ValueError olarak fırlatır —
+        çağıran taraf bunu yakalayıp kullanıcıya gösterir. Başarısız yükleme önceki (geçerli) A2L'i bozmaz.
+
+        Bu metot arka plan iş parçacığında çalışabilir: SQLite bağlantısı onu açan iş parçacığında
+        KULLANILIR ve KAPATILIR; uygulamanın geri kalanı yalnızca düz Python nesnelerinden oluşan
+        ``summary``'yi kullanır (oturum sonradan başka iş parçacığından açılıp kapatılmaz, bellekte de
+        tutulmaz)."""
         try:
             session = import_a2l(
                 path, in_memory=True, progress_bar=False, loglevel="ERROR"
             )
         except Exception as exc:
-            # Başarısız yükleme önceki (geçerli) A2L'i bozmaz.
             raise ValueError(f"A2L dosyası parse edilemedi: {exc}")
-
-        old = self._session
-        self._session = session
-        self.path = path
         try:
-            self.summary = self._build_summary(path)
-        except Exception as exc:
-            self._session = old
-            raise ValueError(f"A2L içeriği okunamadı: {exc}")
-        if old is not None:
+            self._session = session
             try:
-                old.close()
+                summary = self._build_summary(path)
+            except Exception as exc:
+                raise ValueError(f"A2L içeriği okunamadı: {exc}")
+        finally:
+            self._session = None
+            try:
+                session.close()
             except Exception:
                 pass
-        return self.summary
+        self.path = path
+        self.summary = summary
+        return summary
 
     def _build_summary(self, path: str) -> A2LSummary:
         session = self._session
@@ -205,8 +209,10 @@ class A2LDatabase:
         module = session.query(model.Module).first()
         default_bo = _default_byte_order(session)
         measurements = []
-        for row in session.query(model.Measurement).all():
-            m = insp.Measurement.get(session, row.name)
+        # İlişkiler (birim, dönüşüm, bayt sırası...) TOPLU yüklenir: nesne başına tembel (lazy) sorgu 6000
+        # nesnelik bir dosyada ~15 sn sürerken toplu yükleme ~1,5 sn sürer.
+        for row in session.query(model.Measurement).options(selectinload("*")).all():
+            m = insp.Measurement.get(session, row.name, db_instance=row)
             compu = _compu(m.compuMethod)
             unit = compu.unit if compu else ""
             measurements.append(MeasurementInfo(
@@ -223,8 +229,8 @@ class A2LDatabase:
             ))
 
         characteristics = []
-        for row in session.query(model.Characteristic).all():
-            c = insp.Characteristic.get(session, row.name)
+        for row in session.query(model.Characteristic).options(selectinload("*")).all():
+            c = insp.Characteristic.get(session, row.name, db_instance=row)
             compu = _compu(c.compuMethod)
             unit = compu.unit if compu else ""
             num_axes = len(c.axisDescriptions or [])

@@ -5,8 +5,10 @@ veya "geri yerleştir" düğmesine basılınca widget eski yerine (aynı layout,
 sıra, aynı esneme) döner. Pencere sahipsizdir (parent=None): ikinci monitöre
 taşınabilir ve ana pencereyle birlikte gizlenmez.
 """
+
 from __future__ import annotations
 
+from app import theme
 from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtWidgets import QBoxLayout, QFrame, QLabel, QPushButton, QVBoxLayout, QWidget
 
@@ -19,7 +21,7 @@ class DetachedWindow(QWidget):
         from app.ui.dark_theme import dark_qss
         self.setWindowTitle(title)
         self.setObjectName("floatBody")
-        self.setStyleSheet("QWidget#floatBody { background:#EEF2F6; }" + dark_qss("floatBody"))
+        self.setStyleSheet(theme.paint("QWidget#floatBody { background:@@BG@@; }") + dark_qss("floatBody"))
         self._lay = QVBoxLayout(self)
         self._lay.setContentsMargins(4, 4, 4, 4)
         btn = QPushButton("⤓  Ana pencereye geri yerleştir")

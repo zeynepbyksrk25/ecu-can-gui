@@ -408,9 +408,9 @@ class GaugeCard(QFrame):
         self.tag.setVisible(bool(text))
         self.tag.setText(text)
         if kind == "fault":
-            css = f"background:#FBE9E7; color:{theme.DANGER}; border:1px solid #E3A29B;"
+            css = f"background:{theme.DANGER_BG}; color:{theme.DANGER}; border:1px solid {theme.DANGER_LINE};"
         else:
-            css = f"background:#FFF4DC; color:{theme.WARN_INK}; border:1px solid #D9A441;"
+            css = f"background:{theme.WARN_BG}; color:{theme.WARN_INK}; border:1px solid {theme.WARN_LINE};"
         self.tag.setStyleSheet(f"{css} border-radius:8px; padding:0 6px; font-size:11px; font-weight:700;")
         self.gauge.set_alert(kind == "fault")
         state = kind

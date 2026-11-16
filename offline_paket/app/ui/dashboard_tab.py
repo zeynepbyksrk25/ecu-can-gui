@@ -576,7 +576,7 @@ class DashboardTab(QWidget):
         e["name"].setEnabled(opened)
         e["icon"].setEnabled(opened)
         e["control"].setEnabled(opened)
-        e["name"].setStyleSheet("" if opened else "color:#5F7080;")
+        e["name"].setStyleSheet("" if opened else theme.paint("color:@@SLATE@@;"))
 
     def set_role(self, role: Role):
         self._role = role

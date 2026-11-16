@@ -367,11 +367,19 @@ Aşağıdakiler yazılımın otomatik testleriyle **kanıtlanamaz**; gerçek ECU
   Listesi / tanılama / geri alma), `dashboard.py` (eşleşme yazımı, motor komutları, göstergeler),
   `panel.py` (Kontrol Paneli, simülasyon, Performans), `profiles.py` (rol ve profiller), `common.py` (sabitler).
 - **Renkler tek yerden:** `app/theme.py` içindeki token'lar (`theme.DANGER`, `theme.OK`, `theme.ACCENT`…).
-  Arayüz kodunda yeni renk sabiti yazmayın; token kullanın. Kalibrasyon sayfasının tüm iç sekmeleri artık
+  Arayüz kodunda yeni renk sabiti yazmayın; token kullanın. Süslü parantezli stil metinlerinde
+  `theme.paint("... color: @@DANGER@@; ...")` yer tutucusu kullanılır (bir test token'ı olan renklerin elle
+  yazılmasını engeller). Yalnızca satıra özgü tek seferlik tonlar (grafik serileri, satır vurguları) koddadır. Kalibrasyon sayfasının tüm iç sekmeleri artık
   diğer sayfalarla aynı kart görünümünü kullanır.
-- **A2L arka planda yüklenir** (`A2LTab.load_path`): büyük dosyada arayüz donmaz, ilerleme penceresi görünür.
+- **A2L arka planda yüklenir** (`A2LTab.load_path`): arayüz donmaz, ilerleme penceresi görünür. Ayrıştırma
+  ilişkileri toplu (eager) yüklediği için 6.000 nesnelik dosya ~17 sn yerine ~3,5 sn'de açılır; SQLite oturumu
+  ayrıştıran iş parçacığında kapatılır ve bellekte tutulmaz.
 - **Testler:** `python -m pytest tests -q` (Windows'ta `3_testleri_calistir.bat`). Her testten sonra açık
-  pencereler kapatılır ve zamanlayıcıları durdurulur (`tests/conftest.py`); testler birbirini etkilemez.
+  pencereler kapatılır, zamanlayıcıları durdurulur ve çöp toplanır (`tests/conftest.py`); testler birbirini
+  etkilemez. Test sürecinin çıkışındaki PySide kapanış çökmesi (yüzlerce pencere birikince) testlerin sonucunu
+  bozmaz: süreç, testlerin çıkış koduyla sonlandırılır (gerçek uygulama etkilenmez, temiz kapanır).
+  Hızlı koşu için `pip install pytest-xdist` ve `pytest tests -q -n auto`
+  (CI böyle çalışır; testler paralel işlemlerde de güvenlidir).
 - **Statik denetim:** `ruff check .` (ayar: `ruff.toml`; yalnızca gerçek hata kuralları).
 - **CI:** `.github/workflows/testler.yml` her push ve pull request'te ruff + tüm testleri çalıştırır
   (Ubuntu, Python 3.11, ekransız Qt).

@@ -95,7 +95,7 @@ def _apply_mdi_palette():
     from PySide6.QtWidgets import QApplication
     pal = QPalette()
     for grp in (QPalette.Active, QPalette.Inactive, QPalette.Disabled):
-        pal.setColor(grp, QPalette.Highlight, QColor("#CFE5EE"))
+        pal.setColor(grp, QPalette.Highlight, QColor(theme.paint("@@ACCENT_SOFT@@")))
         pal.setColor(grp, QPalette.HighlightedText, QColor(theme.INK))
         pal.setColor(grp, QPalette.Window, QColor("#E3EAF0"))
         pal.setColor(grp, QPalette.Button, QColor("#E3EAF0"))
@@ -119,7 +119,7 @@ class _Sub(QMdiSubWindow):
         from PySide6.QtGui import QPalette
         pal = self.palette()
         for grp in (QPalette.Active, QPalette.Inactive):
-            pal.setColor(grp, QPalette.Highlight, QColor("#CFE5EE"))
+            pal.setColor(grp, QPalette.Highlight, QColor(theme.paint("@@ACCENT_SOFT@@")))
             pal.setColor(grp, QPalette.HighlightedText, QColor(theme.INK))
             pal.setColor(grp, QPalette.Window, QColor(theme.LINE_STRONG))
             pal.setColor(grp, QPalette.WindowText, QColor(theme.INK))
@@ -149,7 +149,7 @@ class _Float(QWidget):
         self.setAttribute(Qt.WA_DeleteOnClose, True)
         from app.ui.dark_theme import dark_qss
         self.setObjectName("floatBody")
-        self.setStyleSheet("QWidget#floatBody { background:#EEF2F6; }" + dark_qss("floatBody"))
+        self.setStyleSheet(theme.paint("QWidget#floatBody { background:@@BG@@; }") + dark_qss("floatBody"))
         btn = QPushButton("⤓  Çalışma alanına geri yerleştir")
         btn.clicked.connect(lambda: self.dock_requested.emit(self))
         lay = QVBoxLayout(self)

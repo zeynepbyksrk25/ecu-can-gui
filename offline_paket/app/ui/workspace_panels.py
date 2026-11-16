@@ -137,7 +137,7 @@ class PlotPanel(PanelBase):
         top.addWidget(self.hint)
 
         self.glw = _Glw(self._on_leave)
-        self.glw.setBackground("#F7F9FB")
+        self.glw.setBackground(theme.paint("@@SURFACE_SUBTLE@@"))
         self.glw.setMinimumHeight(140)
         self._proxy = pg.SignalProxy(self.glw.scene().sigMouseMoved, rateLimit=30, slot=self._on_mouse)
 
@@ -293,7 +293,7 @@ class PlotPanel(PanelBase):
             t.setCellWidget(r, COL_VIS, self._center(cb))
             btn = QPushButton()
             btn.setFixedSize(34, 18)
-            btn.setStyleSheet(f"background:{st['color']}; border:1px solid #B7C4D0; border-radius:3px;")
+            btn.setStyleSheet(f"background:{st['color']}; border:1px solid {theme.LINE_STRONG}; border-radius:3px;")
             btn.setToolTip("Rengi değiştir")
             btn.clicked.connect(lambda _c=False, s=sid, b=btn: self._pick_color(s, b))
             t.setCellWidget(r, COL_COLOR, self._center(btn))
@@ -344,7 +344,7 @@ class PlotPanel(PanelBase):
         if not c.isValid():
             return
         self.styles[sid]["color"] = c.name()
-        btn.setStyleSheet(f"background:{c.name()}; border:1px solid #B7C4D0; border-radius:3px;")
+        btn.setStyleSheet(f"background:{c.name()}; border:1px solid {theme.LINE_STRONG}; border-radius:3px;")
         self._apply_pen(sid)
         self.changed.emit()
 

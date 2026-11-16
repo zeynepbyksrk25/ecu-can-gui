@@ -60,7 +60,7 @@ class ColorCard(QFrame):
         ink = self.ACCENTS.get(card_id, theme.ACCENT)
         self.setObjectName("colorCard")
         self.setStyleSheet(
-            "QFrame#colorCard { background:#FFFFFF; border:1px solid #D6DEE6; border-radius:12px; }"
+            f"QFrame#colorCard {{ background:{theme.SURFACE}; border:1px solid {theme.BORDER}; border-radius:12px; }}"
             f"QLabel#cardTitle {{ color:{ink}; font-size:14px; font-weight:800; background:transparent; }}")
         self.outer = QVBoxLayout(self)
         self.outer.setContentsMargins(14, 10, 14, 12)
@@ -70,7 +70,7 @@ class ColorCard(QFrame):
         badge = QLabel(card_id)
         badge.setFixedSize(26, 26)
         badge.setAlignment(Qt.AlignCenter)
-        badge.setStyleSheet(f"background:{ink}; color:#FFFFFF; border-radius:13px; font-weight:800; font-size:13px;")
+        badge.setStyleSheet(f"background:{ink}; color:{theme.SURFACE}; border-radius:13px; font-weight:800; font-size:13px;")
         self.title_label = QLabel(title.split(". ", 1)[-1])
         self.title_label.setObjectName("cardTitle")
         head.addWidget(badge)
@@ -99,8 +99,8 @@ class DigitalBox(QFrame):
         self.setObjectName("digitalBox")
         self.setMinimumHeight(56)
         self.setMaximumHeight(72)
-        self.setStyleSheet("QFrame#digitalBox { background:#FFFFFF; border:1px solid #DDE5EC; border-radius:8px; }"
-                           "QLabel { background:transparent; }")
+        self.setStyleSheet(theme.paint("QFrame#digitalBox { background:@@SURFACE@@; border:1px solid #DDE5EC; border-radius:8px; }"
+                           "QLabel { background:transparent; }"))
         lay = QVBoxLayout(self)
         lay.setContentsMargins(10, 5, 10, 5)
         lay.setSpacing(0)
@@ -138,13 +138,13 @@ class DigitalBox(QFrame):
         self.setToolTip(f"{self._label}\nKaynak: {name}" if bound else
                         f"{self._label}\nBağlı sinyal yok — sağ tık: Sinyal bağla…")
 
-    BORDERS = {0: "none", 1: "2px solid #D9A441", 2: f"2px solid {theme.DANGER}"}
+    BORDERS = {0: "none", 1: theme.paint("2px solid @@WARN_LINE@@"), 2: f"2px solid {theme.DANGER}"}
     ICONS = {0: "", 1: "⚠ ", 2: "⛔ "}
 
     def set_value(self, value, level: int = 0, trend: int = 0, stale: bool = False):
         if stale:
             level = 0
-        self.setStyleSheet(f"QFrame#digitalBox {{ background:#FFFFFF; border-radius:8px; "
+        self.setStyleSheet(f"QFrame#digitalBox {{ background:{theme.SURFACE}; border-radius:8px; "
                            f"border:{self.BORDERS.get(level, '1px solid #DDE5EC')}; }} QLabel {{ background:transparent; }}")
         base = self._label + (f"  ({self._hint})" if self._hint else "")
         self.name_label.setText(self.ICONS.get(level, "") + base)

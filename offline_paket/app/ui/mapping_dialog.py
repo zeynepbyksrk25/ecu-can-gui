@@ -182,7 +182,7 @@ class MappingDialog(QDialog):
         super().__init__(parent)
         self.setObjectName("mappingDialog")
         self.setWindowTitle("Eşleşmeler — CAN (DBC) / A2L")
-        self.setStyleSheet("QDialog#mappingDialog { background: #EEF2F6; }")
+        self.setStyleSheet(theme.paint("QDialog#mappingDialog { background: @@BG@@; }"))
         from PySide6.QtGui import QGuiApplication
         screen = QGuiApplication.primaryScreen()
         avail_h = screen.availableGeometry().height() if screen is not None else 800

@@ -157,7 +157,7 @@ def link():
 
 def test_urgent_write_interleaves_with_a_long_write_without_corrupting_either(link):
     cli, sim = link
-    big = bytes(range(1, 241))
+    big = bytes((i % 250) + 1 for i in range(3000))        # ~500 parça: acil yazmalar bitmeden bitmez
     errors = []
 
     def long_write():
@@ -168,19 +168,20 @@ def test_urgent_write_interleaves_with_a_long_write_without_corrupting_either(li
 
     th = threading.Thread(target=long_write)
     th.start()
-    time.sleep(0.01)
-    finished_before = []
+    deadline = time.time() + 5
+    while 0x1000 not in sim.memory and time.time() < deadline:    # uzun yazma gerçekten başlasın
+        time.sleep(0.001)
+    alive_after_urgent = []
     for i in range(5):                     # uzun yazma sürerken araya giren "acil" yazmalar
         with cli.urgent():
-            cli.write_memory(0x2000 + 2 * i, bytes([0xA0 + i, 0xB0 + i]))
-        finished_before.append(th.is_alive())
-        time.sleep(0.002)
-    th.join(10)
+            cli.write_memory(0x8000 + 2 * i, bytes([0xA0 + i, 0xB0 + i]))
+        alive_after_urgent.append(th.is_alive())
+    th.join(30)
     assert not errors and not th.is_alive()
-    assert any(finished_before), "acil yazma, uzun yazma bitmeden araya girebilmeli"
+    assert alive_after_urgent[0], "acil yazma, uzun yazma bitmeden araya girebilmeli"
     assert bytes(sim.memory[0x1000 + i] for i in range(len(big))) == big       # MTA karışmadı
     for i in range(5):
-        assert (sim.memory[0x2000 + 2 * i], sim.memory[0x2001 + 2 * i]) == (0xA0 + i, 0xB0 + i)
+        assert (sim.memory[0x8000 + 2 * i], sim.memory[0x8001 + 2 * i]) == (0xA0 + i, 0xB0 + i)
 
 
 # ---------------------------------------------------------------- MainWindow: arka plan CCP işi
@@ -320,7 +321,7 @@ def test_ui_colours_come_from_the_single_theme_module():
                 continue
             text = open(os.path.join(root, name), encoding="utf-8").read()
             # Yalnızca tek başına renk sabiti olan dizgeler ("#C22A1D"): token'ı varsa o kullanılmalı.
-            for m in re.finditer(r"[\"'](#[0-9A-Fa-f]{6})[\"']", text):
-                if m.group(1).upper() in {theme.DANGER, theme.OK, theme.ACCENT, theme.INK, theme.MUTED}:
-                    offenders.append((name, m.group(1)))
+            for m in re.finditer(r"#[0-9A-Fa-f]{6}\b", text):
+                if m.group(0).upper() in tokens:
+                    offenders.append((name, m.group(0)))
     assert not offenders and len(tokens) > 20

@@ -156,7 +156,7 @@ class MapDocument(QWidget):
         bulk.addStretch()
 
         # --- INCA/Lookup tarzı grafik (üstte) ---
-        self.plot = pg.PlotWidget(background="#F7F9FB")
+        self.plot = pg.PlotWidget(background=theme.paint("@@SURFACE_SUBTLE@@"))
         self.plot.showGrid(x=True, y=True, alpha=0.25)
         self.plot.setMinimumHeight(150)
         self.plot.setMaximumHeight(300)
@@ -169,7 +169,7 @@ class MapDocument(QWidget):
         self.table = QTableWidget()
         self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         # Eksen değerleri (başlıklar) Lookup penceresindeki gibi gri zeminde, kalın
-        hdr_css = "QHeaderView::section { background:#16304d; color:#243442; font-weight:bold; padding:3px 8px; border:1px solid #D6DEE6; }"
+        hdr_css = theme.paint("QHeaderView::section { background:#16304d; color:@@HEAD@@; font-weight:bold; padding:3px 8px; border:1px solid @@BORDER@@; }")
         self.table.horizontalHeader().setStyleSheet(hdr_css)
         self.table.verticalHeader().setStyleSheet(hdr_css)
         self.table.setSelectionBehavior(QAbstractItemView.SelectItems)
@@ -525,7 +525,7 @@ class MapDocument(QWidget):
                     and abs(self._original_grid[r][c] - val) > 1e-9
                 )
                 if val is None:
-                    item.setBackground(QColor("#F7F9FB"))
+                    item.setBackground(QColor(theme.paint("@@SURFACE_SUBTLE@@")))
                     item.setForeground(QColor(theme.INK))
                 elif heatmap_on:
                     ratio = (val - vmin) / span
@@ -533,7 +533,7 @@ class MapDocument(QWidget):
                     item.setBackground(color)
                     item.setForeground(MODIFIED_FG if modified else QColor(theme.SURFACE))
                 else:
-                    item.setBackground(MODIFIED_BG if modified else QColor("#F7F9FB"))
+                    item.setBackground(MODIFIED_BG if modified else QColor(theme.paint("@@SURFACE_SUBTLE@@")))
                     item.setForeground(MODIFIED_FG if modified else QColor(theme.INK))
                 font = item.font()
                 font.setBold(modified)

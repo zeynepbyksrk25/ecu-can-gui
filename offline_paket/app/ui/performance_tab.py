@@ -61,7 +61,7 @@ class _GraphBox(QFrame):
         self.index = index
         self.spec = spec
         self.setObjectName("graphBox")
-        self.setStyleSheet("QFrame#graphBox { background:#FFFFFF; border:1px solid #D6DEE6; border-radius:10px; }")
+        self.setStyleSheet(theme.paint("QFrame#graphBox { background:@@SURFACE@@; border:1px solid @@BORDER@@; border-radius:10px; }"))
         lay = QVBoxLayout(self)
         lay.setContentsMargins(8, 6, 8, 8)
         head = QHBoxLayout()
@@ -77,7 +77,7 @@ class _GraphBox(QFrame):
         head.addWidget(self.norm)
         head.addWidget(btn)
         lay.addLayout(head)
-        self.plot = pg.PlotWidget(background="#F7F9FB")
+        self.plot = pg.PlotWidget(background=theme.paint("@@SURFACE_SUBTLE@@"))
         style_plot(self.plot)
         self.plot.setMinimumHeight(190)
         self.plot.showGrid(x=True, y=True, alpha=0.25)
@@ -144,8 +144,8 @@ class PerformanceTab(QWidget):
             b = QPushButton(label)
             b.setCheckable(True)
             b.setFixedHeight(28)
-            b.setStyleSheet("QPushButton { border:1px solid #D6DEE6; background:#FFFFFF; color:#243442; padding:0 14px; font-weight:600; }"
-                            "QPushButton:checked { background:#0E6E8C; color:#FFFFFF; border-color:#0E6E8C; }")
+            b.setStyleSheet(theme.paint("QPushButton { border:1px solid @@BORDER@@; background:@@SURFACE@@; color:@@HEAD@@; padding:0 14px; font-weight:600; }"
+                            "QPushButton:checked { background:@@ACCENT@@; color:@@SURFACE@@; border-color:@@ACCENT@@; }"))
             self._win_group.addButton(b)
             self._win_buttons[sec] = b
             wl.addWidget(b)

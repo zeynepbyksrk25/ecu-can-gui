@@ -27,7 +27,7 @@ from app.ui.dash_widgets import (
 WINDOWS = [("60 sn", 60.0), ("5 dk", 300.0), ("10 dk", 600.0), ("1 sa", 3600.0)]
 MAX_HISTORY_S = 3600.0
 PALETTE = [DK_CYAN, DK_ORANGE, DK_PURPLE, DK_GREEN, "#D6336C", "#B58900", theme.BLUE, theme.DANGER]
-PLOT_BG = "#F7F9FB"
+PLOT_BG = theme.paint("@@SURFACE_SUBTLE@@")
 
 
 class _RelAxis(pg.AxisItem):

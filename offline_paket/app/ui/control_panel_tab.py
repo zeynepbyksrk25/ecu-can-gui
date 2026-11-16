@@ -192,7 +192,7 @@ class _Section(QWidget):
         self.button.setChecked(True)
         self.button.setArrowType(Qt.DownArrow)
         self.button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        self.button.setStyleSheet("QToolButton{border:0;font-weight:700;color:#243442;text-align:left;}")
+        self.button.setStyleSheet(theme.paint("QToolButton{border:0;font-weight:700;color:@@HEAD@@;text-align:left;}"))
         self.button.toggled.connect(self._on_toggle)
         self.title = ROLE_TITLES[role]
         self.subtitle = QLabel("")
@@ -267,8 +267,8 @@ class CatalogPanel(QWidget):
                            ("ovr", "Override çiftleri"), ("new", "Yeni"), ("free", "Panelde olmayanlar")):
             b = QPushButton(label)
             b.setCheckable(True)
-            b.setStyleSheet("QPushButton{padding:3px 8px;border:1px solid #D6DEE6;border-radius:11px;background:#FFFFFF;color:#243442;}"
-                            "QPushButton:checked{background:#0E6E8C;color:#FFFFFF;border-color:#0E6E8C;}")
+            b.setStyleSheet(theme.paint("QPushButton{padding:3px 8px;border:1px solid @@BORDER@@;border-radius:11px;background:@@SURFACE@@;color:@@HEAD@@;}"
+                            "QPushButton:checked{background:@@ACCENT@@;color:@@SURFACE@@;border-color:@@ACCENT@@;}"))
             self._filter_group.addButton(b)
             self._chip_keys[b] = key
             chips.addWidget(b)
@@ -291,8 +291,8 @@ class CatalogPanel(QWidget):
         clear = QPushButton("Seçimi temizle")
         clear.clicked.connect(self.clear_selection)
         self.add_button = QPushButton("Panele ekle (0)")
-        self.add_button.setStyleSheet("QPushButton{background:#0E6E8C;color:#FFFFFF;font-weight:700;padding:6px 14px;border-radius:6px;}"
-                                      "QPushButton:disabled{background:#9AA8B5;}")
+        self.add_button.setStyleSheet(theme.paint("QPushButton{background:@@ACCENT@@;color:@@SURFACE@@;font-weight:700;padding:6px 14px;border-radius:6px;}"
+                                      "QPushButton:disabled{background:#9AA8B5;}"))
         self.add_button.setEnabled(False)
         self.add_button.clicked.connect(self._emit_add)
         bottom = QHBoxLayout()
@@ -590,8 +590,8 @@ class ControlPanelTab(QWidget):
         # --- araç çubuğu ---
         self.catalog_button = QPushButton("+ Sinyal kataloğu")
         self.catalog_button.setCheckable(True)
-        self.catalog_button.setStyleSheet("QPushButton{border:1px solid #0E6E8C;color:#0E6E8C;background:#FFFFFF;font-weight:700;padding:6px 12px;border-radius:6px;}"
-                                          "QPushButton:checked{background:#0E6E8C;color:#FFFFFF;}")
+        self.catalog_button.setStyleSheet(theme.paint("QPushButton{border:1px solid @@ACCENT@@;color:@@ACCENT@@;background:@@SURFACE@@;font-weight:700;padding:6px 12px;border-radius:6px;}"
+                                          "QPushButton:checked{background:@@ACCENT@@;color:@@SURFACE@@;}"))
         self.catalog_button.toggled.connect(self._toggle_catalog)
 
         self.view_combo = QComboBox()
@@ -609,13 +609,13 @@ class ControlPanelTab(QWidget):
         self.search.textChanged.connect(self._apply_filters)
 
         self.apply_button = QPushButton("Uygula (0)")
-        self.apply_button.setStyleSheet("QPushButton{background:#0E6E8C;color:#FFFFFF;font-weight:700;padding:7px 18px;border-radius:6px;}"
-                                        "QPushButton:disabled{background:#9AA8B5;}")
+        self.apply_button.setStyleSheet(theme.paint("QPushButton{background:@@ACCENT@@;color:@@SURFACE@@;font-weight:700;padding:7px 18px;border-radius:6px;}"
+                                        "QPushButton:disabled{background:#9AA8B5;}"))
         self.apply_button.clicked.connect(self._on_apply_clicked)
         self.revert_button = QPushButton("Bekleyenleri geri al")
         self.revert_button.clicked.connect(self.revert_pending)
         self.kill_button = QPushButton("Tüm override'ları kapat")
-        self.kill_button.setStyleSheet("QPushButton{border:1px solid #C22A1D;color:#C22A1D;background:#FBE3E0;font-weight:700;padding:6px 12px;border-radius:6px;}")
+        self.kill_button.setStyleSheet(theme.paint("QPushButton{border:1px solid @@DANGER@@;color:@@DANGER@@;background:#FBE3E0;font-weight:700;padding:6px 12px;border-radius:6px;}"))
         self.kill_button.clicked.connect(self._on_kill_clicked)
 
         bar = QHBoxLayout()
@@ -637,8 +637,8 @@ class ControlPanelTab(QWidget):
         self._role_group.setExclusive(True)
         self._state_chips: dict[str, QPushButton] = {}
         self._role_chips: dict[str, QPushButton] = {}
-        chip_css = ("QPushButton{padding:3px 10px;border:1px solid #D6DEE6;border-radius:12px;background:#FFFFFF;color:#243442;font-weight:600;}"
-                    "QPushButton:checked{background:#0E6E8C;color:#FFFFFF;border-color:#0E6E8C;}")
+        chip_css = (theme.paint("QPushButton{padding:3px 10px;border:1px solid @@BORDER@@;border-radius:12px;background:@@SURFACE@@;color:@@HEAD@@;font-weight:600;}"
+                    "QPushButton:checked{background:@@ACCENT@@;color:@@SURFACE@@;border-color:@@ACCENT@@;}"))
         chips = QHBoxLayout()
         chips.setSpacing(6)
         lbl_show = QLabel("Göster:")
@@ -657,7 +657,7 @@ class ControlPanelTab(QWidget):
         self._role_group.buttonClicked.connect(lambda _b: self._apply_filters())
         sep = QFrame()
         sep.setFrameShape(QFrame.VLine)
-        sep.setStyleSheet("color:#C9D3DC;")
+        sep.setStyleSheet(theme.paint("color:@@LINE_MID@@;"))
         chips.addSpacing(6)
         chips.addWidget(sep)
         chips.addSpacing(6)
@@ -687,12 +687,12 @@ class ControlPanelTab(QWidget):
         self.ovr_label = QLabel("")
         self.tx_toggle = QPushButton("Gönderimi durdur")
         self.tx_toggle.setFlat(True)
-        self.tx_toggle.setStyleSheet("QPushButton{color:#0E6E8C;font-weight:700;text-decoration:underline;border:0;}")
+        self.tx_toggle.setStyleSheet(theme.paint("QPushButton{color:@@ACCENT@@;font-weight:700;text-decoration:underline;border:0;}"))
         self.tx_toggle.clicked.connect(self._on_tx_toggle)
         self.files_label = QLabel("")
         self.reload_button = QPushButton("Yeniden yükle")
         self.reload_button.setFlat(True)
-        self.reload_button.setStyleSheet("QPushButton{color:#0E6E8C;font-weight:700;text-decoration:underline;border:0;}")
+        self.reload_button.setStyleSheet(theme.paint("QPushButton{color:@@ACCENT@@;font-weight:700;text-decoration:underline;border:0;}"))
         self.reload_button.clicked.connect(self.reload_requested.emit)
         self.reload_button.setVisible(False)
         strip = QHBoxLayout()
@@ -719,7 +719,7 @@ class ControlPanelTab(QWidget):
             f"<span style='color:{theme.MUTED}'>Değer göndermek için Mühendis veya Yönetici rolü gerekir.</span>")
         self.onboarding.setTextFormat(Qt.RichText)
         self.onboarding.setWordWrap(True)
-        self.onboarding.setStyleSheet(f"background:{theme.SURFACE};border:1px solid #C9D3DC;border-radius:10px;"
+        self.onboarding.setStyleSheet(f"background:{theme.SURFACE};border:1px solid {theme.LINE_MID};border-radius:10px;"
                                       f"padding:16px 20px;color:{theme.INK};")
         self.onboarding.setVisible(False)
 
@@ -1026,7 +1026,7 @@ class ControlPanelTab(QWidget):
                 vi.setForeground(C_BAD if oor else QColor(theme.INK))
                 vi.setToolTip(f"Aralık dışı ({s.range_text()})" if oor else
                               (f"önce {self._format_value(s, st['applied'])}" if pend_row and st["applied"] is not None else ""))
-                vi.setBackground(C_PEND_CELL if pend_row else QColor("#F7F9FB"))
+                vi.setBackground(C_PEND_CELL if pend_row else QColor(theme.paint("@@SURFACE_SUBTLE@@")))
                 running = s.message in self._tx_running
                 if self._lost:
                     gtxt, gcol = "durdu", C_BAD
@@ -1061,7 +1061,7 @@ class ControlPanelTab(QWidget):
                 text = _fmt_num(shown) if shown is not None else "—"
                 if vi.text() != text and not self._is_editing(t, r, 3):
                     vi.setText(text)
-                vi.setBackground(C_PEND_CELL if st["pending"] is not None else QColor("#F7F9FB"))
+                vi.setBackground(C_PEND_CELL if st["pending"] is not None else QColor(theme.paint("@@SURFACE_SUBTLE@@")))
                 vi.setForeground(QColor(theme.INK) if en_eff else C_MUTED)
                 seen = st["seen"]
                 t.item(r, 4).setText(_fmt_num(seen) if seen is not None else "—")
@@ -1098,7 +1098,7 @@ class ControlPanelTab(QWidget):
                     vi.setToolTip(st["error"])
             # satır arka planı + nokta
             row_bg = (C_PEND_ROW if pend_row else C_FAULT_ROW if fault_row else
-                      C_CHANGED_ROW if changed_row else QColor("#F7F9FB"))
+                      C_CHANGED_ROW if changed_row else QColor(theme.paint("@@SURFACE_SUBTLE@@")))
             for c in range(t.columnCount()):
                 it = t.item(r, c)
                 if it is None:
@@ -1523,7 +1523,7 @@ class ControlPanelTab(QWidget):
         self.apply_button.setText(f"Uygula ({n})")
         self.apply_button.setEnabled(n > 0 and self._can_allowed)
         self.revert_button.setEnabled(n > 0)
-        self.pending_label.setText(f"<b style='color:#9A6208'>{n} bekleyen değişiklik</b>" if n else "Bekleyen değişiklik yok")
+        self.pending_label.setText(f"<b style='color:{theme.WARN_INK}'>{n} bekleyen değişiklik</b>" if n else "Bekleyen değişiklik yok")
         n_ovr = sum(1 for k in self._rows if self._sig(k).role == ROLE_SENSOR_OVR and self._st(k)["en"])
         self.ovr_label.setText(f"Override aktif: <b>{n_ovr}</b>")
         self.tx_label.setText(f"Periyodik gönderim: <b>{len(self._tx_running)}</b> mesaj")
