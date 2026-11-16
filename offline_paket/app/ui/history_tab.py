@@ -13,9 +13,12 @@ import time
 from PySide6.QtCore import Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
-    QGroupBox, QHBoxLayout, QLabel, QPushButton, QTableWidget,
-    QTableWidgetItem, QVBoxLayout, QWidget,
+    QHBoxLayout, QPushButton, QTableWidget, QTableWidgetItem,
+    QVBoxLayout, QWidget,
 )
+
+from app import theme
+from app.ui.dash_widgets import make_card
 
 
 class HistoryTab(QWidget):
@@ -25,7 +28,7 @@ class HistoryTab(QWidget):
         super().__init__()
         self.history = None  # MainWindow tarafından paylaşılır (app.history.CalibrationHistory)
 
-        box = QGroupBox("Kalibrasyon geçmişi (CCP RAM ve FLAŞ yazımları)")
+        box, body, _head = make_card("Kalibrasyon geçmişi (CCP RAM ve FLAŞ yazımları)", "trend")
         self.table = QTableWidget()
         self.table.setColumnCount(7)
         self.table.setHorizontalHeaderLabels(
@@ -42,7 +45,7 @@ class HistoryTab(QWidget):
         row.addWidget(self.revert_button)
         row.addStretch()
         layout.addLayout(row)
-        box.setLayout(layout)
+        body.addLayout(layout, 1)
 
         outer = QVBoxLayout(self)
         outer.addWidget(box)
@@ -56,7 +59,7 @@ class HistoryTab(QWidget):
             self.table.setItem(row, 0, QTableWidgetItem(time.strftime("%d.%m.%Y %H:%M:%S", time.localtime(e.timestamp))))
             kind_item = QTableWidgetItem("FLAŞ (kalıcı)" if e.persistent else "RAM (geçici)")
             if e.persistent:
-                kind_item.setForeground(QColor("#9A6208"))
+                kind_item.setForeground(QColor(theme.WARN_INK))
             self.table.setItem(row, 1, kind_item)
             self.table.setItem(row, 2, QTableWidgetItem(e.user))
             self.table.setItem(row, 3, QTableWidgetItem(e.role))

@@ -1,0 +1,7 @@
+# Statik denetim: yalnızca gerçek hataları yakalayan kurallar (tanımsız ad, kullanılmayan içe aktarma /
+# değişken, sözdizimi hatası). Biçim/stil kuralları bilinçli olarak kapalı.
+target-version = "py311"
+line-length = 130
+
+[lint]
+select = ["F", "E9"]

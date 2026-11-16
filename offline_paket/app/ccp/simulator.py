@@ -7,7 +7,6 @@ GET_CCP_VERSION komutlarını destekler.
 Bu, ürünün bir parçası DEĞİL — sadece test altyapısıdır.
 """
 
-import threading
 
 import can
 
@@ -167,8 +166,7 @@ class CCPSlaveSimulator:
 
     def _handle_short_upload(self, data, ctr):
         size = data[2]
-        ext = data[3]
-        address = int.from_bytes(data[4:8], "big")
+        address = int.from_bytes(data[4:8], "big")      # data[3]: adres uzantısı (simülatörde tek bellek)
         chunk = self.read_memory_bytes(address, size)
         self._reply(ccp.RC_OK, ctr, chunk)
 

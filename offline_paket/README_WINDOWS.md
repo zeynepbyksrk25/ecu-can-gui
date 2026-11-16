@@ -358,3 +358,20 @@ Aşağıdakiler yazılımın otomatik testleriyle **kanıtlanamaz**; gerçek ECU
 - **Biçim:** `time,signal,value,unix_time` (time = oturum başından saniye; unix_time = mutlak zaman). Excel'de açılabilir.
 - **Geri açma:** Analiz → Çalışma Alanı → **CSV aç** ile kayıt yüklenip grafikte çizilir, yeni bir kayıtla üst üste karşılaştırılabilir.
 - Veri saniyede bir diske işlenir (çökmede en çok ~1 sn kaybolur). Disk hatasında kayıt durur ve olay günlüğüne HATA yazılır. Manuel adresli (A2L'siz) Parametre Listesi satırları kaydedilmez. Oturum başlatılmadıkça kayıt yapılmaz.
+
+## Geliştirici notları: kod yapısı, testler ve CI
+
+- **Ana pencere parçalara bölündü.** `app/ui/main_window.py` yalnızca pencere çatısını, sayfaları, sinyal
+  bağlantılarını ve kapanışı içerir. İş mantığı `app/ui/mainwin/` altındadır: `connection.py` (CAN bağlantısı,
+  sağlık izleme, alım/gönderim), `calibration.py` (CCP oturumu, arka plan CCP işleri, harita / Parametre
+  Listesi / tanılama / geri alma), `dashboard.py` (eşleşme yazımı, motor komutları, göstergeler),
+  `panel.py` (Kontrol Paneli, simülasyon, Performans), `profiles.py` (rol ve profiller), `common.py` (sabitler).
+- **Renkler tek yerden:** `app/theme.py` içindeki token'lar (`theme.DANGER`, `theme.OK`, `theme.ACCENT`…).
+  Arayüz kodunda yeni renk sabiti yazmayın; token kullanın. Kalibrasyon sayfasının tüm iç sekmeleri artık
+  diğer sayfalarla aynı kart görünümünü kullanır.
+- **A2L arka planda yüklenir** (`A2LTab.load_path`): büyük dosyada arayüz donmaz, ilerleme penceresi görünür.
+- **Testler:** `python -m pytest tests -q` (Windows'ta `3_testleri_calistir.bat`). Her testten sonra açık
+  pencereler kapatılır ve zamanlayıcıları durdurulur (`tests/conftest.py`); testler birbirini etkilemez.
+- **Statik denetim:** `ruff check .` (ayar: `ruff.toml`; yalnızca gerçek hata kuralları).
+- **CI:** `.github/workflows/testler.yml` her push ve pull request'te ruff + tüm testleri çalıştırır
+  (Ubuntu, Python 3.11, ekransız Qt).

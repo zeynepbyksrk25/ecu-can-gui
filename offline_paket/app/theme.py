@@ -14,6 +14,11 @@ BORDER = "#D6DEE6"
 INK = "#121A22"          # birincil metin
 INK_2 = "#5B6B79"        # ikincil metin
 INK_3 = "#8697A5"        # üçüncül / ipucu metni
+MUTED = "#51616F"        # sayfa içi ikincil metin (ipucu, açıklama)
+DIM = "#7C8B98"          # devre dışı / soluk metin
+HEAD = "#243442"         # kart ve tablo başlıkları
+SURFACE_ALT = "#F4F7FA"  # düğme / ikincil yüzey
+LINE_STRONG = "#B7C4D0"  # belirgin kenarlık (giriş kutusu, düğme)
 
 ACCENT = "#0E6E8C"       # birincil / aktif ("enstrüman turkuazı")
 ACCENT_INK = "#064A60"   # hover / pressed
@@ -25,6 +30,10 @@ WARN = "#B9790F"
 WARN_WEAK = "#FBF0DC"
 DANGER = "#C22A1D"
 DANGER_WEAK = "#FBE8E5"
+WARN_INK = "#9A6208"     # açık zemin üzerinde okunur uyarı metni
+BLUE = "#1F6FE0"         # seçili / vurgu (segment düğmesi, grafik serisi)
+PURPLE = "#7B3FD1"
+ORANGE = "#D9710B"
 
 # Annunciator (lamba) şeridi — yalnızca Ana Sayfa'daki uyarı lambaları paneli
 LAMP_STRIP_BG = "#101820"

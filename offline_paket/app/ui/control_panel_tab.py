@@ -18,7 +18,7 @@ import os
 import time
 from collections import deque
 
-from PySide6.QtCore import QRectF, QPointF, Qt, QTimer, Signal
+from PySide6.QtCore import QPointF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QKeySequence, QPainter, QPen, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView, QButtonGroup, QComboBox, QDialog, QFrame, QHBoxLayout,
@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
     QWidget, QApplication,
 )
 
+from app import theme
 from app import control_panel as cp
 from app.control_panel import (
     ROLE_AIRCRAFT_IN, ROLE_INTERNAL, ROLE_OUTPUT, ROLE_SENSOR_OVR, ROLE_TITLES,
@@ -38,11 +39,11 @@ C_PEND_ROW = QColor("#FFF1CC")
 C_PEND_CELL = QColor("#FFE8A8")
 C_FAULT_ROW = QColor("#FBE3E0")
 C_CHANGED_ROW = QColor("#E1EEF6")
-C_OK = QColor("#1B8A4C")
-C_WARN = QColor("#B9790F")
-C_BAD = QColor("#C22A1D")
-C_MUTED = QColor("#51616F")
-C_PRIMARY = "#0E6E8C"
+C_OK = QColor(theme.OK)
+C_WARN = QColor(theme.WARN)
+C_BAD = QColor(theme.DANGER)
+C_MUTED = QColor(theme.MUTED)
+C_PRIMARY = theme.ACCENT
 
 ROLE_CHOICES = Qt.UserRole + 2
 ROLE_SPARK = Qt.UserRole + 1
@@ -195,9 +196,9 @@ class _Section(QWidget):
         self.button.toggled.connect(self._on_toggle)
         self.title = ROLE_TITLES[role]
         self.subtitle = QLabel("")
-        self.subtitle.setStyleSheet("color:#51616F;")
+        self.subtitle.setStyleSheet(f"color:{theme.MUTED};")
         self.empty_label = QLabel("Henüz sinyal yok — “+ Sinyal kataloğu”ndan ekleyin.")
-        self.empty_label.setStyleSheet("color:#51616F;padding:10px 14px;")
+        self.empty_label.setStyleSheet(f"color:{theme.MUTED};padding:10px 14px;")
         head = QWidget()
         head.setStyleSheet("background:#E3EAF0;")
         hl = QHBoxLayout(head)
@@ -243,7 +244,7 @@ class CatalogPanel(QWidget):
         title = QLabel("Sinyal kataloğu")
         title.setStyleSheet("font-size:15px;font-weight:700;")
         self.counts_label = QLabel("")
-        self.counts_label.setStyleSheet("color:#51616F;")
+        self.counts_label.setStyleSheet(f"color:{theme.MUTED};")
         close = QPushButton("✕")
         close.setFixedWidth(30)
         close.clicked.connect(self.closed.emit)
@@ -499,11 +500,11 @@ class DiffDialog(QDialog):
                    "Çalışma listeniz ve görünümleriniz isme göre korunur.")
         lay.addWidget(t)
         cards = QHBoxLayout()
-        for n, text, color in ((len(diff.added), "yeni sinyal", "#1B8A4C"),
-                               (len(diff.changed), "aralık/birim/adres değişti", "#B9790F"),
-                               (len(diff.removed), "artık yok", "#C22A1D")):
+        for n, text, color in ((len(diff.added), "yeni sinyal", theme.OK),
+                               (len(diff.changed), "aralık/birim/adres değişti", theme.WARN),
+                               (len(diff.removed), "artık yok", theme.DANGER)):
             lbl = QLabel(f"<span style='font-size:22px;font-weight:700;color:{color}'>{n}</span><br>{text}")
-            lbl.setStyleSheet("background:#FFFFFF;border-radius:8px;padding:10px;")
+            lbl.setStyleSheet(f"background:{theme.SURFACE};border-radius:8px;padding:10px;")
             cards.addWidget(lbl, 1)
         lay.addLayout(cards)
         table = QTableWidget(0, 3)
@@ -702,7 +703,7 @@ class ControlPanelTab(QWidget):
         strip.addStretch()
 
         self.banner = QLabel("")
-        self.banner.setStyleSheet("background:#FBE3E0;color:#C22A1D;font-weight:700;padding:6px 10px;border-radius:6px;")
+        self.banner.setStyleSheet(f"background:#FBE3E0;color:{theme.DANGER};font-weight:700;padding:6px 10px;border-radius:6px;")
         self.banner.setVisible(False)
         self.status_label = QLabel("")
         self.status_label.setWordWrap(True)
@@ -715,11 +716,11 @@ class ControlPanelTab(QWidget):
             "3. Değer hücresine yazın (sarı = bekleyen), sensör için <b>Override</b> kutusunu işaretleyin.<br>"
             "4. <b>Uygula</b> ile gönderin; sonucu <b>ECU'nun gördüğü</b> ve çıkış tablosunda izleyin.<br>"
             "5. İşiniz bitince <b>Tüm override'ları kapat</b>.<br><br>"
-            "<span style='color:#51616F'>Değer göndermek için Mühendis veya Yönetici rolü gerekir.</span>")
+            f"<span style='color:{theme.MUTED}'>Değer göndermek için Mühendis veya Yönetici rolü gerekir.</span>")
         self.onboarding.setTextFormat(Qt.RichText)
         self.onboarding.setWordWrap(True)
-        self.onboarding.setStyleSheet("background:#FFFFFF;border:1px solid #C9D3DC;border-radius:10px;"
-                                      "padding:16px 20px;color:#121A22;")
+        self.onboarding.setStyleSheet(f"background:{theme.SURFACE};border:1px solid #C9D3DC;border-radius:10px;"
+                                      f"padding:16px 20px;color:{theme.INK};")
         self.onboarding.setVisible(False)
 
         # --- bölümler ---
@@ -855,7 +856,7 @@ class ControlPanelTab(QWidget):
     def _set_files_changed(self, on: bool, which: str = ""):
         self.reload_button.setVisible(on)
         self.files_label.setText(f"{which} dosyası değişti" if on else "")
-        self.files_label.setStyleSheet("color:#9A6208;font-weight:700;" if on else "")
+        self.files_label.setStyleSheet(f"color:{theme.WARN_INK};font-weight:700;" if on else "")
         self._files_changed_text = which if on else ""
 
     def _set_role_override(self, key: str, role: str):
@@ -1022,7 +1023,7 @@ class ControlPanelTab(QWidget):
                     vi.setText(text)
                 pend_row = st["pending"] is not None
                 oor = self._out_of_range(s, v)
-                vi.setForeground(C_BAD if oor else QColor("#121A22"))
+                vi.setForeground(C_BAD if oor else QColor(theme.INK))
                 vi.setToolTip(f"Aralık dışı ({s.range_text()})" if oor else
                               (f"önce {self._format_value(s, st['applied'])}" if pend_row and st["applied"] is not None else ""))
                 vi.setBackground(C_PEND_CELL if pend_row else QColor("#F7F9FB"))
@@ -1061,7 +1062,7 @@ class ControlPanelTab(QWidget):
                 if vi.text() != text and not self._is_editing(t, r, 3):
                     vi.setText(text)
                 vi.setBackground(C_PEND_CELL if st["pending"] is not None else QColor("#F7F9FB"))
-                vi.setForeground(QColor("#121A22") if en_eff else C_MUTED)
+                vi.setForeground(QColor(theme.INK) if en_eff else C_MUTED)
                 seen = st["seen"]
                 t.item(r, 4).setText(_fmt_num(seen) if seen is not None else "—")
                 pend_row = st["pending"] is not None or st["en_pending"] is not None
@@ -1074,7 +1075,7 @@ class ControlPanelTab(QWidget):
                 f = vi.font()
                 f.setBold(True)
                 vi.setFont(f)
-                vi.setForeground(C_BAD if (fault or s.missing) else (C_OK if (s.is_fault_like and live is not None) else QColor("#121A22")))
+                vi.setForeground(C_BAD if (fault or s.missing) else (C_OK if (s.is_fault_like and live is not None) else QColor(theme.INK)))
                 prev = self._snapshot.get(key)
                 t.item(r, 3).setText(self._format_value(s, prev) if (key in self._snapshot) else "—")
                 dtxt, dcol = "—", C_MUTED
@@ -1159,7 +1160,6 @@ class ControlPanelTab(QWidget):
         v = cp.parse_input_value(text, s.choices)
         if v is None:
             self._set_status(f"{s.name}: “{text}” geçerli bir sayı değil.", False)
-            st_text = None
             self._refresh_row(s.key)
             self._building = True
             cur = self._display_input_value(s, st) if s.role == ROLE_AIRCRAFT_IN else (st["pending"] if st["pending"] is not None else st["applied"])
@@ -1251,7 +1251,7 @@ class ControlPanelTab(QWidget):
         for key in self.config.pinned:
             if key not in self._rows:
                 continue
-            s, st = self._sig(key), self._st(key)
+            st = self._st(key)
             if st["pending"] is not None:
                 out.append((key, "value", st["pending"], st["applied"]))
             if st["en_pending"] is not None:
@@ -1290,7 +1290,6 @@ class ControlPanelTab(QWidget):
     def build_changes(self, items) -> dict:
         can: dict[str, dict] = {}
         ccp: list = []
-        pending_value_keys = {k for k, f, _v, _o in items if f == "value"}
         for key, field, value, _old in items:
             s = self._sig(key)
             if s.role == ROLE_AIRCRAFT_IN:
@@ -1555,14 +1554,14 @@ class ControlPanelTab(QWidget):
                 continue
             if abs(st["live"] - old) > 1e-9:
                 s = self._sig(key)
-                it = self.effects_list.addItem(
+                self.effects_list.addItem(
                     f"{s.name}   {self._format_value(s, old)} → {self._format_value(s, st['live'])}")
                 item = self.effects_list.item(self.effects_list.count() - 1)
                 item.setForeground(C_BAD if self._is_fault_active(s, st["live"]) else C_WARN)
 
     def _set_status(self, text: str, ok: bool):
         self.status_label.setText(text)
-        self.status_label.setStyleSheet("color:#1B8A4C;" if ok else "color:#C22A1D;")
+        self.status_label.setStyleSheet(f"color:{theme.OK};" if ok else f"color:{theme.DANGER};")
 
     # ======================= Dış durumlar =======================
     def set_connection_state(self, can: bool, ccp: bool, lost: bool = False):

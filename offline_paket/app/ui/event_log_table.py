@@ -12,6 +12,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
+from app import theme
+
 ERROR_CATEGORY = "HATA"
 
 
@@ -127,7 +129,7 @@ class EventLogTable(QWidget):
         self.table.setItem(row, 1, QTableWidgetItem(f"{e.user} / {e.role}"))
         cat = QTableWidgetItem(e.category)
         if e.category == ERROR_CATEGORY:
-            cat.setForeground(QColor("#C22A1D"))
+            cat.setForeground(QColor(theme.DANGER))
         self.table.setItem(row, 2, cat)
         self.table.setItem(row, 3, QTableWidgetItem(e.message))
 

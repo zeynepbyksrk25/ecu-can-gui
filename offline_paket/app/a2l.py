@@ -203,12 +203,6 @@ class A2LDatabase:
         session = self._session
         project = session.query(model.Project).first()
         module = session.query(model.Module).first()
-        default_bo = None
-        try:
-            default_bo = insp.ModCommon.get(session).byteOrder
-        except Exception:
-            default_bo = None
-
         default_bo = _default_byte_order(session)
         measurements = []
         for row in session.query(model.Measurement).all():

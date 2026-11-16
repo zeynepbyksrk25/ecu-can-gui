@@ -2,7 +2,7 @@ import os
 
 import pytest
 
-from app.dashboard_config import SOURCE_A2L, SOURCE_CAN, Binding, DashboardConfig, SignalMap
+from app.dashboard_config import SOURCE_A2L, SOURCE_CAN, Binding
 from app.ui.mapping_dialog import BindingEditor, MappingDialog, find_companion, split_can
 
 DATA = os.path.join(os.path.dirname(__file__), "data")
@@ -73,7 +73,6 @@ def test_input_tab_saves_dbc_mapping_for_flight_and_control(dlg):
 
 
 def test_flight_inputs_are_sent_over_can_from_the_panel(qapp, monkeypatch):
-    from PySide6.QtWidgets import QMessageBox
     from app.user_roles import Role
     from app.ui.main_window import MainWindow
     w = MainWindow()

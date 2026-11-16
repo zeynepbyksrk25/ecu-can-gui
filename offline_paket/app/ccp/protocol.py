@@ -103,7 +103,6 @@ class CCPError(Exception):
 
 class CCPTimeoutError(Exception):
     """Slave'den zamaninda (ve yeniden denemelere ragmen) DTO cevabi gelmedi."""
-    pass
 
 
 def _pad(data: bytes) -> bytes:

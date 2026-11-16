@@ -6,12 +6,10 @@ Tablolar performans takımından gelen listelerdir:
 Sinyal ISIMLERI DBC/A2L'den seçilir; burada yalnızca ekranda görünen ad,
 birim, aralık ve otomatik eşleşme takma adları tutulur.
 """
-import json
-import os
 
 from app.persist import atomic_write_json, load_json
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 # ======================= Girişler (Simülasyon Arayüzü) =======================

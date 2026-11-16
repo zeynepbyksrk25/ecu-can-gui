@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QSplitter, QTableView, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
+from app import theme
 from app.can_stats import CanStats
 
 COLUMNS = ["Yön", "CAN ID", "Mesaj", "DLC", "Data", "Periyot ms", "Sinyaller", "Sayaç"]
@@ -140,11 +141,11 @@ class MonitorModel(QAbstractTableModel):
             now = time.monotonic()
             stale_after = max(STALE_MIN_S, (r.period_ms or 0) * 5 / 1000.0)
             if now - r.last_wall > stale_after:
-                return QColor("#7C8B98")                # uzun süredir gelmeyen mesaj soluk
+                return QColor(theme.DIM)                # uzun süredir gelmeyen mesaj soluk
             if r.is_error:
-                return QColor("#C22A1D")
+                return QColor(theme.DANGER)
             if c == C_DIR:
-                return QColor("#0E6E8C" if r.direction == "TX" else "#1B8A4C")
+                return QColor(theme.ACCENT if r.direction == "TX" else theme.OK)
         elif role == Qt.BackgroundRole:
             if c == C_DATA and time.monotonic() - r.changed_at < CHANGE_HIGHLIGHT_S:
                 return QColor(245, 158, 11, 70)          # değişen veri kısa süre vurgulanır

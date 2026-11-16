@@ -24,9 +24,9 @@ from PySide6.QtCore import QRegularExpression
 from PySide6.QtGui import QColor, QRegularExpressionValidator
 from PySide6.QtWidgets import QLineEdit
 
+from app import theme
 from app.dashboard_config import (
-    ACTUATOR_KEYS, ACTUATOR_KINDS, ACTUATOR_LABELS, CONTROL_KEYS, EYLEYICI_KEYS, GAUGE_KEYS, Binding,
-    DashboardConfig,
+    ACTUATOR_KEYS, ACTUATOR_KINDS, CONTROL_KEYS, EYLEYICI_KEYS, GAUGE_KEYS, Binding, DashboardConfig,
 )
 from app.ui.dash_widgets import (  # noqa: F401  (ToggleSwitch: eski import yolu)
     ACCENTS, DK_CYAN, DK_MUT, DashGauge, GaugeCard, IconLabel, LockButton, ToggleSwitch,
@@ -200,8 +200,8 @@ class DashboardTab(QWidget):
     # ======================================================================
     # Son olaylar (komut gönderildi, hata, bağlantı...): sol sütunun kalan yüksekliğini doldurur
     # ======================================================================
-    EVENT_COLORS = {"HATA": "#C22A1D", "MOTOR": "#1B8A4C", "EYLEYICI": "#D9710B", "BAGLANTI": "#0E6E8C",
-                    "KULLANICI": "#7B3FD1", "SİMÜLASYON": "#1F6FE0", "SIMÜLASYON": "#1F6FE0", "AYAR": "#51616F"}
+    EVENT_COLORS = {"HATA": theme.DANGER, "MOTOR": theme.OK, "EYLEYICI": theme.ORANGE, "BAGLANTI": theme.ACCENT,
+                    "KULLANICI": theme.PURPLE, "SİMÜLASYON": theme.BLUE, "SIMÜLASYON": theme.BLUE, "AYAR": theme.MUTED}
     EVENT_MAX = 60
 
     def _build_events_card(self) -> QFrame:
@@ -241,7 +241,7 @@ class DashboardTab(QWidget):
         text = (f"{_t.strftime('%H:%M:%S', _t.localtime(entry.timestamp))}  "
                 f"{entry.category}  ·  {entry.message}")
         item = QListWidgetItem(text)
-        item.setForeground(QColor(self.EVENT_COLORS.get(entry.category, "#51616F")))
+        item.setForeground(QColor(self.EVENT_COLORS.get(entry.category, theme.MUTED)))
         item.setToolTip(f"{entry.user} / {entry.role}\n{entry.message}")
         self.events_empty.setVisible(False)
         self.events_list.insertItem(0, item)
@@ -537,7 +537,7 @@ class DashboardTab(QWidget):
             onoff = QLabel("OFF")
             onoff.setObjectName("onoff")
             onoff.setProperty("on", False)
-            sw = ToggleSwitch(on_color="#1B8A4C")
+            sw = ToggleSwitch(on_color=theme.OK)
             sw.toggled.connect(lambda checked, k=key: self._on_actuator_toggle(k, checked))
             cl.addWidget(onoff)
             cl.addWidget(sw)

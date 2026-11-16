@@ -6,7 +6,6 @@ import time
 
 import can
 import pytest
-from PySide6.QtCore import Qt
 
 from app.a2l import A2LDatabase
 from app.ccp.client import CCPClient

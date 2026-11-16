@@ -49,7 +49,6 @@ def test_filter_tree_nested_groups_and_empty_groups(qapp):
 
 
 def test_three_tabs_share_filter_and_keep_payload_shapes(qapp):
-    from app.a2l import A2LDatabase
     from app.ui.a2l_tab import A2LTab
     from app.ui.a2l_tree import ROLE_OBJECT
     from app.ui.ccp_tab import CCPTab

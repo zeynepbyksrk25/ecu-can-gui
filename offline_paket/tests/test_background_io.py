@@ -255,3 +255,72 @@ def test_mapped_estop_is_sent_without_any_confirmation(win, monkeypatch):
     win.dashboard_tab.estop_button.click()
     assert sent, "komut tek tıkla gitmeli"
     assert win._shown == [], "Acil Durdurma onay/uyarı penceresi açmamalı"
+
+
+# ---------------------------------------------------------------- arka planda dosya yükleme
+def test_run_with_progress_keeps_event_loop_alive_and_returns_or_raises(qapp):
+    from app.ui.background import run_with_progress
+    ticks = []
+    timer = QTimer()
+    timer.setInterval(10)
+    timer.timeout.connect(lambda: ticks.append(1))
+    timer.start()
+    main = threading.get_ident()
+    assert run_with_progress(None, "bekleyin", lambda: (time.sleep(0.3), threading.get_ident())[1]) != main
+    timer.stop()
+    assert len(ticks) >= 5, "iş sürerken olay döngüsü dönmeli"
+    assert run_with_progress(None, "kısa", lambda: 7) == 7
+    with pytest.raises(ValueError, match="bozuk"):
+        run_with_progress(None, "hata", lambda: (_ for _ in ()).throw(ValueError("bozuk dosya")))
+
+
+def test_a2l_is_parsed_off_the_ui_thread_and_usable_afterwards(qapp, monkeypatch):
+    from app.ccp import codec
+    from app.ui.a2l_tab import A2LTab
+    tab = A2LTab()
+    threads = []
+    original = tab.db.load
+    monkeypatch.setattr(tab.db, "load", lambda path: (threads.append(threading.get_ident()), original(path))[1])
+    loaded = []
+    tab.a2l_loaded.connect(lambda: loaded.append(1))
+    summary = tab.load_path(os.path.join(DATA, "sample.a2l"))
+    assert threads and threads[0] != threading.get_ident()
+    assert loaded == [1] and tab.tree.topLevelItemCount() == 2
+    # Arka planda kurulan dönüşüm nesneleri arayüz iş parçacığında kullanılabilir olmalı.
+    for obj in summary.measurements + summary.characteristics:
+        assert isinstance(codec.raw_to_physical(obj.compu_method, 10), (int, float))
+    with pytest.raises(ValueError):
+        tab.load_path(os.path.join(DATA, "yok.a2l"))
+    assert tab.db.summary is summary          # başarısız yükleme öncekini bozmaz
+
+
+# ---------------------------------------------------------------- yapı ve tema
+def test_main_window_logic_lives_in_area_modules():
+    import inspect
+    from app.ui import main_window
+    from app.ui.mainwin import calibration, connection, dashboard, panel, profiles
+    mw = main_window.MainWindow
+    for mod, method in ((connection, "_check_connection_health"), (calibration, "_on_ccp_write"),
+                        (dashboard, "_on_estop"), (panel, "_on_panel_apply"), (profiles, "_on_profile_apply")):
+        assert inspect.getmodule(getattr(mw, method)) is mod
+    assert len(inspect.getsource(main_window).splitlines()) < 700
+
+
+def test_ui_colours_come_from_the_single_theme_module():
+    import re
+    from app import theme
+    from app.ui import dash_widgets
+    assert dash_widgets.DK_RED is theme.DANGER and dash_widgets.DK_GREEN is theme.OK
+    tokens = {v.upper() for k, v in vars(theme).items() if k.isupper() and isinstance(v, str) and re.fullmatch(r"#[0-9A-Fa-f]{6}", v)}
+    ui_dir = os.path.join(os.path.dirname(DATA), "..", "app", "ui")
+    offenders = []
+    for root, _dirs, files in os.walk(ui_dir):
+        for name in files:
+            if not name.endswith(".py") or name == "dark_theme.py":
+                continue
+            text = open(os.path.join(root, name), encoding="utf-8").read()
+            # Yalnızca tek başına renk sabiti olan dizgeler ("#C22A1D"): token'ı varsa o kullanılmalı.
+            for m in re.finditer(r"[\"'](#[0-9A-Fa-f]{6})[\"']", text):
+                if m.group(1).upper() in {theme.DANGER, theme.OK, theme.ACCENT, theme.INK, theme.MUTED}:
+                    offenders.append((name, m.group(1)))
+    assert not offenders and len(tokens) > 20

@@ -17,12 +17,14 @@ import math
 
 import pyqtgraph as pg
 
+from app import theme
+from app.ui.dash_widgets import make_card
 from app.ccp.mapio import grid_shape as _grid_shape
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QAbstractItemView, QApplication, QCheckBox, QGroupBox, QHBoxLayout,
+    QAbstractItemView, QApplication, QCheckBox, QHBoxLayout,
     QLabel, QLineEdit, QPushButton, QSplitter, QTableWidget,
     QTableWidgetItem, QTabWidget, QTreeWidgetItem,
     QVBoxLayout, QWidget, QHeaderView,
@@ -103,7 +105,7 @@ class MapDocument(QWidget):
             "gerçek donanımla kullanmadan önce PCAN-View trace'iyle kontrol edin."
         )
         self.caveat_label.setWordWrap(True)
-        self.caveat_label.setStyleSheet("color: #9A6208;")
+        self.caveat_label.setStyleSheet(f"color: {theme.WARN_INK};")
         self.caveat_label.setVisible(
             c.kind in ("CURVE", "MAP") and any(a.attribute != "FIX_AXIS" for a in c.axes)
         )
@@ -259,11 +261,11 @@ class MapDocument(QWidget):
         if self._online:
             self.online_label.setText("ONLINE")
             self.online_label.setStyleSheet(
-                "background:#1b8a4c; color:white; font-weight:bold; border-radius:4px; padding:3px 8px;")
+                f"background:{theme.OK}; color:white; font-weight:bold; border-radius:4px; padding:3px 8px;")
         else:
             self.online_label.setText("OFFLINE")
             self.online_label.setStyleSheet(
-                "background:#9AA8B5; color:#243442; font-weight:bold; border-radius:4px; padding:3px 8px;")
+                f"background:#9AA8B5; color:{theme.HEAD}; font-weight:bold; border-radius:4px; padding:3px 8px;")
 
     def set_online(self, online: bool):
         self._online = bool(online)
@@ -289,7 +291,7 @@ class MapDocument(QWidget):
             return
         cols = len(vals[0])
         xs = self._axis_x_values(cols)
-        palette = ["#0E6E8C", "#C22A1D", "#1B8A4C", "#9A6208", "#7B3FD1", "#0E8C7C", "#51616F"]
+        palette = [theme.ACCENT, theme.DANGER, theme.OK, theme.WARN_INK, theme.PURPLE, "#0E8C7C", theme.MUTED]
         for r, row in enumerate(vals):
             pts = [(x, v) for x, v in zip(xs, row) if v is not None]
             if not pts:
@@ -440,7 +442,7 @@ class MapDocument(QWidget):
 
     def _set_status(self, message: str, ok: bool = True, warn: bool = False):
         self.status_label.setText(message)
-        color = "#9A6208" if warn else ("#1B8A4C" if ok else "#C22A1D")
+        color = theme.WARN_INK if warn else (theme.OK if ok else theme.DANGER)
         self.status_label.setStyleSheet(f"color: {color};")
 
     def _on_write_clicked(self):
@@ -524,15 +526,15 @@ class MapDocument(QWidget):
                 )
                 if val is None:
                     item.setBackground(QColor("#F7F9FB"))
-                    item.setForeground(QColor("#121A22"))
+                    item.setForeground(QColor(theme.INK))
                 elif heatmap_on:
                     ratio = (val - vmin) / span
                     color = QColor.fromHsvF(0.66 * (1.0 - ratio), 0.7, 0.55)  # mavi (düşük) -> kırmızı (yüksek)
                     item.setBackground(color)
-                    item.setForeground(MODIFIED_FG if modified else QColor("#ffffff"))
+                    item.setForeground(MODIFIED_FG if modified else QColor(theme.SURFACE))
                 else:
                     item.setBackground(MODIFIED_BG if modified else QColor("#F7F9FB"))
-                    item.setForeground(MODIFIED_FG if modified else QColor("#121A22"))
+                    item.setForeground(MODIFIED_FG if modified else QColor(theme.INK))
                 font = item.font()
                 font.setBold(modified)
                 item.setFont(font)
@@ -689,8 +691,8 @@ class MapEditorTab(QWidget):
         layout.addWidget(splitter)
 
     # ---- Nesne tarayıcı ---------------------------------------------------
-    def _build_tree_panel(self) -> QGroupBox:
-        box = QGroupBox("A2L nesneleri")
+    def _build_tree_panel(self) -> QWidget:
+        box, body, _head = make_card("A2L nesneleri", "sliders")
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText("İsme göre ara...")
         self.search_edit.textChanged.connect(self._apply_filter)
@@ -700,7 +702,7 @@ class MapEditorTab(QWidget):
         layout = QVBoxLayout()
         layout.addWidget(self.search_edit)
         layout.addWidget(self.tree)
-        box.setLayout(layout)
+        body.addLayout(layout, 1)
         box.setMinimumWidth(180)
         return box
 
