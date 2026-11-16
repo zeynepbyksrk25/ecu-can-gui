@@ -343,3 +343,11 @@ Aşağıdakiler yazılımın otomatik testleriyle **kanıtlanamaz**; gerçek ECU
    Aralığı ayarla) doğru mu?
 6. **Eşleşmeler:** Acil Durdurma dahil tüm motor komutları ⚙ Eşleşmeler'de tanımlı mı? (Tanımsızsa komut
    şeridinde "⚠ Acil Durdurma eşlenmemiş" görünür.)
+
+## Oturum parametre kaydı (CSV)
+**Tanılama ve Oturum → Oturumu Başlat** ile birlikte izlenen parametrelerin değerleri diske sürekli yazılır; böylece oturum bittikten (program kapandıktan/çöktükten sonra bile) incelenebilir.
+- **Dosya:** veri klasöründe `oturum_kayitlari\<test_ismi>_<tarih_saat>.csv`. Her oturum yeni dosya açar, eskisinin üzerine yazılmaz. Yol oturum kartında ve olay günlüğünde (OTURUM) görünür.
+- **Neler yazılır:** A2L/CCP ile okunan ve izlenen değerler (`a2l:<ölçüm>`: Ana Sayfa göstergeleri ve grafiği, Parametre Listesi, Çalışma Alanı), Ana Sayfa göstergeleri (`gauge:<anahtar>`), Simülasyon girişleri (`input:<anahtar>`) ve Çalışma Alanı'nda seçili DBC sinyalleri (`dbc:<MESAJ>.<SİNYAL>`). Aynı değer iki kaynaktan gelirse tek satır yazılır.
+- **Biçim:** `time,signal,value,unix_time` (time = oturum başından saniye; unix_time = mutlak zaman). Excel'de açılabilir.
+- **Geri açma:** Analiz → Çalışma Alanı → **CSV aç** ile kayıt yüklenip grafikte çizilir, yeni bir kayıtla üst üste karşılaştırılabilir.
+- Veri saniyede bir diske işlenir (çökmede en çok ~1 sn kaybolur). Disk hatasında kayıt durur ve olay günlüğüne HATA yazılır. Manuel adresli (A2L'siz) Parametre Listesi satırları kaydedilmez. Oturum başlatılmadıkça kayıt yapılmaz.

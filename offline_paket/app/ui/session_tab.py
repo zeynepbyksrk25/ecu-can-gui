@@ -5,6 +5,7 @@ görüntüleme ve PDF test raporu oluşturma.
 
 import time
 
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QFileDialog, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton,
     QVBoxLayout, QWidget,
@@ -16,6 +17,9 @@ from app.ui.event_log_table import EventLogTable
 
 
 class SessionTab(QWidget):
+    session_started = Signal(str, str)     # test ismi, operatör
+    session_stopped = Signal()
+
     def __init__(self):
         super().__init__()
         self.event_log = None  # MainWindow tarafından paylaşılır (app.eventlog.EventLog)
@@ -67,7 +71,15 @@ class SessionTab(QWidget):
         grid.setColumnStretch(0, 3)
         grid.setColumnStretch(1, 2)
         v.addLayout(grid)
+        self.record_label = QLabel("Parametre kaydı: oturum başlayınca izlenen değerler CSV'ye yazılır.")
+        self.record_label.setObjectName("colHead")
+        self.record_label.setWordWrap(True)
+        self.record_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        v.addWidget(self.record_label)
         return card
+
+    def set_record_info(self, text: str):
+        self.record_label.setText(text)
 
     def _build_log_card(self):
         card, v, _head = make_card("Olay günlüğü", "trend")
@@ -91,6 +103,7 @@ class SessionTab(QWidget):
         self.stop_button.setEnabled(True)
         self.name_edit.setEnabled(False)
         self.operator_edit.setEnabled(False)
+        self.session_started.emit(self._session_name, self._operator)
         self._set_chip(f"● Oturum açık · {time.strftime('%H:%M', time.localtime(self._started_at))}'den beri", True)
 
     def _on_stop(self):
@@ -103,6 +116,7 @@ class SessionTab(QWidget):
         self.stop_button.setEnabled(False)
         self.name_edit.setEnabled(True)
         self.operator_edit.setEnabled(True)
+        self.session_stopped.emit()
         self._set_chip("Oturum bitti", False)
 
     def _set_chip(self, text: str, active: bool):

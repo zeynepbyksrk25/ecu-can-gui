@@ -71,6 +71,7 @@ class SignalHub:
         self._active: set[str] = set()
         self.derived: dict[str, dict] = {}       # "math:isim" -> spec
         self.static: set[str] = set()            # csv: vb. (yeniden etkinleştirmeden saklanır)
+        self.tap = None                          # callable(sid, değer): etkin olsun olmasın her dış örnek (oturum kaydı)
 
     # ------------------------------------------------------------ zaman
     def now(self) -> float:
@@ -109,13 +110,20 @@ class SignalHub:
 
     # ------------------------------------------------------------ yazma
     def push(self, sid: str, value, t: float | None = None):
-        if sid not in self._active or sid in self.static:
+        if sid in self.static:
             return
         try:
             v = float(value)
         except (TypeError, ValueError):
             return
         if v != v:                                # NaN
+            return
+        if self.tap is not None and kind_of(sid) not in ("math", "csv"):
+            try:
+                self.tap(sid, v)
+            except Exception:                     # noqa: BLE001 - kayıt hatası canlı akışı bozmasın
+                pass
+        if sid not in self._active:
             return
         t = self.now() if t is None else t
         ser = self._series.setdefault(sid, _Series())

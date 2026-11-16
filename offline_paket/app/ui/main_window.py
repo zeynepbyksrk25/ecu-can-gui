@@ -29,6 +29,7 @@ from app.dashboard_config import (
 from app.eventlog import EventLog
 from app.history import CalibrationHistory
 from app.logger import CanLogger
+from app.session_recorder import SessionRecorder
 from app.paths import data_dir, data_path
 from app.profiles import ConfigProfile, ProfileStore
 from app.scheduler import PeriodicManager
@@ -214,6 +215,11 @@ class MainWindow(QMainWindow):
         self.a2l_tab.a2l_loaded.connect(self._sync_dashboard_measurements)
 
         self.session_tab.event_log = self.event_log
+        # Oturum boyunca izlenen parametreleri diske (CSV) yazan kayıt.
+        self.session_recorder = SessionRecorder()
+        self.workspace_tab.hub.tap = self.session_recorder.record
+        self.session_tab.session_started.connect(self._on_session_record_start)
+        self.session_tab.session_stopped.connect(self._on_session_record_stop)
         self.history_tab.history = self.calibration_history
         self.user_tab.set_profiles(self.profile_store.names())
 
@@ -1254,6 +1260,8 @@ class MainWindow(QMainWindow):
             except Exception as exc:
                 self.watch_tab.set_row_error(row, f"Okuma hatası: {exc}")
                 continue
+            if e.kind != "manual" and isinstance(reading.phys, (int, float)):
+                self.session_recorder.record(f"a2l:{e.name}", reading.phys)
             self.watch_tab.set_row_value(row, reading.raw_bytes, reading.phys)    # Parametre Listesi HAM BAYT bekler
 
     def _on_watch_write(self, rows: list):
@@ -1703,6 +1711,29 @@ class MainWindow(QMainWindow):
             else:
                 dt.set_sensor_fault(key, "Sensör arızası" if v else None)
 
+    def _on_session_record_start(self, name: str, operator: str):
+        try:
+            path = self.session_recorder.start(data_path("oturum_kayitlari"), name)
+        except OSError as exc:
+            self.event_log.add("HATA", f"Parametre kaydı başlatılamadı: {exc}")
+            self.session_tab.set_record_info(f"Parametre kaydı BAŞLATILAMADI: {exc}")
+            self.session_tab.refresh_log()
+            return
+        self.event_log.add("OTURUM", f"Parametre kaydı başladı: {path}")
+        self.session_tab.set_record_info(f"● Parametre kaydı: {path}")
+        self.session_tab.refresh_log()
+
+    def _on_session_record_stop(self):
+        rec = self.session_recorder
+        path, rows, err = rec.path, rec.rows, rec.error
+        rec.stop()
+        if path:
+            self.event_log.add("OTURUM", f"Parametre kaydı bitti: {rows} örnek, {path}")
+            self.session_tab.set_record_info(f"Parametre kaydı kaydedildi ({rows} örnek): {path}")
+        if err:
+            self.event_log.add("HATA", f"Parametre kaydı diske yazılamadı, kayıt durdu: {err}")
+        self.session_tab.refresh_log()
+
     def _sync_workspace_a2l(self):
         summary = self.a2l_tab.db.summary
         self.workspace_tab.set_a2l_measurements(summary.readable() if summary is not None else [])
@@ -1778,6 +1809,8 @@ class MainWindow(QMainWindow):
             except ValueError as exc:
                 fail(str(exc))
                 continue
+            if isinstance(phys_value, (int, float)):
+                self.session_recorder.record(f"a2l:{name}", phys_value)
             if graph_wanted and isinstance(phys_value, (int, float)):
                 dt.add_measurement_sample(name, float(phys_value))
             for role, key in targets:
@@ -2102,4 +2135,5 @@ class MainWindow(QMainWindow):
             logging.getLogger(__name__).exception("workspace shutdown hatası")
         self._on_disconnect()
         self.can_logger.stop()
+        self.session_recorder.stop()
         super().closeEvent(event)
