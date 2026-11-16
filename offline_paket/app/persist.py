@@ -56,7 +56,9 @@ def _quarantine(path: str, reason: str):
 
 def load_json(path: str, default=None, expect: type | tuple | None = None):
     """JSON yükler; expect verilirse kök tür doğrulanır (dict/list)."""
-    if not path or not os.path.exists(path):
+    # Ana dosya yoksa da `.bak` denenir: atomic_write_json'da eski dosya `.bak`'a taşındıktan sonra,
+    # yenisi yerine konmadan çökülürse geriye yalnızca `.bak` kalır.
+    if not path or not (os.path.exists(path) or os.path.exists(path + ".bak")):
         return default
     for candidate, is_backup in ((path, False), (path + ".bak", True)):
         if not os.path.exists(candidate):
@@ -67,7 +69,7 @@ def load_json(path: str, default=None, expect: type | tuple | None = None):
             if expect is not None and not isinstance(data, expect):
                 raise ValueError(f"beklenen kök tür {expect}, gelen {type(data).__name__}")
             if is_backup:
-                log.warning("%s okunamadı; son iyi yedek (.bak) kullanıldı.", path)
+                log.warning("%s yok ya da okunamadı; son iyi yedek (.bak) kullanıldı.", path)
             return data
         except (OSError, ValueError) as exc:
             if not is_backup:

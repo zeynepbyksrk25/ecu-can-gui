@@ -164,6 +164,13 @@ uygulamada donanımla doğrulanmamıştır**. Bu yüzden:
   her değişkenin **Değer** ve **Anahtar (`_sw`)** eşleşmesi ayrı ayrı **CAN (DBC) ya da A2L**
   olarak seçilir (sensörlerde isteğe bağlı *Arıza* biti de). Motoru Başlat / Durdur / Acil
   Durdurma da CAN veya A2L olabilir. Eski `dashboard_config.json` otomatik göç eder.
+- **Arayüz uzun işlemlerde donmaz:** harita/tablo, flaş ve toplu parametre yazmaları arka plan iş
+  parçacığında yürür (durum çubuğunda "⏳ … yazılıyor"; o sırada Kalibrasyon ve Kontrol Paneli sayfaları
+  geçici kilitlenir, ikinci bir uzun iş başlatılamaz, pencere kapatılamaz). Acil Durdurma, eyleyici ve
+  override kapatma yazmaları süren işin parçaları arasına ÖNCELİKLE girer. Kontrol Paneli / Ana Sayfa
+  periyodik CAN gönderimi de ayrı iş parçacıklarındadır: arayüz takılsa bile kareler kesilmez. Gönderilen
+  TÜM kareler (periyodik olanlar dahil) CAN Monitor'da ve CSV kaydında TX olarak görünür.
+- **Acil Durdurma ONAY SORMAZ:** tek tıkla gönderilir (Motoru Başlat/Durdur da öyle).
 - **Acil Durdurma ve Motoru Durdur güvenlik komutlarıdır:** (Acil Durdurma için) eşleme yoksa düğmenin yanında kalıcı "⚠ Acil Durdurma
   eşlenmemiş" uyarısı görünür ve basınca komut GİTMEDİĞİ açıkça bildirilir. Eşleme varsa A2L min/max,
   READ_ONLY ve DBC min/max denetimi komutu ENGELLEMEZ (sınır dışıysa olay günlüğüne not düşülür);

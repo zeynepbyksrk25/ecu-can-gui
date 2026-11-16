@@ -14,9 +14,10 @@ import can
 
 
 class _Task(threading.Thread):
-    def __init__(self, get_bus, msg: can.Message, period_s: float):
+    def __init__(self, get_bus, msg: can.Message, period_s: float, on_sent=None):
         super().__init__(daemon=True)
         self._get_bus = get_bus
+        self._on_sent = on_sent
         self.msg = msg
         self.period_s = period_s
         self._stop_event = threading.Event()
@@ -45,6 +46,11 @@ class _Task(threading.Thread):
                 bus.send(msg)
                 self.sent += 1
                 self.last_error = None
+                if self._on_sent is not None:
+                    try:
+                        self._on_sent(msg)
+                    except Exception:  # noqa: BLE001 - izleme/kayıt hatası gönderimi durdurmasın
+                        pass
             except Exception as exc:  # hat toparlanırken gönderim hataları beklenir; görev sürer
                 self.errors += 1
                 self.last_error = str(exc)
@@ -58,10 +64,12 @@ class _Task(threading.Thread):
 
 
 class PeriodicManager:
-    def __init__(self, bus):
+    def __init__(self, bus, on_sent=None):
         """``bus``: can.BusABC ya da güncel bus'ı döndüren çağrılabilir (bus yeniden açılınca
-        görevler yeni bus'a kendiliğinden geçsin diye ikincisi önerilir)."""
+        görevler yeni bus'a kendiliğinden geçsin diye ikincisi önerilir). ``on_sent(msg)``: başarıyla
+        gönderilen HER kare için (gönderen iş parçacığında) çağrılır; izleme tablosu / CSV kaydı içindir."""
         self._get_bus = bus if callable(bus) else (lambda: bus)
+        self._on_sent = on_sent
         self._tasks: dict[str, _Task] = {}
 
     def start(self, row_id: str, arbitration_id: int, data: bytes,
@@ -76,7 +84,7 @@ class PeriodicManager:
             raise ValueError(f"CAN ID aralık dışı: 0x{arbitration_id:X}")
         self.stop(row_id)
         msg = can.Message(arbitration_id=arbitration_id, data=data, is_extended_id=extended)
-        task = _Task(self._get_bus, msg, period_ms / 1000.0)
+        task = _Task(self._get_bus, msg, period_ms / 1000.0, on_sent=self._on_sent)
         self._tasks[row_id] = task
         task.start()
 

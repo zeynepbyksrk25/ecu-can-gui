@@ -193,17 +193,9 @@ class DashboardTab(QWidget):
         self.estop_warn.setVisible(True)
 
     def _on_estop_clicked(self):
-        if not self.config.estop.binding.is_set:
-            # Onay sorusu anlamsız: gönderilecek bir şey yok. MainWindow hatayı açıkça bildirir ve günlüğe yazar.
-            self.estop_requested.emit()
-            return
-        confirm = QMessageBox.warning(
-            self, "ACİL DURDURMA gönderilsin mi?",
-            "Motoru derhal durdurmak üzere ACİL DURDURMA komutu gönderilecek. Devam edilsin mi?",
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes,
-        )
-        if confirm == QMessageBox.Yes:
-            self.estop_requested.emit()
+        # ONAY SORULMAZ: acil komutta fazladan bir tık gecikmedir. Eşleme yoksa MainWindow hatayı açıkça
+        # bildirir ve günlüğe yazar.
+        self.estop_requested.emit()
 
     # ======================================================================
     # Son olaylar (komut gönderildi, hata, bağlantı...): sol sütunun kalan yüksekliğini doldurur

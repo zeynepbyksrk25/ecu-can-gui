@@ -17,6 +17,7 @@ bu yontemle, kisa araliklarla tekrar tekrar UPLOAD gonderilerek
 guncellenir. Gercek DAQ (event-driven, sync/cyclic) ayri bir asama.
 """
 
+import contextlib
 import queue
 import threading
 import time
@@ -74,6 +75,15 @@ class CCPClient:
         self._connected = False
         self._lock = threading.Lock()  # CCP protokolü tek seferde tek komut bekler
         self._ctr_lock = threading.Lock()
+        # MTA0'a dayanan çok komutlu diziler (SET_MTA + DNLOAD/PROGRAM) BÖLÜNEMEZ: araya başka bir iş
+        # parçacığının SET_MTA'sı girerse yazma yanlış adrese gider. Uzun yazmalar arka plan iş parçacığında,
+        # güvenlik komutları arayüz iş parçacığında çalıştığı için her dizi bu kilit altında yürür.
+        self._seq_lock = threading.RLock()
+        # Python kilitleri adil değildir: parça parça yazan uzun iş kilidi bırakıp hemen geri alabilir.
+        # Acil komut bekliyorsa (urgent) uzun iş bir sonraki parçadan önce ona yol verir.
+        self._urgent_waiters = 0
+        self._urgent_lock = threading.Lock()
+        self._tls = threading.local()      # in_urgent: bu iş parçacığı urgent bloğunun içinde mi
 
         # dto_queue verildiyse (GUI kullanımı) o kuyruğu okuruz; verilmediyse
         # (bağımsız/test kullanımı) kendi Notifier'ımızı açıp kendi
@@ -158,6 +168,36 @@ class CCPClient:
             raise ccp.CCPError(command_code, return_code)
         self.last_error = None
         return data
+
+    # ---- Dizi kilidi / öncelik -------------------------------------------
+    @contextlib.contextmanager
+    def urgent(self):
+        """Bu blok içindeki yazmalar, süren uzun bir yazmanın (harita/flaş) parçaları ARASINA girer:
+        uzun iş en çok bir parça (SET_MTA + DNLOAD) sonra yol verir. Acil Durdurma, override kapatma ve
+        arayüz iş parçacığından yapılan kısa yazmalar için."""
+        with self._urgent_lock:
+            self._urgent_waiters += 1
+        try:
+            with self._seq_lock:
+                self._tls.in_urgent = True
+                try:
+                    yield self
+                finally:
+                    self._tls.in_urgent = False
+        finally:
+            with self._urgent_lock:
+                self._urgent_waiters -= 1
+
+    @contextlib.contextmanager
+    def _sequence(self):
+        """MTA0'a dayanan bir komut dizisini bölünmez yapar; öncelikli bekleyen varsa önce ona yol verir."""
+        if getattr(self._tls, "in_urgent", False):
+            yield                         # urgent bloğunun içi: kilit zaten bu iş parçacığında
+            return
+        while self._urgent_waiters > 0:
+            time.sleep(0.001)
+        with self._seq_lock:
+            yield
 
     # ---- Yüksek seviye CCP işlemleri ------------------------------------
     def connect(self):
@@ -265,11 +305,12 @@ class CCPClient:
         offset = 0
         while offset < len(data):
             chunk = data[offset:offset + 6]
-            self.set_mta(address + offset, address_extension)
-            if len(chunk) == 6:
-                self.dnload6(chunk)
-            else:
-                self.dnload(chunk)
+            with self._sequence():
+                self.set_mta(address + offset, address_extension)
+                if len(chunk) == 6:
+                    self.dnload6(chunk)
+                else:
+                    self.dnload(chunk)
             offset += len(chunk)
         if verify:
             back = self.read_memory(address, len(data), address_extension)
@@ -309,20 +350,22 @@ class CCPClient:
         """SET_MTA + (isteğe bağlı) CLEAR_MEMORY + PROGRAM/PROGRAM_6 ile
         KALICI (flaş) belleğe yazar. write_memory()'nin flaş karşılığıdır;
         aynı 5/6 baytlık parçalama mantığını kullanır."""
-        self.set_mta(address, address_extension)
-        if clear_first:
-            self.clear_memory(len(data))
-            self.set_mta(address, address_extension)  # bazı ECU'lar CLEAR_MEMORY sonrası MTA0'ı sıfırlayabilir
         offset = 0
-        while offset < len(data):
+        while offset < len(data) or offset == 0:
             chunk = data[offset:offset + 6]
-            if offset > 0:
+            with self._sequence():
                 self.set_mta(address + offset, address_extension)
-            if len(chunk) == 6:
-                self.program6(chunk)
-            else:
-                self.program(chunk)
+                if offset == 0 and clear_first:
+                    self.clear_memory(len(data))
+                    self.set_mta(address, address_extension)  # bazı ECU'lar CLEAR_MEMORY sonrası MTA0'ı sıfırlayabilir
+                if chunk:
+                    if len(chunk) == 6:
+                        self.program6(chunk)
+                    else:
+                        self.program(chunk)
             offset += len(chunk)
+            if not chunk:
+                break
         if verify:
             back = self.read_memory(address, len(data), address_extension)
             if back != bytes(data):

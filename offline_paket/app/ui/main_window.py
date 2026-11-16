@@ -1,11 +1,12 @@
+import contextlib
 import logging
 import os
 import queue
+import threading
 import time
 from datetime import datetime
 
-import can
-from PySide6.QtCore import QTimer, Qt, Signal
+from PySide6.QtCore import QEventLoop, QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QGuiApplication
 from PySide6.QtWidgets import (
     QApplication, QFrame, QGraphicsDropShadowEffect, QHBoxLayout, QLabel,
@@ -62,6 +63,14 @@ WATCH_FAIL_STREAK_LIMIT = 3  # Parametre Listesi'nde art arda bu kadar ECU-cevap
 SAFETY_REPEAT_COUNT = 4
 SAFETY_REPEAT_MS = 20
 SAFETY_A2L_ATTEMPTS = 3
+# Uzun CCP işleri (harita/flaş/toplu yazma) arka plan iş parçacığında yürür. Bu süreden kısa sürenler
+# (tek değer yazımı gibi) için iç olay döngüsüne hiç girilmez.
+CCP_JOB_INLINE_S = 0.05
+_CCP_IO_ERRORS = (ccp_protocol.CCPError, ccp_protocol.CCPTimeoutError, ccp_codec.UnknownDatatypeError, ValueError)
+
+
+class CcpBusyError(ValueError):
+    """Uzun bir CCP işlemi sürerken yenisi istendi."""
 
 
 class _ClickLabel(QLabel):
@@ -102,6 +111,8 @@ class MainWindow(QMainWindow):
         self._resume_ccp_after_reconnect = False
         self._loss_box: QMessageBox | None = None
         self._watch_fail_streak = 0
+        self._ccp_busy = False               # arka planda uzun bir CCP işi sürüyor (bkz. _ccp_job)
+        self._job_progress = ""              # işin durum çubuğunda gösterilen ilerleme metni
 
         self._sim_sent: set = set()
         self.sim_config = SimConfig(data_path("sim_interface.json"))
@@ -274,6 +285,93 @@ class MainWindow(QMainWindow):
     def ccp_reader(self):
         """Periyodik okuma yapan arayüz zamanlayıcıları için: önbellekten okur, ASLA beklemez."""
         return self.ccp_session.reader
+
+    def _ccp_job(self, label: str, fn):
+        """``fn``'i (yalnızca CCP giriş-çıkışı; Qt nesnesine DOKUNMAZ) arka plan iş parçacığında
+        çalıştırır ve sonucunu döner / hatasını yükseltir. İş sürerken arayüz DONMAZ: olay döngüsü döner,
+        yani Acil Durdurma tıklanabilir, CAN alımı ve periyodik gönderim sürer. Çağıran için eşzamanlı
+        görünür (iş bitince döner); bu yüzden aynı anda ikinci bir uzun iş başlatılamaz (CcpBusyError)
+        ve iş sürerken Kalibrasyon / Kontrol Paneli sayfaları geçici olarak kilitlenir."""
+        if self._ccp_busy:
+            raise CcpBusyError("Başka bir CCP işlemi sürüyor; bitince yeniden deneyin.")
+        self._ccp_busy = True
+        self._job_progress = ""
+        box: dict = {}
+
+        def run():
+            try:
+                box["result"] = fn()
+            except BaseException as exc:  # noqa: BLE001 - arayüz iş parçacığında yeniden yükseltilir
+                box["error"] = exc
+
+        thread = threading.Thread(target=run, name="ccp-job", daemon=True)
+        try:
+            thread.start()
+            thread.join(CCP_JOB_INLINE_S)
+            if thread.is_alive():
+                self._wait_ccp_job(label, thread)
+        finally:
+            self._ccp_busy = False
+        err = box.get("error")
+        if err is None:
+            return box.get("result")
+        if isinstance(err, _CCP_IO_ERRORS + (RuntimeError,)):
+            raise err
+        # Bus/sürücü hatası (ör. iş sürerken bağlantı kesildi): çağıranların ele aldığı türe çevir.
+        raise ValueError(f"İletişim hatası: {err}") from err
+
+    def _wait_ccp_job(self, label: str, thread: threading.Thread):
+        """İş parçacığı bitene kadar iç olay döngüsünde bekler; meşgul göstergesini yönetir."""
+        loop = QEventLoop(self)
+        timer = QTimer(self)
+        timer.setInterval(15)
+
+        def poll():
+            if not thread.is_alive():
+                loop.quit()
+                return
+            extra = f"  {self._job_progress}" if self._job_progress else ""
+            self.statusBar().showMessage(f"⏳ {label}…{extra}   (Acil Durdurma kullanılabilir)")
+
+        timer.timeout.connect(poll)
+        pages = [p for p in (self.kalibrasyon_tab, self.control_panel_tab) if p.isEnabled()]
+        focus = QApplication.focusWidget()
+        for page in pages:
+            page.setEnabled(False)
+        QApplication.setOverrideCursor(Qt.BusyCursor)
+        poll()
+        timer.start()
+        try:
+            if thread.is_alive():
+                loop.exec()
+        finally:
+            timer.stop()
+            timer.deleteLater()
+            QApplication.restoreOverrideCursor()
+            for page in pages:
+                page.setEnabled(True)
+            if focus is not None:
+                try:
+                    focus.setFocus()
+                except RuntimeError:
+                    pass                  # odaktaki bileşen bu arada silinmiş
+            self._update_connection_display()
+
+    @contextlib.contextmanager
+    def _ccp_urgent(self):
+        """Arayüz iş parçacığından yapılan kısa/acil yazmalar (Acil Durdurma, eyleyici, override kapatma)
+        süren uzun işin parçaları arasına girsin diye (bkz. CCPClient.urgent)."""
+        client = self.ccp_client
+        enter = getattr(client, "urgent", None) if client is not None else None
+        try:
+            cm = enter() if enter is not None else None
+        except Exception:  # noqa: BLE001 - ECU yok: asıl yazma kendi hatasını verir
+            cm = None
+        if cm is None:
+            yield
+            return
+        with cm:
+            yield
 
     def _make_scrollable_page(self, page: QWidget) -> QScrollArea:
         scroll = QScrollArea()
@@ -541,6 +639,7 @@ class MainWindow(QMainWindow):
         self.ccp_tab.open_in_map_editor_requested.connect(self._open_in_map_editor)
 
         self.transmit_tab.dbc_loaded.connect(self._panel_sources_changed)
+        self.transmit_tab.dbc_loaded.connect(lambda *_: self.tx_scheduler.refresh_frames())
         self.a2l_tab.a2l_loaded.connect(self._panel_sources_changed)
         self.control_panel_tab.apply_requested.connect(self._on_panel_apply)
         self.dashboard_tab.sim_inputs.values_changed.connect(self._on_sim_inputs)
@@ -597,7 +696,7 @@ class MainWindow(QMainWindow):
         self._last_health_state = "ok"
         self._conn_lost = False
         self._dismiss_loss_box()
-        self.periodic_manager = PeriodicManager(lambda: self.connection.bus)
+        self.periodic_manager = PeriodicManager(lambda: self.connection.bus, on_sent=self.connection.note_tx)
         self.connection_tab.set_connected(True)
         self.monitor_tab.set_bitrate(bitrate if interface != "virtual" else None)
         self.rx_timer.start()
@@ -656,6 +755,7 @@ class MainWindow(QMainWindow):
             self.periodic_manager = None
         self.transmit_tab.stop_all_rows()
         self.tx_scheduler.stop_all()
+        self._drain_tx_queue()               # son gönderilen kareler de izleme/kayıtta görünsün
         self.rx_timer.stop()
         self.health_timer.stop()
         self.connection.disconnect()
@@ -815,6 +915,17 @@ class MainWindow(QMainWindow):
             self.performance_tab.on_can_frame(msg.arbitration_id, bytes(msg.data))
             self.workspace_tab.on_can_frame(msg.arbitration_id, bytes(msg.data))
             self._dash_on_can_frame(msg.arbitration_id, bytes(msg.data))
+        self._drain_tx_queue()
+
+    def _drain_tx_queue(self):
+        """Gönderilen kareleri (elle, periyodik, Kontrol Paneli, güvenlik tekrarları; hangi iş parçacığı
+        gönderdiyse) izleme tablosuna ve açık CSV kaydına aktarır."""
+        for _ in range(self.RX_DRAIN_MAX_FRAMES):
+            try:
+                msg = self.connection.tx_queue.get_nowait()
+            except queue.Empty:
+                break
+            self.monitor_tab.add_message(msg, direction="TX")
 
     def _on_monitor_frame(self, msg, direction: str):
         """İzleme sekmesi her RX/TX mesajı için çağırır (duraklatılmış olsa da): kayıt açıksa
@@ -870,9 +981,7 @@ class MainWindow(QMainWindow):
             self._log_event("HATA", f"Manuel gönderim başarısız: {exc}")
             return
         self._log_event("GÖNDERİM", "Manuel çerçeve gönderildi: " + self._frame_text(can_id, data, extended))
-        sent_msg = can.Message(arbitration_id=can_id, data=data, is_extended_id=extended,
-                                timestamp=time.time())
-        self.monitor_tab.add_message(sent_msg, direction="TX")
+        self._drain_tx_queue()
 
     def _on_periodic_start(self, row_key: str, can_id: int, data: bytes,
                             extended: bool, period_ms: int):
@@ -895,9 +1004,6 @@ class MainWindow(QMainWindow):
             return
         self._log_event("GÖNDERİM", f"Periyodik gönderim BAŞLADI [{period_ms} ms]: "
                                     + self._frame_text(can_id, data, extended))
-        sent_msg = can.Message(arbitration_id=can_id, data=data, is_extended_id=extended,
-                                timestamp=time.time())
-        self.monitor_tab.add_message(sent_msg, direction="TX")
 
     def _on_periodic_stop(self, row_key: str):
         if self.periodic_manager is not None:
@@ -1051,24 +1157,27 @@ class MainWindow(QMainWindow):
         # önce mevcut (eski) değeri en iyi çaba ile okuyoruz; okunamazsa
         # geçmişte "eski değer bilinmiyor" olarak görünür, yazma yine de
         # devam eder.
-        old_phys = None
-        try:
-            old_phys = ccp_codec.read_value(self.ccp_client, obj).phys
-        except (ccp_protocol.CCPError, ccp_protocol.CCPTimeoutError,
-                ccp_codec.UnknownDatatypeError, ValueError):
-            old_phys = None
+        client = self.ccp_client
+        ext = getattr(obj, "address_extension", 0) or 0
 
-        try:
+        def work():
+            try:
+                old = ccp_codec.read_value(client, obj).phys
+            except _CCP_IO_ERRORS:
+                old = None
             # Doğrulama (sonlu, A2L min/max, READ_ONLY) + güvenli dönüşüm; yazma
             # sonrası geri okuma ile doğrulanır.
             raw_bytes = ccp_codec.encode_for_write(obj, phys_value)
-            ext = getattr(obj, "address_extension", 0) or 0
             if persistent:
-                self.ccp_client.write_flash_memory(address, raw_bytes, ext, verify=True)
+                client.write_flash_memory(address, raw_bytes, ext, verify=True)
             else:
-                self.ccp_client.write_memory(address, raw_bytes, ext, verify=True)
-        except (ccp_protocol.CCPError, ccp_protocol.CCPTimeoutError,
-                ccp_codec.UnknownDatatypeError, ValueError) as exc:
+                client.write_memory(address, raw_bytes, ext, verify=True)
+            return old
+
+        try:
+            target = "flaşa" if persistent else "RAM'e"
+            old_phys = self._ccp_job(f"{obj.name} {target} yazılıyor", work)
+        except _CCP_IO_ERRORS as exc:
             kind = "FLAŞ" if persistent else "RAM"
             self.ccp_tab.set_write_result(False, f"Yazma hatası ({kind}): {exc}")
             self._log_event("HATA", f"{obj.name} {kind} yazma hatası: {exc}")
@@ -1102,19 +1211,43 @@ class MainWindow(QMainWindow):
             return False
         return True
 
-    def _read_map_doc(self, doc) -> bool:
-        characteristic = doc.characteristic
-        if not characteristic.address:
-            doc.set_error("Bu nesnenin ECU adresi A2L dosyasında tanımlı değil.")
-            return False
+    def _read_map_docs(self, docs) -> int:
+        """Tablo dokümanlarını ECU'dan okur (CCP işi arka planda); okunan doküman sayısını döner."""
+        todo = []
+        for doc in docs:
+            if not doc.characteristic.address:
+                doc.set_error("Bu nesnenin ECU adresi A2L dosyasında tanımlı değil.")
+            else:
+                todo.append((doc, doc.characteristic))
+        if not todo:
+            return 0
+        client = self.ccp_client
+
+        def work():
+            out = []
+            for i, (_doc, ch) in enumerate(todo, 1):
+                self._job_progress = f"{i}/{len(todo)}  {ch.name}"
+                try:
+                    out.append(ccp_mapio.read_grid(client, ch))
+                except _CCP_IO_ERRORS as exc:
+                    out.append(exc)
+            return out
+
         try:
-            grid = ccp_mapio.read_grid(self.ccp_client, characteristic)
-        except (ccp_protocol.CCPError, ccp_protocol.CCPTimeoutError,
-                ccp_codec.UnknownDatatypeError, ValueError) as exc:
-            doc.set_error(f"Okuma hatası: {exc}")
-            return False
-        doc.set_grid_from_ecu(grid)
-        return True
+            results = self._ccp_job("Tablo okunuyor", work)
+        except (ValueError, RuntimeError) as exc:
+            results = [exc] * len(todo)
+        ok = 0
+        for (doc, _ch), res in zip(todo, results):
+            if isinstance(res, Exception):
+                doc.set_error(f"Okuma hatası: {res}")
+            else:
+                doc.set_grid_from_ecu(res)
+                ok += 1
+        return ok
+
+    def _read_map_doc(self, doc) -> bool:
+        return self._read_map_docs([doc]) == 1
 
     @staticmethod
     def _count_changed_cells(old_grid, new_grid) -> int:
@@ -1148,41 +1281,68 @@ class MainWindow(QMainWindow):
         except (OSError, TypeError, ValueError):
             return ""
 
-    def _write_map_doc(self, doc) -> bool:
-        """Tek bir tablo dokümanını ECU RAM'ine yazar. ONAY SORULMAZ
-        (kullanıcı isteği); rol kontrolü ve geçmiş kaydı yine yapılır."""
-        characteristic = doc.characteristic
-        if not doc.is_writable():
-            doc.set_write_result(False, "Tabloda boş/geçersiz hücre var; önce tüm hücreleri doldurun.")
-            return False
+    def _write_map_docs(self, docs) -> tuple[int, int]:
+        """Tablo dokümanlarını ECU RAM'ine yazar; (yazılan, başarısız) döner. ONAY SORULMAZ (kullanıcı
+        isteği); rol kontrolü çağıranda, geçmiş kaydı burada yapılır. CCP işi arka planda yürür: büyük
+        tablo yazılırken arayüz donmaz."""
+        failed = 0
+        todo = []
+        for doc in docs:
+            if not doc.is_writable():
+                doc.set_write_result(False, "Tabloda boş/geçersiz hücre var; önce tüm hücreleri doldurun.")
+                failed += 1
+            else:
+                todo.append((doc, doc.characteristic, doc.current_grid()))
+        if not todo:
+            return 0, failed
+        client = self.ccp_client
+
+        def work():
+            out = []
+            for i, (_doc, ch, grid) in enumerate(todo, 1):
+                self._job_progress = f"{i}/{len(todo)}  {ch.name}"
+                try:
+                    # write_grid: önce doğrular, ECU'daki mevcut içeriği anlık görüntü alır, yazar, geri
+                    # okuyup doğrular; hata olursa eski içeriği geri yazar. Yazmadan ÖNCEKİ gerçek ECU
+                    # içeriğini döndürür.
+                    out.append(ccp_mapio.write_grid(client, ch, grid))
+                except _CCP_IO_ERRORS + (RuntimeError,) as exc:
+                    out.append(exc)
+            return out
+
         try:
-            grid = doc.current_grid()
-            # write_grid: önce doğrular, ECU'daki mevcut içeriği anlık görüntü
-            # alır, yazar, geri okuyup doğrular; hata olursa eski içeriği geri
-            # yazar. Yazmadan ÖNCEKİ gerçek ECU içeriğini döndürür.
-            old_grid = ccp_mapio.write_grid(self.ccp_client, characteristic, grid)
-        except (ccp_protocol.CCPError, ccp_protocol.CCPTimeoutError,
-                ccp_codec.UnknownDatatypeError, ValueError, RuntimeError) as exc:
-            doc.set_write_result(False, f"Yazma hatası: {exc}")
-            self._log_event("HATA", f"{characteristic.name} tablo yazma hatası: {exc}")
-            return False
-        backup = self._save_table_backup(characteristic, old_grid)
-        rows, cols = len(grid), len(grid[0]) if grid else 0
-        changed = self._count_changed_cells(old_grid, grid)
-        doc.set_write_result(True, f"Yazıldı (RAM, geçici): {characteristic.name} — {changed} hücre değişti")
-        self._log_event(
-            "KALIBRASYON",
-            f"Tablo yazıldı (RAM): {characteristic.name} [{rows}x{cols}], {changed} hücre değişti"
-        )
-        self.calibration_history.add(
-            self.current_user, self.current_role.value,
-            f"{characteristic.name} [tablo {rows}×{cols}]", None, 0.0, characteristic.unit or "",
-            persistent=False,
-            detail=f"{rows}×{cols} tablo yazıldı, {changed} hücre değişti"
-                   + (f"; önceki içerik yedeği: {backup}" if backup else ""),
-        )
-        self.history_tab.refresh()
-        return True
+            results = self._ccp_job("Tablo yazılıyor", work)
+        except (ValueError, RuntimeError) as exc:
+            results = [exc] * len(todo)
+        written = 0
+        for (doc, characteristic, grid), old_grid in zip(todo, results):
+            if isinstance(old_grid, Exception):
+                doc.set_write_result(False, f"Yazma hatası: {old_grid}")
+                self._log_event("HATA", f"{characteristic.name} tablo yazma hatası: {old_grid}")
+                failed += 1
+                continue
+            backup = self._save_table_backup(characteristic, old_grid)
+            rows, cols = len(grid), len(grid[0]) if grid else 0
+            changed = self._count_changed_cells(old_grid, grid)
+            doc.set_write_result(True, f"Yazıldı (RAM, geçici): {characteristic.name} — {changed} hücre değişti")
+            self._log_event(
+                "KALIBRASYON",
+                f"Tablo yazıldı (RAM): {characteristic.name} [{rows}x{cols}], {changed} hücre değişti"
+            )
+            self.calibration_history.add(
+                self.current_user, self.current_role.value,
+                f"{characteristic.name} [tablo {rows}×{cols}]", None, 0.0, characteristic.unit or "",
+                persistent=False,
+                detail=f"{rows}×{cols} tablo yazıldı, {changed} hücre değişti"
+                       + (f"; önceki içerik yedeği: {backup}" if backup else ""),
+            )
+            written += 1
+        if written:
+            self.history_tab.refresh()
+        return written, failed
+
+    def _write_map_doc(self, doc) -> bool:
+        return self._write_map_docs([doc])[0] == 1
 
     def _on_map_read(self):
         doc = self.map_editor_tab.current_document()
@@ -1207,7 +1367,7 @@ class MainWindow(QMainWindow):
         docs = self.map_editor_tab.documents()
         if not docs or not self._require_ccp("Tabloları okumadan"):
             return
-        ok = sum(1 for d in docs if self._read_map_doc(d))
+        ok = self._read_map_docs(docs)
         self._log_event("KALIBRASYON", f"{ok}/{len(docs)} tablo ECU'dan okundu")
 
     def _on_map_write_all(self):
@@ -1218,15 +1378,9 @@ class MainWindow(QMainWindow):
             for d in docs:
                 d.set_write_result(False, "Yetki yok: harita yazmak için Mühendis veya Yönetici rolü gerekir.")
             return
-        written = skipped = failed = 0
-        for d in docs:
-            if not d.is_modified():
-                skipped += 1
-                continue
-            if self._write_map_doc(d):
-                written += 1
-            else:
-                failed += 1
+        modified = [d for d in docs if d.is_modified()]
+        skipped = len(docs) - len(modified)
+        written, failed = self._write_map_docs(modified)
         self._log_event(
             "KALIBRASYON",
             f"Toplu tablo yazma: {written} yazıldı, {skipped} değişmediği için atlandı, {failed} başarısız"
@@ -1282,6 +1436,7 @@ class MainWindow(QMainWindow):
         done = 0
         problems: list[str] = []
         failed_rows: list[int] = []
+        todo = []                               # (satır, giriş, fiziksel değer)
         for row in rows:
             if row < 0 or row >= len(entries):
                 continue
@@ -1290,22 +1445,39 @@ class MainWindow(QMainWindow):
             if text is None or e.read_only or not getattr(e, "resolved", True):
                 continue
             try:
-                phys = parse_value_text(text)
+                todo.append((row, e, parse_value_text(text)))
             except ValueError:
                 problems.append(f"{e.name}: geçersiz sayı ({text!r})")
                 failed_rows.append(row)
-                continue
-            old_phys = self._read_phys_best_effort(e)
-            try:
-                # doğrulama (sonlu, tür aralığı, A2L min/max, READ_ONLY) + güvenli dönüşüm
-                raw_bytes = ccp_codec.encode_for_write(e, phys)
-                self.ccp_client.write_memory(e.address, raw_bytes, e.address_extension or 0)
-            except ccp_protocol.CCPTimeoutError as exc:
+        client = self.ccp_client
+
+        def work():
+            out = []                            # (eski değer, hata | None)
+            for _row, e, phys in todo:
+                try:
+                    old = ccp_codec.read_value(client, e).phys
+                except _CCP_IO_ERRORS:
+                    old = None
+                try:
+                    # doğrulama (sonlu, tür aralığı, A2L min/max, READ_ONLY) + güvenli dönüşüm
+                    raw_bytes = ccp_codec.encode_for_write(e, phys)
+                    client.write_memory(e.address, raw_bytes, e.address_extension or 0)
+                    out.append((old, None))
+                except _CCP_IO_ERRORS as exc:
+                    out.append((old, exc))
+            return out
+
+        try:
+            results = self._ccp_job("Parametreler yazılıyor", work) if todo else []
+        except (ValueError, RuntimeError) as exc:
+            results = [(None, exc)] * len(todo)
+        for (row, e, phys), (old_phys, exc) in zip(todo, results):
+            if isinstance(exc, ccp_protocol.CCPTimeoutError):
                 problems.append(f"{e.name}: {str(exc) or 'ECU cevap vermedi'}")
                 self._log_event("HATA", f"{e.name} RAM yazma: ECU cevap vermedi")
                 failed_rows.append(row)
                 continue
-            except (ccp_protocol.CCPError, ccp_codec.UnknownDatatypeError, ValueError) as exc:
+            if exc is not None:
                 problems.append(f"{e.name}: {exc}")
                 self._log_event("HATA", f"{e.name} RAM yazma hatası: {exc}")
                 failed_rows.append(row)
@@ -1431,15 +1603,19 @@ class MainWindow(QMainWindow):
             if confirm != QMessageBox.Yes:
                 return
 
-        try:
+        client = self.ccp_client
+
+        def work():
             raw_bytes = ccp_codec.encode_for_write(obj, entry.old_value)
             ext = obj.address_extension or 0
             if entry.persistent:
-                self.ccp_client.write_flash_memory(obj.address, raw_bytes, ext, verify=True)
+                client.write_flash_memory(obj.address, raw_bytes, ext, verify=True)
             else:
-                self.ccp_client.write_memory(obj.address, raw_bytes, ext, verify=True)
-        except (ccp_protocol.CCPError, ccp_protocol.CCPTimeoutError,
-                ccp_codec.UnknownDatatypeError, ValueError) as exc:
+                client.write_memory(obj.address, raw_bytes, ext, verify=True)
+
+        try:
+            self._ccp_job(f"{obj.name} eski değerine yazılıyor", work)
+        except _CCP_IO_ERRORS as exc:
             QMessageBox.critical(self, "Geri yazma hatası", str(exc))
             self._log_event("HATA", f"{obj.name} geri yazma hatası ({kind_label}): {exc}")
             return
@@ -1507,9 +1683,7 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, f"{label} gönderilemedi", f"{exc}{hint}")
             self._log_event("HATA", f"{label} gönderilemedi: {exc}")
             return False
-        sent_msg = can.Message(arbitration_id=can_id, data=data, is_extended_id=extended,
-                                timestamp=time.time())
-        self.monitor_tab.add_message(sent_msg, direction="TX")
+        self._drain_tx_queue()
         self._log_event("EYLEYICI", f"{label} [CAN {binding.message}.{binding.signal}] = {value:g} "
                                     f"({self.current_user}/{self.current_role.value})")
         if safety:
@@ -1575,8 +1749,10 @@ class MainWindow(QMainWindow):
             attempts = SAFETY_A2L_ATTEMPTS if safety else 1
             for attempt in range(1, attempts + 1):
                 try:
-                    cpanel.ccp_write_value(self.ccp_client, info, value,
-                                           enforce_limits=(not safety and float(value) != 0.0))
+                    # Öncelikli: arka planda uzun bir yazma (harita/flaş) sürüyorsa parçaları arasına girer.
+                    with self._ccp_urgent():
+                        cpanel.ccp_write_value(self.ccp_client, info, value,
+                                               enforce_limits=(not safety and float(value) != 0.0))
                     break
                 except (ccp_protocol.CCPError, ccp_protocol.CCPTimeoutError) as exc:
                     if attempt >= attempts:
@@ -1963,22 +2139,37 @@ class MainWindow(QMainWindow):
                 key = next((s.key for s in panel._catalog if s.message == msg and s.signal == sig), None)
                 if key:
                     results.append({"key": key, "field": "value", "ok": ok, "error": err})
-        ccp_items = changes.get("ccp", [])
-        failed_keys = set()
-        for it in ccp_items:
-            if self.ccp_client is None:
-                results.append({"key": it["key"], "field": it["field"], "ok": False, "error": "CCP bağlı değil"})
-                continue
-            if it["key"] in failed_keys and it["field"] == "enable":
-                results.append({"key": it["key"], "field": "enable", "ok": False,
+        ccp_items = list(changes.get("ccp", []))
+        client = self.ccp_client
+
+        def work():
+            out = []
+            failed_keys = set()
+            for it in ccp_items:
+                if it["key"] in failed_keys and it["field"] == "enable":
+                    out.append({"key": it["key"], "field": "enable", "ok": False,
                                 "error": "değer yazılamadığı için bayrak açılmadı"})
-                continue
-            try:
-                cpanel.ccp_write_value(self.ccp_client, it["info"], it["value"])
-                results.append({"key": it["key"], "field": it["field"], "ok": True, "error": ""})
-            except Exception as exc:
-                failed_keys.add(it["key"])
-                results.append({"key": it["key"], "field": it["field"], "ok": False, "error": str(exc)})
+                    continue
+                try:
+                    cpanel.ccp_write_value(client, it["info"], it["value"])
+                    out.append({"key": it["key"], "field": it["field"], "ok": True, "error": ""})
+                except Exception as exc:  # noqa: BLE001
+                    failed_keys.add(it["key"])
+                    out.append({"key": it["key"], "field": it["field"], "ok": False, "error": str(exc)})
+            return out
+
+        if ccp_items:
+            if client is None:
+                error = "CCP bağlı değil"
+            else:
+                error = ""
+                try:
+                    results.extend(self._ccp_job("Override değerleri yazılıyor", work))
+                except (ValueError, RuntimeError) as exc:
+                    error = str(exc)
+            if error:
+                results.extend({"key": it["key"], "field": it["field"], "ok": False, "error": error}
+                               for it in ccp_items)
         okn = sum(1 for r in results if r["ok"])
         self._log_event("KONTROL PANELİ", f"Uygula: {okn}/{len(results)} değişiklik başarılı")
         panel.apply_finished(results)
@@ -2005,11 +2196,12 @@ class MainWindow(QMainWindow):
             return
         # Override'ları KAPATMAK güvenlik eylemidir: hiçbir rol kısıtına takılmamalı.
         bad = 0
-        for info in infos:
-            try:
-                cpanel.ccp_write_value(self.ccp_client, info, 0, enforce_limits=False)
-            except Exception:
-                bad += 1
+        with self._ccp_urgent():                # arka plandaki uzun yazmanın parçaları arasına girer
+            for info in infos:
+                try:
+                    cpanel.ccp_write_value(self.ccp_client, info, 0, enforce_limits=False)
+                except Exception:
+                    bad += 1
         self._log_event("KONTROL PANELİ", f"Tüm override'lar kapatıldı ({len(infos) - bad}/{len(infos)})")
         if bad == 0:
             panel.overrides_killed()
@@ -2026,6 +2218,7 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             QMessageBox.warning(self, "Yeniden yükleme hatası", str(exc))
             return
+        self.tx_scheduler.refresh_frames()
         self.control_panel_tab.refresh_sources(self.transmit_tab.dbc, self.a2l_tab.db)
 
     def _on_role_applied(self, user_name: str, role_value: str):
@@ -2121,6 +2314,11 @@ class MainWindow(QMainWindow):
         self.log_tab.set_active(False)
 
     def closeEvent(self, event):
+        if self._ccp_busy:
+            # Yarım kalmış bir tablo/flaş yazımı ECU'yu tutarsız bırakır: iş bitene kadar kapanma.
+            event.ignore()
+            self.statusBar().showMessage("CCP işlemi sürüyor; bitince kapatabilirsiniz.", 5000)
+            return
         # Ayrı penceredeki Trend geri yerleşsin; aksi halde uygulama
         # son pencere kapanana kadar çıkmaz.
         for det in (getattr(self.dashboard_tab.trend, "detacher", None),):

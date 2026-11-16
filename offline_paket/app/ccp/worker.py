@@ -61,7 +61,14 @@ class GuardedClient:
         self._s = session
 
     def __getattr__(self, name):
-        target = getattr(self._s._client, name)
+        client = self._s._client
+        if client is None:
+            # Oturum, süren bir işlemin ortasında kapatıldı (bağlantı kesildi): AttributeError yerine
+            # çağıranların zaten ele aldığı "ECU yok" hatası.
+            def gone(*_a, **_kw):
+                raise EcuSilent("CCP bağlı değil")
+            return gone
+        target = getattr(client, name)
         if not callable(target):
             return target
         if name == "test_connection":
