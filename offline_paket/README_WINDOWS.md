@@ -170,7 +170,18 @@ uygulamada donanımla doğrulanmamıştır**. Bu yüzden:
   override kapatma yazmaları süren işin parçaları arasına ÖNCELİKLE girer. Kontrol Paneli / Ana Sayfa
   periyodik CAN gönderimi de ayrı iş parçacıklarındadır: arayüz takılsa bile kareler kesilmez. Gönderilen
   TÜM kareler (periyodik olanlar dahil) CAN Monitor'da ve CSV kaydında TX olarak görünür.
-- **Acil Durdurma ONAY SORMAZ:** tek tıkla gönderilir (Motoru Başlat/Durdur da öyle).
+- **Acil Durdurma ONAY SORMAZ:** tek tıkla ya da **`Ctrl+Shift+E`** ile (hangi sayfa açık olursa olsun, odak bir
+  giriş kutusunda bile) gönderilir. `Ctrl+1` … `Ctrl+6` sayfalar arasında geçer. Ana düğmelerin ve durum
+  göstergelerinin ekran okuyucu adları vardır.
+- **Tablo yedeğinden geri yükleme:** Harita Editörü > **Yedekten Yükle…** seçili tablonun, ECU'ya yazılmadan
+  önce otomatik alınmış yedeklerinden birini tabloya getirir (aynı nesne, adres ve boyut doğrulanır). ECU'ya
+  YAZILMAZ; "ECU'ya Yaz" ile ayrıca yazarsınız ve tek adımda Geri Al ile vazgeçilebilir.
+- **Windows zamanlayıcı çözünürlüğü:** uygulama açılışta sistem zamanlayıcısını 1 ms'ye çeker; 10 ms'lik
+  periyodik gönderim ~15,6 ms'e yuvarlanmaz. (Gerçek PCAN ile ölçülüp doğrulanmalıdır.)
+- **CCP koruma (GET_SEED / UNLOCK):** `CCPClient.get_seed`, `unlock`, `unlock_resource(kaynak, anahtar_fonksiyonu)`
+  hazırdır; ECU'ya özel seed-key algoritması bilinmediği için arayüze bağlı değildir.
+- **Hatalar sessizce yutulmaz:** kapanış/temizlik dışındaki tüm `except` bloklarında hata `openecu.log`'a yazılır
+  (CAN kayıt kancası, bus yeniden açma geri çağrıları, periyodik gönderim durdurma vb.).
 - **Acil Durdurma ve Motoru Durdur güvenlik komutlarıdır:** (Acil Durdurma için) eşleme yoksa düğmenin yanında kalıcı "⚠ Acil Durdurma
   eşlenmemiş" uyarısı görünür ve basınca komut GİTMEDİĞİ açıkça bildirilir. Eşleme varsa A2L min/max,
   READ_ONLY ve DBC min/max denetimi komutu ENGELLEMEZ (sınır dışıysa olay günlüğüne not düşülür);

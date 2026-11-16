@@ -52,6 +52,11 @@ class CCPSlaveSimulator:
         # (gerçek ECU davranışı).
         self.online = True
         self.strict_session = False
+        # Koruma (GET_SEED/UNLOCK): secret verilirse kalibrasyon ve programlama kaynakları kilitli başlar;
+        # kilitliyken DNLOAD/PROGRAM/CLEAR_MEMORY ACCESS_LOCKED döner. Anahtar = seed XOR secret (4 bayt).
+        self.protection_secret: int | None = None
+        self.unlocked = 0
+        self.seed = 0x1234ABCD
         self.response_delay_s = 0.0
         self.requests_seen = 0
 
@@ -128,10 +133,18 @@ class CCPSlaveSimulator:
             ccp.CLEAR_MEMORY: self._handle_clear_memory,
             ccp.PROGRAM: self._handle_program,
             ccp.PROGRAM_6: self._handle_program6,
+            ccp.GET_SEED: self._handle_get_seed,
+            ccp.UNLOCK: self._handle_unlock,
         }.get(cmd)
 
         if handler is None:
             self._reply(ccp.RC_CMD_UNKNOWN, ctr)
+            return
+        needed = {ccp.DNLOAD: ccp.RESOURCE_CAL, ccp.DNLOAD_6: ccp.RESOURCE_CAL,
+                  ccp.PROGRAM: ccp.RESOURCE_PGM, ccp.PROGRAM_6: ccp.RESOURCE_PGM,
+                  ccp.CLEAR_MEMORY: ccp.RESOURCE_PGM}.get(cmd)
+        if self.protection_secret is not None and needed is not None and not self.unlocked & needed:
+            self._reply(ccp.RC_ACCESS_LOCKED, ctr)
             return
         handler(msg.data, ctr)
 
@@ -148,6 +161,23 @@ class CCPSlaveSimulator:
             self._reply(ccp.RC_ACCESS_DENIED, ctr)
             return
         self._reply(ccp.RC_OK, ctr)
+
+    def _handle_get_seed(self, data, ctr):
+        resource = data[2]
+        if self.protection_secret is None or self.unlocked & resource == resource:
+            self._reply(ccp.RC_OK, ctr, bytes([0, 0, 0, 0, 0]))          # korumasız / zaten açık
+            return
+        self._reply(ccp.RC_OK, ctr, bytes([1]) + self.seed.to_bytes(4, "big"))
+        self._pending_resource = resource
+
+    def _handle_unlock(self, data, ctr):
+        key = int.from_bytes(data[2:6], "big")
+        resource = getattr(self, "_pending_resource", 0)
+        if self.protection_secret is None or key != (self.seed ^ self.protection_secret):
+            self._reply(ccp.RC_ACCESS_DENIED, ctr)
+            return
+        self.unlocked |= resource
+        self._reply(ccp.RC_OK, ctr, bytes([self.unlocked & 0xFF]))
 
     def _handle_get_ccp_version(self, data, ctr):
         self._reply(ccp.RC_OK, ctr, bytes([2, 1]))  # v2.1

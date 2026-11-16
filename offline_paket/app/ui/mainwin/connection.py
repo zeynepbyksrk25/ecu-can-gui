@@ -18,6 +18,8 @@ from app.ui.mainwin.common import (
     CONNECTION_LOSS_CONFIRM_S, SILENT_NOTICE_S,
 )
 
+log = logging.getLogger(__name__)
+
 
 class ConnectionMixin:
 
@@ -95,7 +97,7 @@ class ConnectionMixin:
             try:
                 self.periodic_manager.stop_all()
             except Exception:
-                pass
+                log.warning("periyodik gönderim durdurulamadı", exc_info=True)
             self.periodic_manager = None
         self.transmit_tab.stop_all_rows()
         self.tx_scheduler.stop_all()

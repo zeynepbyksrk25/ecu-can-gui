@@ -8,6 +8,7 @@ A/B imleçleri (değer + Δ), iki sinyalin farkı (A−B) eğrisi, test başlang
 işaretleri ve CSV / MAT / MDF dışa aktarım.
 """
 
+import logging
 import csv
 import time
 
@@ -23,6 +24,8 @@ from app import theme
 from app.ui.dash_widgets import (
     DK_CYAN, DK_GREEN, DK_INK, DK_LINE2, DK_MUT, DK_ORANGE, DK_PURPLE, IconButton, icon_pixmap,
 )
+
+log = logging.getLogger(__name__)
 
 WINDOWS = [("60 sn", 60.0), ("5 dk", 300.0), ("10 dk", 600.0), ("1 sa", 3600.0)]
 MAX_HISTORY_S = 3600.0
@@ -294,14 +297,14 @@ class TrendPanel(QFrame):
             try:
                 self.pi.scene().removeItem(vb)
             except Exception:
-                pass
+                log.debug("ek eksen görünümü kaldırılamadı", exc_info=True)
         for ax in self._extra_axes:
             try:
                 self.pi.layout.removeItem(ax)
                 ax.setParentItem(None)
                 self.pi.scene().removeItem(ax)
             except Exception:
-                pass
+                log.debug("ek eksen kaldırılamadı", exc_info=True)
         self._extra_vbs, self._extra_axes = [], []
         self.pi.hideAxis("right")
 
@@ -312,7 +315,7 @@ class TrendPanel(QFrame):
                 try:
                     ser.curve.getViewBox().removeItem(ser.curve)
                 except Exception:
-                    pass
+                    log.debug("eğri kaldırılamadı", exc_info=True)
                 ser.curve = None
         self._remove_extra()
         # birim grupları (sıra korunur)
@@ -583,7 +586,7 @@ class TrendPanel(QFrame):
             try:
                 self.vb.removeItem(it)
             except Exception:
-                pass
+                log.debug("olay işareti kaldırılamadı", exc_info=True)
         self._event_items = []
         for t, label, color in self._events:
             stamp = time.strftime("%H:%M:%S", time.localtime(t))

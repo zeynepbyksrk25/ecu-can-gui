@@ -11,6 +11,7 @@ bildirir. Değer hücresi düzenlenince ECU'ya yazılmaz; yalnızca satırın
 düğmelerine basılınca write_requested yayılır (onay diyaloğu yok).
 """
 
+import logging
 import math
 import os
 import re
@@ -29,6 +30,8 @@ from PySide6.QtWidgets import (
 from app import theme
 from app.persist import atomic_write_json, load_json
 from app.ccp import codec
+
+log = logging.getLogger(__name__)
 
 POLL_INTERVAL_MS = 250          # canlı okuma: önbellekten (bloklamaz), bkz. app/ccp/worker.py
 VERIFY_WINDOW_S = 1.5           # yazılan değerin ECU'dan geri okunarak doğrulanma süresi
@@ -693,7 +696,7 @@ class WatchTab(QWidget):
             e.verify_raw = bytes(e.raw)
             e.verify_deadline = time.monotonic() + VERIFY_WINDOW_S
         except Exception:
-            pass
+            log.warning("%s: yazılan değer Hex hücresine yansıtılamadı", getattr(e, "name", "?"), exc_info=True)
         self._render_row(row)
 
     def discard_pending(self, rows):

@@ -7,20 +7,53 @@ böylece ECU kapanıp açıldığında ya da hat toparlandığında gönderim ke
 (Eskiden python-can ``send_periodic`` kullanılıyordu; ilk hatada görevi kalıcı durduruyordu.)
 """
 
+import logging
 import threading
 import time
 
 import can
 
+log = logging.getLogger(__name__)
 
-class _Task(threading.Thread):
+
+class PeriodicThread(threading.Thread):
+    """Sabit periyotla ``tick()`` çağıran iş parçacığı: İKİ periyodik gönderici (ham kareler için
+    ``PeriodicManager``, DBC mesajları için Kontrol Paneli ``TxScheduler``) bu zamanlamayı paylaşır.
+
+    Zamanlama: bir sonraki çağrı mutlak hedefe göre hesaplanır (gecikme birikmez, ``next_t += period``);
+    uzun bir kesintiden (ör. >1 sn) sonra geriye dönük patlama (burst) yapılmaz. ``first_delay``: ilk
+    çağrıdan önce beklenecek süre (0: hemen)."""
+
+    def __init__(self, period_s: float, first_delay: float = 0.0, name: str | None = None):
+        super().__init__(daemon=True, name=name)
+        self.period_s = period_s
+        self._first_delay = first_delay
+        self._stop_event = threading.Event()
+
+    def tick(self):
+        raise NotImplementedError
+
+    def stop(self):
+        self._stop_event.set()
+
+    def stopped(self) -> bool:
+        return self._stop_event.is_set()
+
+    def run(self):
+        next_t = time.monotonic() + self._first_delay
+        while not self._stop_event.wait(max(0.0, next_t - time.monotonic())):
+            self.tick()
+            next_t += self.period_s
+            if next_t - time.monotonic() < -1.0:
+                next_t = time.monotonic()
+
+
+class _Task(PeriodicThread):
     def __init__(self, get_bus, msg: can.Message, period_s: float, on_sent=None):
-        super().__init__(daemon=True)
+        super().__init__(period_s)
         self._get_bus = get_bus
         self._on_sent = on_sent
         self.msg = msg
-        self.period_s = period_s
-        self._stop_event = threading.Event()
         self._lock = threading.Lock()
         self.sent = 0
         self.errors = 0
@@ -31,36 +64,24 @@ class _Task(threading.Thread):
             self.msg = can.Message(arbitration_id=self.msg.arbitration_id, data=data,
                                    is_extended_id=self.msg.is_extended_id)
 
-    def stop(self):
-        self._stop_event.set()
-
-    def run(self):
-        next_t = time.monotonic()
-        while not self._stop_event.is_set():
-            try:
-                bus = self._get_bus()
-                if bus is None:
-                    raise RuntimeError("Bağlantı yok")
-                with self._lock:
-                    msg = self.msg
-                bus.send(msg)
-                self.sent += 1
-                self.last_error = None
-                if self._on_sent is not None:
-                    try:
-                        self._on_sent(msg)
-                    except Exception:  # noqa: BLE001 - izleme/kayıt hatası gönderimi durdurmasın
-                        pass
-            except Exception as exc:  # hat toparlanırken gönderim hataları beklenir; görev sürer
-                self.errors += 1
-                self.last_error = str(exc)
-            next_t += self.period_s
-            delay = next_t - time.monotonic()
-            if delay < -1.0:            # uzun kesintiden sonra patlama (burst) yapma
-                next_t = time.monotonic()
-                delay = 0.0
-            if self._stop_event.wait(max(0.0, delay)):
-                break
+    def tick(self):
+        try:
+            bus = self._get_bus()
+            if bus is None:
+                raise RuntimeError("Bağlantı yok")
+            with self._lock:
+                msg = self.msg
+            bus.send(msg)
+            self.sent += 1
+            self.last_error = None
+            if self._on_sent is not None:
+                try:
+                    self._on_sent(msg)
+                except Exception:  # noqa: BLE001 - izleme/kayıt hatası gönderimi durdurmasın
+                    log.debug("TX izleme kancası hata verdi", exc_info=True)
+        except Exception as exc:  # hat toparlanırken gönderim hataları beklenir; görev sürer
+            self.errors += 1
+            self.last_error = str(exc)
 
 
 class PeriodicManager:

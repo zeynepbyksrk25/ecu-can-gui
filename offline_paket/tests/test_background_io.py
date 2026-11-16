@@ -325,3 +325,150 @@ def test_ui_colours_come_from_the_single_theme_module():
                 if m.group(0).upper() in tokens:
                     offenders.append((name, m.group(0)))
     assert not offenders and len(tokens) > 20
+
+
+# ---------------------------------------------------------------- kısayol ve erişilebilirlik
+def test_estop_shortcut_is_application_wide_and_buttons_have_accessible_names(win, monkeypatch):
+    from PySide6.QtCore import Qt
+    from app.dashboard_config import SOURCE_CAN, Binding, DashboardConfig, MotorCommand
+    sent = []
+    monkeypatch.setattr(type(win.connection), "is_connected", property(lambda s: True))
+    monkeypatch.setattr(win.connection, "send", lambda i, d, e: sent.append((i, bytes(d))))
+    cfg = DashboardConfig()
+    cfg.estop = MotorCommand(Binding(SOURCE_CAN, "CMD", "estop_req"), 1.0)
+    win.dashboard_tab.set_config(cfg)
+    assert win._estop_shortcut.context() == Qt.ApplicationShortcut
+    assert win._estop_shortcut.key().toString() == "Ctrl+Shift+E"
+    win._estop_shortcut.activated.emit()
+    assert sent, "kısayol Acil Durdurma'yı göndermeli"
+    dt = win.dashboard_tab
+    for w in (dt.start_button, dt.stop_button, dt.estop_button, win.header_conn_pill, win.ccp_chip, win.nav_bar):
+        assert w.accessibleName(), w
+    assert "Ctrl+Shift+E" in dt.estop_button.toolTip()
+
+
+# ---------------------------------------------------------------- tablo yedeği
+def _arr(name="TAB", rows=2, cols=3, address=0x3000):
+    from types import SimpleNamespace
+    return SimpleNamespace(name=name, address=address, unit="%", kind="ARRAY", axes=[], dims=(rows, cols),
+                           index_mode="ROW_DIR", datatype="UWORD", byte_order="MSB_FIRST", compu_method=None,
+                           minimum=0.0, maximum=100.0, read_only=False, address_extension=0)
+
+
+def test_table_backup_roundtrip_is_validated_and_scoped_to_its_object(tmp_path):
+    from app.ccp import mapio, table_backup
+    folder = str(tmp_path)
+    ch = _arr()
+    grid = [[1.0, 2.0, 3.0], [4.0, 5.5, 6.0]]
+    f1 = table_backup.save(folder, ch, grid)
+    f2 = table_backup.save(folder, ch, grid)                       # aynı saniye: üzerine yazılmaz
+    assert f1 and f2 and f1 != f2
+    table_backup.save(folder, _arr(name="TAB_2"), [[9.0]])          # ad öneki benzer başka nesne
+    items = table_backup.list_backups(folder, ch)
+    assert len(items) == 2                                          # TAB_2'nin yedeği karışmadı
+    assert table_backup.load(items[0].path, ch, mapio.grid_shape(ch)) == grid
+    with pytest.raises(ValueError, match="boyut"):
+        table_backup.load(items[0].path, _arr(rows=3), (3, 3))
+    with pytest.raises(ValueError, match="adres"):
+        table_backup.load(items[0].path, _arr(address=0x4000), (2, 3))
+    bad = tmp_path / "TAB_20260101_000000.json"
+    bad.write_text('{"name": "TAB", "address": 12288, "grid": [[1, "x", 3], [4, 5, 6]]}', encoding="utf-8")
+    with pytest.raises(ValueError, match="sayısal"):
+        table_backup.load(str(bad), ch, (2, 3))
+    (tmp_path / "TAB_20260101_000001.json").write_text("{bozuk", encoding="utf-8")
+    assert len(table_backup.list_backups(folder, ch)) == 3          # bozuk dosya listeyi bozmaz
+
+
+def test_map_editor_restore_loads_backup_as_undoable_edit_without_writing(qapp, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QInputDialog
+    from app.ccp import table_backup
+    from app.ui.map_editor_tab import MapEditorTab
+    import app.paths as paths
+    monkeypatch.setattr(paths, "_cached", str(tmp_path))
+    ch = _arr()
+    tab = MapEditorTab()
+    doc = tab.open_characteristic(ch)
+    doc.set_grid_from_ecu([[0.0] * 3, [0.0] * 3])
+    assert tab.restore_button.isEnabled()
+    table_backup.save(str(tmp_path / "tablo_yedekleri"), ch, [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
+    monkeypatch.setattr(QInputDialog, "getItem", staticmethod(lambda w, t, l, items, *a, **k: (items[0], True)))
+    tab._on_restore_clicked()
+    assert doc.current_grid() == [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]] and doc.is_modified()
+    doc.undo()
+    assert doc.current_grid() == [[0.0] * 3, [0.0] * 3]
+
+
+# ---------------------------------------------------------------- zamanlayıcı çözünürlüğü
+def test_timer_resolution_is_a_safe_noop_off_windows_and_calls_winmm_on_windows(monkeypatch):
+    import sys
+    import types
+    from app import timer_resolution as tr
+    monkeypatch.setattr(tr, "_active", False)
+    monkeypatch.setattr(sys, "platform", "linux")
+    assert tr.enable_high_resolution_timer() is False
+    calls = []
+    fake = types.SimpleNamespace(windll=types.SimpleNamespace(winmm=types.SimpleNamespace(
+        timeBeginPeriod=lambda ms: calls.append(("begin", ms)) or 0,
+        timeEndPeriod=lambda ms: calls.append(("end", ms)) or 0)))
+    monkeypatch.setitem(sys.modules, "ctypes", fake)
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(tr.atexit, "register", lambda *a, **k: None)
+    assert tr.enable_high_resolution_timer(1) is True and calls == [("begin", 1)]
+    assert tr.enable_high_resolution_timer(1) is True and calls == [("begin", 1)]      # ikinci çağrı tekrarlamaz
+    monkeypatch.setattr(tr, "_active", False)
+    bad = types.SimpleNamespace(windll=types.SimpleNamespace(winmm=types.SimpleNamespace(timeBeginPeriod=lambda ms: 97)))
+    monkeypatch.setitem(sys.modules, "ctypes", bad)
+    assert tr.enable_high_resolution_timer(1) is False
+
+
+# ---------------------------------------------------------------- CCP koruma (GET_SEED / UNLOCK)
+def test_protected_resource_rejects_writes_until_unlocked_with_the_right_key(link):
+    from app.ccp import protocol as ccp
+    cli, sim = link
+    sim.protection_secret = 0xA5A5A5A5
+    with pytest.raises(ccp.CCPError) as ei:
+        cli.write_memory(0x2000, b"\x01\x02")
+    assert ei.value.return_code == ccp.RC_ACCESS_LOCKED
+    protected, seed = cli.get_seed(ccp.RESOURCE_CAL)
+    assert protected and len(seed) == 4
+
+    def key_fn(s):
+        return (int.from_bytes(s, "big") ^ 0xA5A5A5A5).to_bytes(4, "big")
+
+    wrong = lambda s: b"\x00\x00\x00\x00"  # noqa: E731
+    with pytest.raises(ccp.CCPError) as ei:
+        cli.unlock_resource(ccp.RESOURCE_CAL, wrong)
+    assert ei.value.return_code == ccp.RC_ACCESS_DENIED
+    assert cli.unlock_resource(ccp.RESOURCE_CAL, key_fn) is True
+    cli.write_memory(0x2000, b"\x01\x02", verify=False)
+    assert sim.memory[0x2000] == 1 and sim.memory[0x2001] == 2
+    with pytest.raises(ccp.CCPError):                      # programlama kaynağı ayrı: hâlâ kilitli
+        cli.write_flash_memory(0x4000, b"\x09", clear_first=False)
+    assert cli.unlock_resource(ccp.RESOURCE_CAL, lambda s: pytest.fail("açıkken anahtar hesaplanmamalı")) is True
+
+
+def test_unprotected_resource_needs_no_key(link):
+    from app.ccp import protocol as ccp
+    cli, _sim = link
+    assert cli.get_seed(ccp.RESOURCE_CAL)[0] is False
+    assert cli.unlock_resource(ccp.RESOURCE_PGM, lambda s: pytest.fail("kilitsiz kaynak")) is True
+
+
+# ---------------------------------------------------------------- okunabilirlik
+def _luminance(hex_color: str) -> float:
+    r, g, b = (int(hex_color[i:i + 2], 16) / 255 for i in (1, 3, 5))
+    lin = lambda c: c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4  # noqa: E731
+    return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+
+
+def test_map_table_headers_are_readable(qapp):
+    """Başlık zemini ile yazı rengi arasında yeterli kontrast (eskiden koyu lacivert zemin + koyu yazıydı)."""
+    import re
+    from app.ui.map_editor_tab import MapEditorTab
+    doc = MapEditorTab().open_characteristic(_arr())
+    for header in (doc.table.horizontalHeader(), doc.table.verticalHeader()):
+        css = header.styleSheet()
+        bg = re.search(r"background:(#[0-9A-Fa-f]{6})", css).group(1)
+        fg = re.search(r"(?<!-)color:(#[0-9A-Fa-f]{6})", css).group(1)
+        lo, hi = sorted((_luminance(bg), _luminance(fg)))
+        assert (hi + 0.05) / (lo + 0.05) >= 4.5, (bg, fg)

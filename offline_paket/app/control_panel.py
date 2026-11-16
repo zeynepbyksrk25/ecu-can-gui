@@ -32,6 +32,7 @@ from PySide6.QtCore import QObject, Signal
 
 from app.ccp import codec as ccp_codec
 from app.persist import atomic_write_json, load_json
+from app.scheduler import PeriodicThread
 
 log = logging.getLogger(__name__)
 
@@ -351,29 +352,16 @@ def parse_input_value(text, choices: dict | None = None) -> float | None:
 
 
 # ---- Periyodik CAN gönderici ------------------------------------------------
-class _TxThread(threading.Thread):
+class _TxThread(PeriodicThread):
     """Bir mesajı kendi periyoduyla gönderen iş parçacığı. İlk kare ``set_values`` tarafından hemen
     gönderildiği için bu iş parçacığı ilk gönderimini bir periyot SONRA yapar."""
 
     def __init__(self, tick, period_s: float):
-        super().__init__(daemon=True, name="panel-tx")
-        self._tick = tick
-        self.period_s = period_s
-        self._stop_event = threading.Event()
+        super().__init__(period_s, first_delay=period_s, name="panel-tx")
+        self._tick_fn = tick
 
-    def stop(self):
-        self._stop_event.set()
-
-    def stopped(self) -> bool:
-        return self._stop_event.is_set()
-
-    def run(self):
-        next_t = time.monotonic() + self.period_s
-        while not self._stop_event.wait(max(0.0, next_t - time.monotonic())):
-            self._tick()
-            next_t += self.period_s
-            if next_t - time.monotonic() < -1.0:      # uzun kesintiden sonra patlama (burst) yapma
-                next_t = time.monotonic()
+    def tick(self):
+        self._tick_fn()
 
 
 class TxScheduler(QObject):

@@ -45,6 +45,11 @@ ACTION_SERVICE = 0x21
 PROGRAM_6 = 0x22
 DNLOAD_6 = 0x23
 
+# GET_SEED / UNLOCK kaynak maskeleri (ASAM CCP 2.1)
+RESOURCE_CAL = 0x01      # kalibrasyon (DNLOAD, SET_MTA ile yazma)
+RESOURCE_DAQ = 0x02      # veri toplama
+RESOURCE_PGM = 0x40      # flaş programlama (PROGRAM, CLEAR_MEMORY)
+
 PID_COMMAND_RETURN = 0xFF
 PID_EVENT = 0xFE
 

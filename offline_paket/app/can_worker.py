@@ -3,11 +3,14 @@ mesaj dinleme (Receive Thread). UI thread'i asla doğrudan bloklamaz;
 gelen mesajlar thread-safe bir queue.Queue üzerinden aktarılır.
 """
 
+import logging
 import queue
 import threading
 import time
 
 import can
+
+log = logging.getLogger(__name__)
 
 # PCAN-Basic durum kodlarından "hat (bus) düzeyi" olanlar: kablo/ECU/sonlandırma
 # kaynaklı geçici durumlardır, ADAPTÖR gitmiş demek DEĞİLDİR (ör. ECU kapalıyken
@@ -193,7 +196,7 @@ class CanConnection:
             try:
                 status_text = getattr(self.bus, "status_string", lambda: None)() or ""
             except Exception:
-                pass
+                log.debug("durum metni okunamadı", exc_info=True)
             status_text = status_text or f"Durum kodu 0x{status:X}"
             if status & ~_PCAN_BUS_LEVEL_BITS:
                 return "lost", status_text
@@ -278,7 +281,7 @@ class CanConnection:
             try:
                 self.bus.shutdown()
             except Exception:
-                pass
+                log.warning("bus kapatılamadı (yeniden açılıyor)", exc_info=True)
             self.bus = None
         self._open_bus_and_thread()
         self.reopen_count += 1
@@ -286,7 +289,7 @@ class CanConnection:
             try:
                 cb()
             except Exception:
-                pass
+                log.exception("bus yeniden açma geri çağrısı hata verdi")
 
     def is_healthy(self) -> tuple[bool, str]:
         """Geriye uyumluluk: link_state() "ok" ise True."""

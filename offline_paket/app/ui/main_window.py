@@ -2,7 +2,7 @@ import logging
 from datetime import datetime
 
 from PySide6.QtCore import QTimer, Qt, Signal
-from PySide6.QtGui import QColor, QGuiApplication
+from PySide6.QtGui import QColor, QGuiApplication, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QFrame, QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QMainWindow,
     QMessageBox, QPushButton, QScrollArea, QStackedWidget, QTabBar,
@@ -229,6 +229,7 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
             self._update_role_label()
 
         self._wire_signals()
+        self._install_shortcuts_and_accessibility()
 
         self.rx_timer = QTimer(self)
         self.rx_timer.setInterval(RX_POLL_INTERVAL_MS)
@@ -431,6 +432,39 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         layout.addWidget(self.mappings_button)
         self._update_role_label()
         return row
+
+    ESTOP_SHORTCUT = "Ctrl+Shift+E"
+
+    def _install_shortcuts_and_accessibility(self):
+        """Klavye kısayolları ve ekran okuyucu / erişilebilirlik adları.
+
+        Acil Durdurma kısayolu UYGULAMA kapsamlıdır: hangi sayfa açık olursa olsun (ve odak bir giriş
+        kutusunda bile) çalışır. Yanlışlıkla basılmasın diye üç tuşludur."""
+        dt = self.dashboard_tab
+        self._estop_shortcut = QShortcut(QKeySequence(self.ESTOP_SHORTCUT), self)
+        self._estop_shortcut.setContext(Qt.ApplicationShortcut)
+        self._estop_shortcut.activated.connect(dt.estop_button.click)
+        for i, (_icon, label, _page) in enumerate(self._nav_pages[:9]):      # Ctrl+1..6: sayfa geçişi
+            sc = QShortcut(QKeySequence(f"Ctrl+{i + 1}"), self)
+            sc.setContext(Qt.ApplicationShortcut)
+            sc.activated.connect(lambda idx=i: self.nav_bar.setCurrentIndex(idx))
+        dt.estop_hint = f"Kısayol: {self.ESTOP_SHORTCUT}"
+        dt.update_estop_tooltip()
+        names = {
+            dt.start_button: ("Motoru başlat", "Motor Start komutunu gönderir"),
+            dt.stop_button: ("Motoru durdur", "Motor Stop komutunu gönderir"),
+            dt.estop_button: ("Acil durdurma", f"Acil Durdurma komutunu hemen gönderir. Kısayol {self.ESTOP_SHORTCUT}"),
+            dt.estop_warn: ("Acil durdurma eşlenmemiş uyarısı", "Eşleşmeler penceresini açar"),
+            self.header_conn_pill: ("CAN bağlantı durumu", "CAN Monitor sayfasını açar"),
+            self.ccp_chip: ("CCP durumu", "CCP oturumunun durumu"),
+            self.header_role_label: ("Kullanıcı rolü", "Kullanıcı ve rol ayarlarını açar"),
+            self.settings_button: ("Ayarlar", "Kullanıcı, rol ve profiller"),
+            self.mappings_button: ("Eşleşmeler", "CAN ve A2L eşleşmeleri"),
+            self.nav_bar: ("Sayfalar", "Ctrl+1 ile Ctrl+6 arası sayfa değiştirir"),
+        }
+        for widget, (name, desc) in names.items():
+            widget.setAccessibleName(name)
+            widget.setAccessibleDescription(desc)
 
     def _open_connection_page(self):
         """Bağlantı hapına tıklanınca CAN Monitor (bağlantı şeridi) sekmesine geç."""

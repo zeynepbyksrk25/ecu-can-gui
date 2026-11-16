@@ -11,6 +11,7 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 
 from app.icon import make_icon
 from app.paths import data_path
+from app.timer_resolution import enable_high_resolution_timer
 from app.theme import APP_QSS
 from app.ui.main_window import MainWindow
 
@@ -65,6 +66,7 @@ def install_excepthook():
 def main():
     setup_logging()
     install_excepthook()
+    enable_high_resolution_timer()      # Windows: 10 ms'lik periyodik gönderim ~15,6 ms'e yuvarlanmasın
     # Windows görev çubuğunda "python/exe" yerine kendi simgemiz görünsün.
     if sys.platform == "win32":
         try:

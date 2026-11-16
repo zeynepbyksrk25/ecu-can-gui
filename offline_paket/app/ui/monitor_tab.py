@@ -5,6 +5,7 @@ Gelen her mesaj yalnızca bellekteki satır nesnesini günceller (Qt çağrısı
 10 Hz'de toplu yenilenir ve DBC çözümleme yalnızca GÖRÜNEN satırlar için, veri
 değiştiğinde yapılır. Filtreler (ID / mesaj / yön / hata) mevcut satırlara da uygulanır.
 """
+import logging
 import time
 
 import can
@@ -19,6 +20,8 @@ from PySide6.QtWidgets import (
 
 from app import theme
 from app.can_stats import CanStats
+
+log = logging.getLogger(__name__)
 
 COLUMNS = ["Yön", "CAN ID", "Mesaj", "DLC", "Data", "Periyot ms", "Sinyaller", "Sayaç"]
 C_DIR, C_ID, C_NAME, C_DLC, C_DATA, C_PERIOD, C_SIGS, C_COUNT = range(8)
@@ -218,6 +221,7 @@ class MonitorTab(QWidget):
         self.dbc = None  # MainWindow tarafından TransmitTab.dbc ile aynı nesneye bağlanır
         self.stats = CanStats()
         self.frame_hook = None          # callable(msg, direction): günlükleme vb. (duraklatılsa da çağrılır)
+        self._hook_error_logged = False
         self._paused = False
         self._t0 = None
         self._dirty = False
@@ -380,7 +384,9 @@ class MonitorTab(QWidget):
             try:
                 self.frame_hook(msg, direction)
             except Exception:
-                pass
+                if not self._hook_error_logged:        # her karede günlüğü doldurma: bir kez bildir
+                    self._hook_error_logged = True
+                    log.exception("CAN kayıt kancası hata verdi (kayıt eksik kalabilir)")
         if self._paused:
             return
 

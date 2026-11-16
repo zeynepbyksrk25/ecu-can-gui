@@ -270,6 +270,30 @@ class CCPClient:
         data = self._command(cro, ctr, ccp.SHORT_UP)
         return self._exact(data, size, "SHORT_UP")
 
+    # ---- Koruma: GET_SEED / UNLOCK ------------------------------------
+    def get_seed(self, resource: int = ccp.RESOURCE_CAL) -> tuple[bool, bytes]:
+        """Kaynağın (kalibrasyon/DAQ/programlama) koruma durumunu ve tohumunu (seed) ister.
+        Döner: (korumalı_mı, seed[4]). Korumasızsa seed anlamsızdır."""
+        ctr = self._next_ctr()
+        data = self._command(ccp.build_get_seed(ctr, resource), ctr, ccp.GET_SEED)
+        return bool(data[0]), bytes(data[1:5])
+
+    def unlock(self, key: bytes) -> int:
+        """GET_SEED'den hesaplanan anahtarı gönderir; ECU'nun açık kaynak bitlerini (privilege) döner."""
+        ctr = self._next_ctr()
+        return self._command(ccp.build_unlock(ctr, key), ctr, ccp.UNLOCK)[0]
+
+    def unlock_resource(self, resource: int, key_fn) -> bool:
+        """Kaynak korumalıysa ``key_fn(seed: bytes) -> bytes`` ile anahtarı hesaplayıp açar.
+
+        Seed-key algoritması ECU'ya özeldir (genellikle üreticinin DLL'i); bu katman onu BİLMEZ, çağıran verir.
+        Döner: kaynak artık yazmaya açık mı. Korumasızsa anahtar hesaplanmaz."""
+        protected, seed = self.get_seed(resource)
+        if not protected:
+            return True
+        privilege = self.unlock(bytes(key_fn(seed)))
+        return bool(privilege & resource)
+
     def dnload(self, data: bytes) -> bytes:
         """Mevcut MTA0'a en fazla 5 bayt yazar (önce set_mta() çağrılmalı)."""
         ctr = self._next_ctr()

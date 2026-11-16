@@ -50,7 +50,7 @@ def test_mapped_estop_hides_warning_and_failed_send_is_logged(win):
     cfg.estop = MotorCommand(Binding(SOURCE_CAN, "CMD", "estop_req"), 1.0)
     dt.set_config(cfg)
     assert dt.estop_button.isEnabled() and dt.estop_warn.isHidden()
-    assert dt.estop_button.toolTip() == ""
+    assert "UYARI" not in dt.estop_button.toolTip()          # eşleme var: yalnızca kısayol bilgisi
     # CAN bağlı değil: gönderim başarısız -> günlüğe HATA düşer (sessiz değil)
     win._shown.clear()
     assert win._send_motor_command("ACİL DURDURMA", cfg.estop) is False

@@ -1,7 +1,6 @@
 """CCP oturumu ve kalibrasyon: arka plan CCP işleri, tek değer / harita / Parametre Listesi
 okuma-yazma, tanılama ve geçmişten geri alma."""
 import contextlib
-import os
 import threading
 
 from PySide6.QtCore import QEventLoop, QTimer, Qt
@@ -381,22 +380,10 @@ class CalibrationMixin:
         return changed
 
     def _save_table_backup(self, characteristic, old_grid) -> str:
-        """Tablo yazımından önceki ECU içeriğini data_dir()/tablo_yedekleri
-        altına JSON olarak yazar (geri dönüş için). Başarısızsa '' döner."""
-        import json
-        import re
-        import time as _time
-        try:
-            folder = os.path.join(data_path("tablo_yedekleri"))
-            os.makedirs(folder, exist_ok=True)
-            safe = re.sub(r"[^A-Za-z0-9_.-]", "_", characteristic.name)
-            fname = f"{safe}_{_time.strftime('%Y%m%d_%H%M%S')}.json"
-            with open(os.path.join(folder, fname), "w", encoding="utf-8") as f:
-                json.dump({"name": characteristic.name, "address": characteristic.address,
-                           "unit": characteristic.unit, "grid": old_grid}, f, ensure_ascii=False)
-            return fname
-        except (OSError, TypeError, ValueError):
-            return ""
+        """Tablo yazımından önceki ECU içeriğini data_dir()/tablo_yedekleri altına JSON olarak yazar
+        (Harita Editörü > "Yedekten Yükle…" ile geri getirilir). Başarısızsa '' döner."""
+        from app.ccp import table_backup
+        return table_backup.save(data_path("tablo_yedekleri"), characteristic, old_grid)
 
     def _write_map_docs(self, docs) -> tuple[int, int]:
         """Tablo dokümanlarını ECU RAM'ine yazar; (yazılan, başarısız) döner. ONAY SORULMAZ (kullanıcı

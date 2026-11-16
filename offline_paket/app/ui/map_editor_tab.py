@@ -169,7 +169,7 @@ class MapDocument(QWidget):
         self.table = QTableWidget()
         self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         # Eksen değerleri (başlıklar) Lookup penceresindeki gibi gri zeminde, kalın
-        hdr_css = theme.paint("QHeaderView::section { background:#16304d; color:@@HEAD@@; font-weight:bold; padding:3px 8px; border:1px solid @@BORDER@@; }")
+        hdr_css = theme.paint("QHeaderView::section { background:@@LINE_SOFT@@; color:@@HEAD@@; font-weight:bold; padding:3px 8px; border:1px solid @@BORDER@@; }")
         self.table.horizontalHeader().setStyleSheet(hdr_css)
         self.table.verticalHeader().setStyleSheet(hdr_css)
         self.table.setSelectionBehavior(QAbstractItemView.SelectItems)
@@ -439,6 +439,11 @@ class MapDocument(QWidget):
             self._original_grid = copy.deepcopy(self.current_grid())
             self._refresh_cell_colors()
             self.changed.emit()
+
+    def load_grid_as_edit(self, grid: list):
+        """Değerleri tabloya DÜZENLEME olarak getirir (ECU'ya yazılmaz; geri alınabilir tek undo adımı)."""
+        self._fill_table(grid)
+        self._push_history()
 
     def _set_status(self, message: str, ok: bool = True, warn: bool = False):
         self.status_label.setText(message)
@@ -760,10 +765,16 @@ class MapEditorTab(QWidget):
         self.write_all_button.clicked.connect(self.write_all_requested.emit)
         self.read_all_button.setEnabled(False)
         self.write_all_button.setEnabled(False)
+        self.restore_button = QPushButton("Yedekten Yükle…")
+        self.restore_button.setToolTip("Bu tablonun, ECU'ya yazılmadan önce otomatik alınan yedeklerinden birini tabloya "
+                                       "yükler (ECU'ya yazılmaz; 'ECU'ya Yaz' ile ayrıca yazarsınız).")
+        self.restore_button.clicked.connect(self._on_restore_clicked)
+        self.restore_button.setEnabled(False)
 
         top = QHBoxLayout()
         top.addWidget(self.read_all_button)
         top.addWidget(self.write_all_button)
+        top.addWidget(self.restore_button)
         top.addStretch()
 
         self.empty_label = QLabel("Soldaki listeden bir nesneye tıklayarak tabloyu yeni bir sekmede açın.")
@@ -783,6 +794,34 @@ class MapEditorTab(QWidget):
         layout.addWidget(self.empty_label, stretch=1)
         layout.addWidget(self.tabs, stretch=1)
         return panel
+
+    def _on_restore_clicked(self):
+        from PySide6.QtWidgets import QInputDialog, QMessageBox
+        from app.ccp import mapio, table_backup
+        from app.paths import data_path
+        doc = self.current_document()
+        if doc is None:
+            return
+        ch = doc.characteristic
+        backups = table_backup.list_backups(data_path("tablo_yedekleri"), ch)
+        if not backups:
+            QMessageBox.information(self.window(), "Yedek yok", f"{ch.name} için kayıtlı bir yedek yok. Yedekler, tablo "
+                                                                 "ECU'ya yazılmadan hemen önce otomatik alınır.")
+            return
+        label, ok = QInputDialog.getItem(self.window(), "Yedekten yükle", f"{ch.name}: yedek seçin (en yenisi üstte)",
+                                         [b.label for b in backups], 0, False)
+        if not ok:
+            return
+        chosen = next(b for b in backups if b.label == label)
+        try:
+            grid = table_backup.load(chosen.path, ch, mapio.grid_shape(ch))
+        except ValueError as exc:
+            QMessageBox.warning(self.window(), "Yedek yüklenemedi", str(exc))
+            return
+        doc.load_grid_as_edit(grid)
+        # set_write_result KULLANILMAZ: başarıda tabloyu "ECU ile aynı" sayıp değişiklik işaretini silerdi.
+        doc._set_status(f"Yedek yüklendi ({label.split('  ')[0]}); ECU'ya HENÜZ yazılmadı. "
+                        "Yazmak için 'ECU'ya Yaz'ı kullanın.", ok=True, warn=True)
 
     def open_characteristic(self, characteristic) -> MapDocument:
         """Nesneyi yeni sekmede açar; zaten açıksa o sekmeye geçer."""
@@ -821,6 +860,7 @@ class MapEditorTab(QWidget):
         self.empty_label.setVisible(not has_docs)
         self.read_all_button.setEnabled(has_docs)
         self.write_all_button.setEnabled(has_docs)
+        self.restore_button.setEnabled(has_docs)
 
     def set_online(self, online: bool):
         """CCP bağlantı durumunu tüm açık dokümanlara (ve yenilerine) yansıtır."""

@@ -200,7 +200,7 @@ def test_a2l_default_byte_order_and_index_mode():
     pytest.importorskip("pya2l")
     from app.a2l import A2LDatabase
     db = A2LDatabase()
-    s = db.load(os.path.join(os.path.dirname(__file__), "sample.a2l"))
+    s = db.load(os.path.join(os.path.dirname(__file__), "data", "sample_minimal.a2l"))
     assert s.default_byte_order == "MSB_LAST"
     assert all(m.byte_order == "MSB_LAST" for m in s.measurements)
     blk = next(c for c in s.characteristics if c.name == "BLK_A")

@@ -17,12 +17,15 @@ NASIL:
   * ``GuardedClient``: arayüzden yapılan açık işlemler (yazma, harita, tanılama) için aynı CCPClient
     API'si; ECU yokken anında hata verir (bekletmez).
 """
+import logging
 import queue
 import threading
 import time
 
 from app.ccp import protocol as ccp
 from app.ccp.client import CCPClient
+
+log = logging.getLogger(__name__)
 
 IDLE, CONNECTING, ONLINE, LOST = "idle", "connecting", "online", "lost"
 
@@ -164,7 +167,7 @@ class CcpSession:
             try:
                 client.disconnect()
             except Exception:
-                pass
+                log.debug("CCP DISCONNECT gönderilemedi (ECU yok olabilir)", exc_info=True)
         self._client = None
         self._conn.ccp_dto_id = None
         with self._lock:
