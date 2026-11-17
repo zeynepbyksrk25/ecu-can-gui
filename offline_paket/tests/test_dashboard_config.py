@@ -31,7 +31,7 @@ def test_legacy_motor_commands_become_can_bindings_and_new_ones_can_be_a2l():
     cfg = config_from_dict({"motor_start": {"message": "CMD", "signal": "Start", "value": 1},
                             "estop": {"binding": {"source": "a2l", "a2l_name": "estop_req"}, "value": 2}})
     assert cfg.motor_start.binding == Binding(SOURCE_CAN, "CMD", "Start")
-    assert cfg.estop.binding.source == SOURCE_A2L and cfg.estop.value == 2.0
+    assert cfg.estop.binding.source == SOURCE_A2L and cfg.estop.value == 1.0      # eski değer yok sayılır: sabit 1
     assert not cfg.motor_stop.binding.is_set
 
 

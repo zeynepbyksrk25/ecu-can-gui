@@ -172,146 +172,88 @@ def _motor_notes(win):
     return [e.message for e in win.event_log.entries if e.category == "MOTOR"]
 
 
-def test_estop_over_a2l_is_not_blocked_by_a2l_limits_but_normal_commands_are(win, ccp):
-    """clbc_Fuel_pump_dc_perc_sw: UBYTE, A2L sınırı 0..1. Acil Durdurma değeri 5 sınır dışı olsa da yazılmalı;
-    aynı değerle normal komut (Motor Başlat) sınırda reddedilmeli."""
+# Motor komutları (Başlat / Durdur / Acil Durdurma) basılınca eşlenen sinyale SABİT 1 yazar; Değer ve Switch yoktur.
+# Güvenlik komutlarının (Durdur / Acil Durdurma) A2L/DBC sınırını aşabilmesi ve bit genişliğini yine de denetlemesi
+# artık komut değeri yapılandırılamadığı için DOĞRUDAN yazma yolundan (_write_binding safety=True) sınanır.
+def test_safety_write_over_a2l_is_not_blocked_by_a2l_limits_but_normal_writes_are(win, ccp):
+    """clbc_Fuel_pump_dc_perc_sw: UBYTE, A2L sınırı 0..1. Güvenlik yazımı 5 sınır dışı olsa da gider; normal yazım reddedilir."""
     name = "clbc_Fuel_pump_dc_perc_sw"
     addr = _addr(win, name)
-    cfg = DashboardConfig()
-    cfg.estop = MotorCommand(Binding(SOURCE_A2L, a2l_name=name), 5.0)
-    cfg.motor_start = MotorCommand(Binding(SOURCE_A2L, a2l_name=name), 5.0)
-    win.dashboard_tab.set_config(cfg)
-
-    assert win._send_motor_command("Motor Başlat", cfg.motor_start) is False       # normal komut: sınır açık
+    b = Binding(SOURCE_A2L, a2l_name=name)
+    assert win._write_binding(b, 5.0, "Motor Başlat", merge=False, safety=False) is False       # normal: sınır açık
     assert ccp.read_memory_bytes(addr, 1) == b"\x00"
-    assert any("Motor Başlat GÖNDERİLEMEDİ" in m for m in _hata(win))
-
-    win._on_estop()                                                                # güvenlik komutu: sınır atlanır
+    assert any("Motor Başlat A2L yazılamadı" in m for m in _hata(win))
+    assert win._write_binding(b, 5.0, "ACİL DURDURMA", merge=False, safety=True) is True          # güvenlik: sınır atlanır
     assert ccp.read_memory_bytes(addr, 1) == b"\x05"
     assert any("güvenlik komutu olduğu için atlandı" in m for m in _motor_notes(win))
-    assert any("ACİL DURDURMA gönderildi" in m for m in _motor_notes(win))
 
 
-def test_estop_over_a2l_still_rejects_value_that_does_not_fit_the_datatype(win, ccp):
+def test_safety_write_over_a2l_still_rejects_value_that_does_not_fit_the_datatype(win, ccp):
     name = "clbc_Fuel_pump_dc_perc_sw"                  # UBYTE: 300 sığmaz
     addr = _addr(win, name)
-    cfg = DashboardConfig()
-    cfg.estop = MotorCommand(Binding(SOURCE_A2L, a2l_name=name), 300.0)
-    win.dashboard_tab.set_config(cfg)
-    win._on_estop()
+    assert win._write_binding(Binding(SOURCE_A2L, a2l_name=name), 300.0, "ACİL DURDURMA", merge=False, safety=True) is False
     assert ccp.read_memory_bytes(addr, 1) == b"\x00"
-    assert any("ACİL DURDURMA GÖNDERİLEMEDİ" in m for m in _hata(win))
+    assert any("ACİL DURDURMA A2L yazılamadı" in m for m in _hata(win))
 
 
-def test_estop_over_can_is_not_blocked_by_dbc_limits_but_normal_commands_are(win, can_out):
-    """OVERRIDE.valf_cmd: 16 bit, DBC sınırı 0..100. 150 bit genişliğine sığar: Acil Durdurma gider, normal komut gitmez."""
+def test_safety_write_over_can_is_not_blocked_by_dbc_limits_but_normal_writes_are(win, can_out):
+    """OVERRIDE.valf_cmd: 16 bit, DBC sınırı 0..100. 150 bit genişliğine sığar: güvenlik yazımı gider, normal gitmez."""
     b = Binding(SOURCE_CAN, "OVERRIDE", "valf_cmd")
-    cfg = DashboardConfig()
-    cfg.estop = MotorCommand(b, 150.0)
-    cfg.motor_start = MotorCommand(b, 150.0)
-    win.dashboard_tab.set_config(cfg)
-
-    assert win._send_motor_command("Motor Başlat", cfg.motor_start) is False
+    assert win._write_binding(b, 150.0, "Motor Başlat", merge=False, safety=False) is False
     assert can_out == []
-    assert any("Motor Başlat GÖNDERİLEMEDİ" in m for m in _hata(win))
-
-    win._on_estop()
-    assert len(can_out) == 1
+    assert any("Motor Başlat gönderilemedi" in m for m in _hata(win))
+    assert win._write_binding(b, 150.0, "ACİL DURDURMA", merge=False, safety=True) is True
+    assert len(can_out) >= 1
     vals = win.transmit_tab.dbc.get_message("OVERRIDE").decode(can_out[0][1], decode_choices=False)
     assert vals["valf_cmd"] == pytest.approx(150.0, abs=0.1)
     assert any("DBC sınır denetimi güvenlik komutu olduğu için atlandı" in m for m in _motor_notes(win))
 
 
-def test_estop_over_can_still_rejects_value_that_does_not_fit_the_bit_width(win, can_out):
-    cfg = DashboardConfig()
-    cfg.estop = MotorCommand(Binding(SOURCE_CAN, "CMD", "estop_req"), 5.0)      # 1 bit
-    win.dashboard_tab.set_config(cfg)
-    win._on_estop()
+def test_safety_write_over_can_still_rejects_value_that_does_not_fit_the_bit_width(win, can_out):
+    b = Binding(SOURCE_CAN, "CMD", "estop_req")                                  # 1 bit
+    assert win._write_binding(b, 5.0, "ACİL DURDURMA", merge=False, safety=True) is False
     assert can_out == []
-    assert any("ACİL DURDURMA GÖNDERİLEMEDİ" in m for m in _hata(win))
+    assert any("ACİL DURDURMA gönderilemedi" in m for m in _hata(win))
 
 
-def test_motor_stop_is_a_safety_command_start_is_not(win, ccp):
-    """Motor Durdur da "güvenli yön" komutudur: A2L sınırı onu engellemez; Motor Başlat sınırda kalır."""
-    name = "clbc_Fuel_pump_dc_perc_sw"                  # UBYTE, A2L sınırı 0..1
-    addr = _addr(win, name)
+def test_motor_commands_send_a_fixed_1_with_no_value_or_switch(win, ccp, can_out):
+    """Eski kayıtta Değer/Switch olsa bile basınca yalnızca eşlenen sinyale 1 yazılır (tek kare, _sw yok)."""
     cfg = DashboardConfig()
-    cfg.motor_stop = MotorCommand(Binding(SOURCE_A2L, a2l_name=name), 5.0)
-    cfg.motor_start = MotorCommand(Binding(SOURCE_A2L, a2l_name=name), 5.0)
-    win.dashboard_tab.set_config(cfg)
-
-    win._on_motor_start()
-    assert ccp.read_memory_bytes(addr, 1) == b"\x00"                       # sınır dışı: Başlat reddedildi
-    win._on_motor_stop()
-    assert ccp.read_memory_bytes(addr, 1) == b"\x05"                       # Durdur gitti
-    assert any("Motor Stop: A2L sınır/READ_ONLY denetimi güvenlik komutu" in m for m in _motor_notes(win))
-
-
-def test_motor_stop_over_can_ignores_dbc_limits_but_not_bit_width(win, can_out):
-    b = Binding(SOURCE_CAN, "OVERRIDE", "valf_cmd")                       # 16 bit, DBC sınırı 0..100
-    cfg = DashboardConfig()
-    cfg.motor_stop = MotorCommand(b, 150.0)
-    cfg.motor_start = MotorCommand(b, 150.0)
-    win.dashboard_tab.set_config(cfg)
-    win._on_motor_start()
-    assert can_out == []                                                    # Başlat: DBC sınırı açık
-    win._on_motor_stop()
-    assert len(can_out) == 1                                                # Durdur gitti
-    cfg.motor_stop = MotorCommand(Binding(SOURCE_CAN, "CMD", "stop_req"), 5.0)    # 1 bit: sığmaz
-    win.dashboard_tab.set_config(cfg)
-    win._on_motor_stop()
-    assert len(can_out) == 1 and any("Motor Stop GÖNDERİLEMEDİ" in m for m in _hata(win))
-
-
-def test_motor_command_with_sw_on_same_can_message_goes_in_one_frame(win, can_out):
-    """Komut + _sw aynı CAN mesajındaysa TEK karede gider (ikinci kare birincinin değerini sıfırlamasın)."""
-    cfg = DashboardConfig()
-    cfg.motor_start = MotorCommand(Binding(SOURCE_CAN, "OVERRIDE", "valf_cmd"), 50.0,
+    cfg.motor_start = MotorCommand(Binding(SOURCE_CAN, "OVERRIDE", "valf_cmd"), 50.0,           # eski: değer 50 + _sw
                                    sw=Binding(SOURCE_CAN, "OVERRIDE", "valf_cmd_sw"))
+    cfg.estop = MotorCommand(Binding(SOURCE_A2L, a2l_name="clbc_Fuel_pump_dc_perc_sw"), 7.0,
+                             sw=Binding(SOURCE_CAN, "OVERRIDE", "pump_dc_sw"))
     win.dashboard_tab.set_config(cfg)
     win._on_motor_start()
-    assert len(can_out) == 1
+    assert len(can_out) == 1                                                     # tek kare: _sw için ikinci kare YOK
     v = win.transmit_tab.dbc.get_message("OVERRIDE").decode(can_out[0][1], decode_choices=False)
-    assert v["valf_cmd"] == pytest.approx(50.0, abs=0.1) and v["valf_cmd_sw"] == 1
-    assert any("OVERRIDE.valf_cmd_sw=1" in m for m in _motor_notes(win))
+    assert v["valf_cmd"] == pytest.approx(1.0, abs=0.1) and v["valf_cmd_sw"] == 0
+    win._on_estop()
+    assert ccp.read_memory_bytes(_addr(win, "clbc_Fuel_pump_dc_perc_sw"), 1) == b"\x01"   # 7 değil, 1
+    assert len(can_out) == 1                                                     # estop'un eski _sw'si gönderilmedi
+    assert any("ACİL DURDURMA gönderildi (clbc_Fuel_pump_dc_perc_sw=1)" in m for m in _motor_notes(win))
 
 
-def test_motor_command_with_sw_mixed_sources_writes_value_then_sw(win, ccp, can_out):
-    name = "clbc_Fuel_pump_dc_perc"
-    addr = _addr(win, name)
-    cfg = DashboardConfig()
-    cfg.motor_start = MotorCommand(Binding(SOURCE_A2L, a2l_name=name), 1.0,
-                                   sw=Binding(SOURCE_CAN, "OVERRIDE", "pump_dc_sw"))
-    win.dashboard_tab.set_config(cfg)
-    win._on_motor_start()
-    assert struct.unpack("<f", ccp.read_memory_bytes(addr, 4))[0] == pytest.approx(1.0)   # değer A2L'ye yazıldı
-    assert len(can_out) == 1 and win.transmit_tab.dbc.get_message("OVERRIDE").decode(
-        can_out[0][1], decode_choices=False)["pump_dc_sw"] == 1                # sonra _sw=1 CAN'dan
+def test_motor_command_not_mapped_is_reported_and_nothing_is_sent(win, can_out):
+    win.dashboard_tab.set_config(DashboardConfig())
+    assert win._send_motor_command("Motor Start", win.dashboard_tab.config.motor_start) is False
+    assert can_out == [] and any("Motor Start GÖNDERİLEMEDİ" in m for m in _hata(win))
 
 
-def test_motor_command_sw_is_not_sent_if_value_write_fails(win, can_out):
-    cfg = DashboardConfig()
-    cfg.motor_start = MotorCommand(Binding(SOURCE_A2L, a2l_name="yok_boyle_degisken"), 1.0,
-                                   sw=Binding(SOURCE_CAN, "OVERRIDE", "pump_dc_sw"))
-    win.dashboard_tab.set_config(cfg)
-    win._on_motor_start()                                                      # CCP bağlı değil -> değer yazılamaz
-    assert can_out == []                                                       # _sw gönderilmedi
-    assert any("Motor Start GÖNDERİLEMEDİ" in m for m in _hata(win))
 
-
-def test_safety_command_pair_series_repeats_the_combined_frame(win, can_out):
+def test_safety_command_repeats_the_same_frame_five_times(win, can_out):
     from PySide6.QtTest import QTest
     cfg = DashboardConfig()
-    cfg.motor_stop = MotorCommand(Binding(SOURCE_CAN, "OVERRIDE", "valf_cmd"), 0.0,
-                                  sw=Binding(SOURCE_CAN, "OVERRIDE", "valf_cmd_sw"))
+    cfg.motor_stop = MotorCommand(Binding(SOURCE_CAN, "OVERRIDE", "valf_cmd"))
     win.dashboard_tab.set_config(cfg)
     win._on_motor_stop()
     end = 0
     while len(can_out) < 5 and end < 5000:
         QTest.qWait(20)
         end += 20
-    assert len(can_out) == 5 and len(set(can_out)) == 1
-    assert win.transmit_tab.dbc.get_message("OVERRIDE").decode(can_out[0][1], decode_choices=False)["valf_cmd_sw"] == 1
+    assert len(can_out) == 5 and len(set(can_out)) == 1                          # ilk kare + 4 tekrar: AYNI kare
+    v = win.transmit_tab.dbc.get_message("OVERRIDE").decode(can_out[0][1], decode_choices=False)
+    assert v["valf_cmd"] == pytest.approx(1.0, abs=0.1) and v["valf_cmd_sw"] == 0     # sabit 1, _sw yok
 
 
 def test_dbc_encode_strict_default_rejects_out_of_range_and_non_strict_allows_it(win):

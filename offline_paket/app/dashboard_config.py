@@ -102,13 +102,17 @@ class SignalMap:
     fault: Binding = field(default_factory=Binding)   # yalnız sensörler: ≠0 ise arıza
 
 
+# Motor komutları (Başlat / Durdur / Acil Durdurma) basılınca bu sabit değeri eşlenen sinyale/değişkene yazar.
+COMMAND_VALUE = 1.0
+
+
 @dataclass
 class MotorCommand:
-    """Motor Başlat/Durdur/Acil Durdurma: CAN veya A2L; ``value`` yazılacak değer.
-    ``sw`` (isteğe bağlı): eyleyicilerdeki gibi anahtar (``<ad>_sw``); tanımlıysa değer yazıldıktan sonra
-    ``sw = 1`` yazılır (ECU değeri yalnızca anahtar 1 iken kabul ediyorsa)."""
+    """Motor Başlat/Durdur/Acil Durdurma: yalnızca CAN sinyali ya da A2L değişkeni eşlenir. Düğmeye basınca
+    ``COMMAND_VALUE`` (1) doğrudan yazılır; Değer ve Switch (_sw) YOKTUR. (``value``/``sw`` alanları yalnızca eski
+    kayıtların okunması içindir: yüklerken ve kaydederken temizlenir, çalışma mantığında kullanılmaz.)"""
     binding: Binding = field(default_factory=Binding)
-    value: float = 1.0
+    value: float = COMMAND_VALUE
     sw: Binding = field(default_factory=Binding)
 
 
@@ -120,6 +124,9 @@ def strip_unused_switches(cfg: "DashboardConfig") -> "DashboardConfig":
     for key in CONTROL_KEYS:
         if key in cfg.actuators:
             cfg.actuators[key].sw = Binding()
+    for key in MOTOR_COMMAND_KEYS:                    # komutlarda Değer ve Switch yok: sabit 1, anahtarsız
+        cmd = getattr(cfg, key)
+        cmd.value, cmd.sw = COMMAND_VALUE, Binding()
     return cfg
 
 

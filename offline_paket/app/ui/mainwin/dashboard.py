@@ -11,7 +11,7 @@ from app.ccp import codec as ccp_codec
 from app.ccp import protocol as ccp_protocol
 from app import control_panel as cpanel
 from app.dashboard_config import (
-    CONTROL_KEYS, GAUGE_KEYS, SOURCE_A2L, SOURCE_CAN, Binding,
+    COMMAND_VALUE, CONTROL_KEYS, GAUGE_KEYS, SOURCE_A2L, SOURCE_CAN, Binding,
 )
 from app.paths import data_path
 from app.ui.mainwin.common import (
@@ -182,23 +182,14 @@ class DashboardMixin:
         return True
 
     def _send_motor_command(self, command_name: str, cmd, safety: bool = False) -> bool:
+        """Basılınca eşlenen sinyale/değişkene sabit ``COMMAND_VALUE`` (1) yazar: tek sinyallik, tek seferlik darbe.
+        Değer ve Switch (_sw) yoktur; mesajın diğer sinyallerinin eski değerleri taşınmaz."""
         if not cmd.binding.is_set:
             self._log_event("HATA", f"{command_name} GÖNDERİLEMEDİ: eşleme tanımlı değil")
             return False
-        # Komutlar darbedir: mesajın diğer sinyallerinin eski değerleri taşınmaz. _sw tanımlıysa (eyleyiciler
-        # gibi) değer YAZILDIKTAN SONRA sw = 1 yazılır; aynı CAN mesajındaysa ikisi TEK karede gider.
-        sw = cmd.sw if getattr(cmd, "sw", None) is not None and cmd.sw.is_set else None
-        if sw is not None and cmd.binding.source == SOURCE_CAN and sw.source == SOURCE_CAN \
-                and cmd.binding.message == sw.message:
-            ok = self._write_can(cmd.binding, cmd.value, command_name, merge=False, safety=safety,
-                                 extra={sw.signal: 1.0})
-        else:
-            ok = self._write_binding(cmd.binding, cmd.value, command_name, merge=False, safety=safety)
-            if ok and sw is not None:
-                ok = self._write_binding(sw, 1.0, f"{command_name} anahtarı", merge=False, safety=safety)
+        ok = self._write_binding(cmd.binding, COMMAND_VALUE, command_name, merge=False, safety=safety)
         if ok:
-            extra_txt = f", {sw.text}=1" if sw is not None else ""
-            self._log_event("MOTOR", f"{command_name} gönderildi ({cmd.binding.text}={cmd.value:g}{extra_txt})")
+            self._log_event("MOTOR", f"{command_name} gönderildi ({cmd.binding.text}={COMMAND_VALUE:g})")
         else:
             self._log_event("HATA", f"{command_name} GÖNDERİLEMEDİ ({cmd.binding.text})")
         return ok

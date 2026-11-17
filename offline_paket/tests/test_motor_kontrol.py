@@ -150,13 +150,12 @@ def test_dialog_roundtrips_control_and_command_sw_with_a2l_or_can(win):
     assert set(d.control_ed["throttle"]) == {"value"}                                      # Motor Kontrol'de switch yok
     d.control_ed["start"]["value"].set_binding(Binding(SOURCE_A2L, a2l_name="eng_start"))
     d.control_ed["throttle"]["value"].set_binding(Binding(SOURCE_CAN, "OVERRIDE", "pump_dc"))
-    d.motor_ed["motor_start"][0].set_binding(Binding(SOURCE_CAN, "OVERRIDE", "valf_cmd"))
-    d.motor_ed["motor_start"][1].setValue(1.0)
-    d.motor_sw_ed["motor_start"].set_binding(Binding(SOURCE_CAN, "OVERRIDE", "valf_cmd_sw"))
+    d.motor_ed["motor_start"].set_binding(Binding(SOURCE_CAN, "OVERRIDE", "valf_cmd"))
     cfg = d.result_config()
     assert cfg.actuators["start"].value == Binding(SOURCE_A2L, a2l_name="eng_start")
     assert cfg.actuators["throttle"].value == Binding(SOURCE_CAN, "OVERRIDE", "pump_dc") and not cfg.actuators["throttle"].sw.is_set
-    assert cfg.motor_start.sw == Binding(SOURCE_CAN, "OVERRIDE", "valf_cmd_sw")
+    assert cfg.motor_start.binding == Binding(SOURCE_CAN, "OVERRIDE", "valf_cmd")
+    assert cfg.motor_start.value == 1.0 and not cfg.motor_start.sw.is_set          # komutta Değer/Switch yok
     d.close()
 
 
@@ -184,7 +183,7 @@ def test_recent_events_card_is_newest_first_capped_and_colored(win):
     assert dt.events_list.count() == dt.EVENT_MAX
 
 
-def test_estop_warning_opens_mappings_and_auto_sw_covers_motor_commands(win, monkeypatch):
+def test_estop_warning_opens_mappings_and_motor_commands_have_only_a_mapping(win, monkeypatch):
     dt = win.dashboard_tab
     opened = []
     monkeypatch.setattr(type(dt), "open_mappings", lambda self: opened.append(1))
@@ -195,8 +194,8 @@ def test_estop_warning_opens_mappings_and_auto_sw_covers_motor_commands(win, mon
 
     from app.ui.mapping_dialog import MappingDialog
     d = MappingDialog(win.dashboard_tab.config, win.dashboard_tab.sim_inputs, win.transmit_tab.dbc, None, win)
-    d.motor_ed["estop"][0].set_binding(Binding(SOURCE_CAN, "OVERRIDE", "pump_dc"))
-    d._auto_sw()                                                      # _sw, komutun ADINDAN bulunur
-    assert d.motor_sw_ed["estop"].binding() == Binding(SOURCE_CAN, "OVERRIDE", "pump_dc_sw")
-    assert not d.motor_ed["motor_stop"][0].text()                     # komutun KENDİSİ otomatik bağlanmaz
+    d.motor_ed["estop"].set_binding(Binding(SOURCE_CAN, "OVERRIDE", "pump_dc"))
+    d._auto_sw()                                                      # yalnızca Eyleyicilerin _sw'si aranır
+    assert not hasattr(d, "motor_sw_ed") and d.result_config().estop.binding.text == "OVERRIDE.pump_dc"
+    assert not d.motor_ed["motor_stop"].text()                        # komutun KENDİSİ otomatik bağlanmaz
     d.close()
