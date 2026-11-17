@@ -40,6 +40,9 @@ class LogTab(QWidget):
         menu = QMenu(self.folder_button)
         menu.addAction("Kayıt klasörünü seç…", self._browse)
         menu.addAction("Klasörü aç", self._open_dir)
+        self._excel_action = menu.addAction("Durdurunca Excel (.xlsx) dosyası da oluştur")
+        self._excel_action.setCheckable(True)
+        self._excel_action.setChecked(True)
         self.folder_button.setMenu(menu)
         self.folder_button.setToolTip("Kayıt klasörü")
 
@@ -54,6 +57,10 @@ class LogTab(QWidget):
         lay.addWidget(self.record_button)
         lay.addWidget(self.count_label)
         lay.addWidget(self.folder_button)
+
+    def excel_on_stop(self) -> bool:
+        """Kayıt durunca CSV'ye ek olarak Excel dosyası da üretilsin mi (varsayılan: evet)."""
+        return self._excel_action.isChecked()
 
     def _on_record_clicked(self):
         if self._active:

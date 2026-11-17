@@ -48,6 +48,7 @@ from app.ui.mainwin.common import (  # noqa: F401
 from app.ui.mainwin.calibration import CalibrationMixin
 from app.ui.mainwin.connection import ConnectionMixin
 from app.ui.mainwin.dashboard import DashboardMixin
+from app.ui.mainwin.exports import ExportMixin
 from app.ui.mainwin.panel import PanelMixin
 from app.ui.mainwin.profiles import ProfilesMixin
 
@@ -62,7 +63,7 @@ class _ClickLabel(QLabel):
         super().mouseReleaseEvent(event)
 
 
-class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, ProfilesMixin, QMainWindow):
+class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, ProfilesMixin, ExportMixin, QMainWindow):
     """Ana pencere: pencere çatısı, sayfalar, sinyal bağlantıları ve kapanış. İş mantığı alanlara bölünmüş
     parçalardadır (bkz. ``app/ui/mainwin``): bağlantı, CCP/kalibrasyon, Ana Sayfa, Kontrol Paneli, profiller."""
 
@@ -213,6 +214,7 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self.workspace_tab.hub.tap = self.session_recorder.record
         self.session_tab.session_started.connect(self._on_session_record_start)
         self.session_tab.session_stopped.connect(self._on_session_record_stop)
+        self.session_tab.excel_requested.connect(self._on_excel_export_requested)
         self.history_tab.history = self.calibration_history
         self.user_tab.set_profiles(self.profile_store.names())
 

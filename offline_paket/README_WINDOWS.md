@@ -370,6 +370,32 @@ Aşağıdakiler yazılımın otomatik testleriyle **kanıtlanamaz**; gerçek ECU
 - **Geri açma:** Analiz → Çalışma Alanı → **CSV aç** ile kayıt yüklenip grafikte çizilir, yeni bir kayıtla üst üste karşılaştırılabilir.
 - Veri saniyede bir diske işlenir (çökmede en çok ~1 sn kaybolur). Disk hatasında kayıt durur ve olay günlüğüne HATA yazılır. Manuel adresli (A2L'siz) Parametre Listesi satırları kaydedilmez. Oturum başlatılmadıkça kayıt yapılmaz.
 
+## Kayıtlar ve Excel (.xlsx) — testlerden sonra inceleme
+
+Tüm kayıtlar **yalnızca bilgisayara** yazılır; ECU'ya (RAM ya da flaş) hiçbir şey gönderilmez. ECU'ya yazma
+yalnızca sizin açıkça başlattığınız kalibrasyon işlemleridir (RAM'e Yaz / Kalıcı Kaydet / Harita yazma).
+
+| Kayıt | Ne zaman | Dosya (`<veri klasörü>` = exe'nin yanı) |
+|---|---|---|
+| **Oturum Excel dosyası** | *Tanılama ve Oturum* > **Oturumu Bitir** (otomatik) | `<veri klasörü>\oturum_kayitlari\<oturum>_<tarih>.xlsx` (+ aynı adlı `.csv`) |
+| **CAN kaydı Excel dosyası** | CAN Monitor > **■ Kaydı durdur** (otomatik; ⚙ menüsünden kapatılabilir) | `<veri klasörü>\can_loglari\can_log_<tarih>.xlsx` (+ `.csv`) |
+| **Elle Excel'e aktar** | *Tanılama ve Oturum* > **Excel'e Aktar** | seçtiğiniz klasör |
+
+Oturum Excel dosyasının sayfaları:
+**Özet** (oturum adı, operatör, süre, olay / hata / RAM ve FLAŞ yazım sayıları) · **Sinyal özeti** (her sinyalin örnek
+sayısı, ilk/son, min/maks/ortalama) · **Parametre kaydı** (uzun biçim: tarih/saat, süre, sinyal, değer) ·
+**Geniş tablo** (1 sn'de bir satır, sinyaller sütun; son değer korunur: Excel'de tek zaman ekseniyle doğrudan
+grafik çizilir) · **Olay günlüğü** · **Kalibrasyon yazımları** (RAM / FLAŞ, eski ve yeni değer).
+
+Notlar:
+- Kayıt **oturum boyunca CSV'ye sürekli** yazılır (program çökse bile veri kaybolmaz); Excel dosyası kayıt bitince
+  bu CSV'den üretilir. CSV silinmez. Excel üretilemezse (disk dolu, dosya Excel'de açık vb.) olay günlüğüne HATA
+  yazılır ve veri CSV'de kalır.
+- Çok büyük kayıtlar otomatik olarak "Sayfa (2)", "Sayfa (3)" sayfalarına bölünür (Excel'in 1.048.576 satır sınırı).
+  500.000 örnek ~6 sn'de ve ~20 MB bellekle dönüşür.
+- **Excel'de açıkken** aynı dosyanın üzerine yazılamaz (Windows kilidi); önce kapatın.
+- Excel dosyası uygulamanın kendi yazıcısıyla üretilir (ek paket gerekmez, internetsiz kurulumu bozmaz).
+
 ## Geliştirici notları: kod yapısı, testler ve CI
 
 - **Ana pencere parçalara bölündü.** `app/ui/main_window.py` yalnızca pencere çatısını, sayfaları, sinyal

@@ -37,8 +37,11 @@ def _qt_cleanup():
     app.processEvents()
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="session", autouse=True)
 def qapp():
+    """QApplication tüm oturum için OTOMATİK kurulur. (Eskiden yalnızca isteyen testlerde kuruluyordu; fixture'ı
+    istemeyen bir test pencere oluşturursa ve süreçte ondan önce başka test QApplication kurmamışsa Qt süreci
+    abort ediyordu: test sırasına/paralel dağılıma bağlı rastgele çökme.)"""
     import gc
     from PySide6.QtWidgets import QApplication
     from app.theme import APP_QSS
