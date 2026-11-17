@@ -344,7 +344,7 @@ class WatchTab(QWidget):
         self._name_pref = 240          # kullanıcının istediği İsim sütunu genişliği
         self._storage_path: str | None = None
         self._connected = False
-        self._write_allowed = True     # rol yazmaya izin veriyor mu (MainWindow bildirir)
+        self._write_allowed = True     # rol yazmaya yetkili mi (MainWindow bildirir; bkz. set_write_allowed)
 
         self._mono = QFontDatabase.systemFont(QFontDatabase.FixedFont)
 
@@ -370,8 +370,8 @@ class WatchTab(QWidget):
         self.clear_button = QPushButton("Listeyi Temizle")
         self.live_label = QLabel("● CCP bağlı değil")
         self.live_label.setStyleSheet(f"color: {theme.DANGER}; font-weight: bold;")
-        self.hint_label = QLabel("Değerler canlı izlenir · değiştirmek için Değer hücresine yazıp Enter'a basın (Esc iptal)")
-        self.hint_label.setStyleSheet(f"color: {theme.MUTED};")
+        self.hint_label = QLabel("")
+        self._update_hint()
 
         self.add_a2l_button.clicked.connect(self._on_add_a2l)
         self.add_manual_button.clicked.connect(self._on_add_manual)
@@ -385,17 +385,8 @@ class WatchTab(QWidget):
         row1.addStretch()
         row1.addWidget(self.live_label)
 
-        self.role_hint = QLabel("🔒 Değer yazmak için Mühendis veya Yönetici rolü gerekir "
-                                "(sağ üstteki ⚙ Ayarlar penceresinden rol seçin). Şu an yalnızca izleyebilirsiniz.")
-        self.role_hint.setWordWrap(True)
-        self.role_hint.setStyleSheet(theme.paint(
-            "background:@@WARN_BG@@; color:@@WARN_DEEP@@; border:1px solid @@WARN_LINE@@; border-radius:6px; "
-            "padding:5px 8px; font-weight:600;"))
-        self.role_hint.setVisible(False)
-
         outer = QVBoxLayout()
         outer.addLayout(row1)
-        outer.addWidget(self.role_hint)
         outer.addWidget(self.hint_label)
         return outer
 
@@ -506,11 +497,18 @@ class WatchTab(QWidget):
         flags = Qt.ItemIsEnabled | Qt.ItemIsSelectable
         if not e.read_only and e.resolved and self._write_allowed:
             flags |= Qt.ItemIsEditable
-        item.setFlags(flags)
-        item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        # setFlags her çağrıda (değer aynı olsa da) Qt'ye "veri değişti" bildirir ve Qt AÇIK düzenleyicinin
+        # içeriğini model değerine SIFIRLAR: canlı okuma her turda bu satırı yenilediği için kullanıcının
+        # yazdığı karakterler siliniyordu ("değer girilmiyor"). Yalnızca gerçekten değişince çağrılır.
+        if item.flags() != flags:
+            item.setFlags(flags)
+        if item.textAlignment() != (Qt.AlignRight | Qt.AlignVCenter):
+            item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
         bg = fg = None
         tips = []
+        if not self._write_allowed and not e.read_only and e.resolved:
+            tips.append("Yazmak için Mühendis veya Yönetici rolü gerekir.")
         if e.pending_text is not None:
             text = e.pending_text
             try:
@@ -652,6 +650,26 @@ class WatchTab(QWidget):
     def is_polling(self) -> bool:
         return self.poll_timer.isActive()
 
+    HINT_EDIT = "Değerler canlı izlenir · değiştirmek için Değer hücresine yazıp Enter'a basın (Esc iptal)"
+    HINT_LOCKED = ("🔒 Değer yazmak için Mühendis veya Yönetici rolü gerekir — sağ üstteki ⚙ Ayarlar penceresinden "
+                   "rol seçin. (Değerler yine canlı izlenir.)")
+
+    def _update_hint(self):
+        self.hint_label.setText(self.HINT_EDIT if self._write_allowed else self.HINT_LOCKED)
+        color = theme.MUTED if self._write_allowed else theme.WARN_INK
+        self.hint_label.setStyleSheet(f"color: {color};" + ("" if self._write_allowed else " font-weight: 600;"))
+
+    def set_write_allowed(self, allowed: bool):
+        """Rol değer yazmaya yetkili mi? Yetkisizse Değer hücreleri KİLİTLENİR (kullanıcı yazıp sonra "Yetki yok"
+        ile geri alınmasın) ve ipucu satırı nedenini söyler. Yetki denetimi yazma anında ayrıca yapılır."""
+        allowed = bool(allowed)
+        if allowed == self._write_allowed:
+            return
+        self._write_allowed = allowed
+        self._update_hint()
+        for row in range(len(self._entries)):
+            self._render_value_cell_guarded(row)
+
     def set_connected(self, connected: bool):
         self._connected = connected
         if connected:
@@ -667,13 +685,6 @@ class WatchTab(QWidget):
         self.live_label.setStyleSheet(f"color: {color}; font-weight: bold;")
 
     # ---- MainWindow'un kullandığı erişimciler -----------------------------
-    def set_write_allowed(self, allowed: bool):
-        """Rol yazmaya izin vermiyorsa Değer hücreleri düzenlenemez ve nedeni açıkça yazılır."""
-        self._write_allowed = bool(allowed)
-        self.role_hint.setVisible(not self._write_allowed)
-        for row in range(len(self._entries)):
-            self._render_value_cell_guarded(row)
-
     def entries(self) -> list[WatchEntry]:
         return list(self._entries)
 

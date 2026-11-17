@@ -180,7 +180,6 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self._migrate_control_bindings()
         self._rebuild_dash_can_map()
         self.watch_tab.set_storage_path(data_path("watchlist.json"))
-        self.watch_tab.set_write_allowed(can_write_calibration(self.current_role))
 
         # İzleme sekmesi, Gönderim sekmesindeki DBC ile AYNI nesneyi kullanır;
         # böylece DBC yüklenince ikisi de aynı anda görür.
@@ -243,6 +242,7 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
 
         self._wire_signals()
         self._install_shortcuts_and_accessibility()
+        self.watch_tab.set_write_allowed(can_write_calibration(self.current_role))
         for sig in (self.transmit_tab.dbc_loaded, self.a2l_tab.a2l_loaded, self.dashboard_tab.config_saved,
                     self.user_tab.role_applied):
             sig.connect(self._schedule_minimum_size_refresh)

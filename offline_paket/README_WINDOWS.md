@@ -175,6 +175,9 @@ uygulamada donanımla doğrulanmamıştır**. Bu yüzden:
 - **Acil Durdurma ONAY SORMAZ:** tek tıkla ya da **`Ctrl+Shift+E`** ile (hangi sayfa açık olursa olsun, odak bir
   giriş kutusunda bile) gönderilir. `Ctrl+1` … `Ctrl+6` sayfalar arasında geçer. Ana düğmelerin ve durum
   göstergelerinin ekran okuyucu adları vardır.
+- **Parametre Listesi'nde değer yazma:** Değer hücresine yazıp **Enter** ile RAM'e yazılır. Bunun için rolün
+  **Mühendis veya Yönetici** olması gerekir (sağ üstteki ⚙ Ayarlar > rol). **Operatör** rolünde Değer hücreleri
+  kilitlidir ve ipucu satırı nedenini söyler; değerler yine canlı izlenir.
 - **Tablo yedeğinden geri yükleme:** Harita Editörü > **Yedekten Yükle…** seçili tablonun, ECU'ya yazılmadan
   önce otomatik alınmış yedeklerinden birini tabloya getirir (aynı nesne, adres ve boyut doğrulanır). ECU'ya
   YAZILMAZ; "ECU'ya Yaz" ile ayrıca yazarsınız ve tek adımda Geri Al ile vazgeçilebilir.
@@ -234,7 +237,8 @@ uygulamada donanımla doğrulanmamıştır**. Bu yüzden:
   (Esc / başka yere tıklamak iptal), yazılan değer ECU'dan geri okunup doğrulanır. A2L'den eklenen **ölçüm
   (MEASUREMENT)** satırlarına da değer girilir (bu ECU'da override değişkenleri `clbc_*` ölçüm olarak tanımlıdır; ECU
   yazılan değeri kendi hesabıyla geri ezebilir). Değer yazmak için **Mühendis veya Yönetici** rolü gerekir:
-  Operatör rolünde Değer hücreleri kilitlidir ve listenin üstünde nedeni yazar.
+  Operatör rolünde Değer hücreleri kilitlidir ve listenin üstünde nedeni yazar. (Eskiden canlı okuma her 250 ms'de
+  hücreyi yenilerken açık düzenleyiciyi sıfırladığı için yazılan karakterler siliniyordu; düzeltildi.)
 - **Ayarlanabilir parametreler (clbc_*)** grafik/trend/çalışma alanı/performans listelerinde
   "Ayarlanabilir parametreler" grubunda görünür.
 - Doğrulanamayanlar: PCAN-USB'nin gerçek bus-off davranışı ve gerçek ECU açılış süresi yalnızca

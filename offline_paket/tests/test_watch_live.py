@@ -250,23 +250,16 @@ def test_measurement_rows_stay_writable_after_the_list_is_saved_and_reloaded(qap
     assert t2.table.item(0, wt.COL_VALUE).flags() & Qt.ItemIsEditable
 
 
-def test_operator_role_locks_value_cells_and_says_why(qapp):
+def test_operator_role_locks_a2l_rows_including_measurements(qapp):
     from PySide6.QtCore import Qt
     t = _a2l_tab_with_objects(qapp)
     t.set_write_allowed(False)
-    assert not t.role_hint.isHidden() and "Mühendis" in t.role_hint.text()
-    assert not t.table.item(1, wt.COL_VALUE).flags() & Qt.ItemIsEditable
+    assert "Mühendis veya Yönetici" in t.hint_label.text()
+    for row in (0, 1):                                                  # ölçüm ve karakteristik
+        assert not t.table.item(row, wt.COL_VALUE).flags() & Qt.ItemIsEditable
     t.set_write_allowed(True)
-    assert t.role_hint.isHidden() and t.table.item(1, wt.COL_VALUE).flags() & Qt.ItemIsEditable
-
-
-def test_main_window_follows_role_for_the_watch_list(live_window):
-    from PySide6.QtCore import Qt
-    w, _ecu, _obj, _pump = live_window
-    w._on_role_applied("test", Role.OPERATOR.value)
-    assert not w.watch_tab.table.item(0, wt.COL_VALUE).flags() & Qt.ItemIsEditable
-    w._on_role_applied("test", Role.ENGINEER.value)
-    assert w.watch_tab.table.item(0, wt.COL_VALUE).flags() & Qt.ItemIsEditable
+    for row in (0, 1):
+        assert t.table.item(row, wt.COL_VALUE).flags() & Qt.ItemIsEditable
 
 
 def test_typed_value_on_a_measurement_row_reaches_the_ecu_and_is_recorded(live_window):
@@ -320,3 +313,74 @@ def test_ccp_values_are_recorded_when_they_change_with_the_read_time_not_per_ui_
                                                     ("a2l:clbc_Fuel_pump_dc_perc", 20.0),
                                                     ("a2l:clbc_Fuel_pump_dc_perc", 30.0)]
     assert t1 <= float(rows[1][3]) <= t1 + 1.5                                # ECU'da değiştiği ana yakın okuma zamanı
+
+
+# ---------------------------------------------------------------- gerçek düzenleme akışı (çift tıkla, yaz, Enter)
+def _type_into_cell(tab, text, pump, hold=0.5):
+    """Hücreyi çift tıklayıp yazar; yazarken canlı güncelleme turları (zamanlayıcı) sürer. Düzenleyiciyi döner."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    item = tab.table.item(0, wt.COL_VALUE)
+    tab.table.setCurrentCell(0, wt.COL_VALUE)
+    tab.table.scrollToItem(item)
+    pos = tab.table.visualItemRect(item).center()
+    QTest.mouseDClick(tab.table.viewport(), Qt.LeftButton, Qt.NoModifier, pos)
+    pump()
+    if tab.table.state() != wt.QAbstractItemView.EditingState:      # ilk çift tıklama pencere odağı alırken kaçabilir
+        QTest.mouseDClick(tab.table.viewport(), Qt.LeftButton, Qt.NoModifier, pos)
+        pump()
+    editor = tab.table.findChild(QLineEdit)
+    assert editor is not None and editor.isVisible(), "düzenleyici açılmadı"
+    editor.selectAll()
+    QTest.keyClicks(editor, text)
+    end = time.time() + hold                 # yazdıktan sonra canlı güncelleme turlarının geçmesini bekle
+    while time.time() < end:
+        pump()
+        time.sleep(0.02)
+    return editor
+
+
+def test_typed_characters_survive_live_updates_and_enter_writes(live_window):
+    """Hata: canlı okuma her turda hücrenin bayraklarını yeniden işaretleyince Qt açık düzenleyiciyi model değerine
+    sıfırlıyor, yazılan karakterler siliniyordu ("değer girilmiyor")."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    w, ecu, obj, pump = live_window
+    tab = w.watch_tab
+    w.resize(1500, 900)
+    w.show()                                                    # gerçek kullanımdaki gibi: pencere ve sekme açık
+    w.nav_bar.setCurrentIndex(2)
+    w.kalibrasyon_tab.inner_tabs.setCurrentWidget(tab)
+    tab.set_write_allowed(True)
+    assert wait_for(lambda: tab.table.item(0, wt.COL_VALUE).text() == "12.5", pump=pump)
+    editor = _type_into_cell(tab, "33.5", pump)
+    assert editor.text() == "33.5", "yazılan metin canlı güncellemeyle silindi"
+    QTest.keyClick(editor, Qt.Key_Return)
+    assert wait_for(lambda: struct.unpack("<f", ecu.read_memory_bytes(obj.address, 4))[0] == 33.5, pump=pump)
+    assert wait_for(lambda: "doğrulandı" in tab.status_label.text(), pump=pump)
+
+
+def test_operator_sees_locked_cells_with_a_reason_and_engineer_unlocks_them(live_window):
+    from PySide6.QtCore import Qt
+    from app.user_roles import Role
+    w, ecu, obj, pump = live_window
+    tab = w.watch_tab
+    assert wait_for(lambda: tab.table.item(0, wt.COL_VALUE).text() == "12.5", pump=pump)
+    w._on_role_applied("zeynep", Role.OPERATOR.value)
+    item = tab.table.item(0, wt.COL_VALUE)
+    assert not (item.flags() & Qt.ItemIsEditable)
+    assert "Mühendis veya Yönetici" in tab.hint_label.text() and "Mühendis veya Yönetici" in item.toolTip()
+    w._on_role_applied("zeynep", Role.ENGINEER.value)
+    assert item.flags() & Qt.ItemIsEditable and "Enter" in tab.hint_label.text()
+    w._on_role_applied("zeynep", Role.ADMIN.value)
+    assert item.flags() & Qt.ItemIsEditable
+
+
+def test_unchanged_live_refresh_does_not_notify_the_view(tab):
+    """Aynı durumdaki satır yenilenince Qt'ye veri değişti bildirimi gitmemeli (açık düzenleyiciyi sıfırlar)."""
+    tab.set_connected(True)
+    seen = []
+    tab.table.model().dataChanged.connect(lambda *a: seen.append(a))
+    for _ in range(5):
+        tab._render_value_cell_guarded(0)
+    assert seen == []
