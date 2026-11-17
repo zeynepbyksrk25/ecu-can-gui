@@ -19,15 +19,16 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QCheckBox, QColorDialog, QComboBox, QDoubleSpinBox, QHBoxLayout,
-    QHeaderView, QLabel, QLineEdit, QMenu, QPushButton, QSizePolicy, QSplitter,
-    QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+    QHeaderView, QLabel, QLineEdit, QMenu, QPushButton, QSplitter, QTableWidget,
+    QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
+from app import theme
 from app.signal_hub import label_of
 
-PALETTE = ["#0E6E8C", "#C22A1D", "#1B8A4C", "#7B3FD1", "#9A6208",
-           "#0E8C7C", "#D6336C", "#5B8A00", "#1F6FE0", "#C2570F",
-           "#51616F", "#B02FC4"]
+PALETTE = [theme.ACCENT, theme.DANGER, theme.OK, theme.PURPLE, theme.WARN_INK,
+           "#0E8C7C", "#D6336C", "#5B8A00", theme.BLUE, "#C2570F",
+           theme.MUTED, "#B02FC4"]
 
 
 def fmt(v) -> str:
@@ -136,7 +137,7 @@ class PlotPanel(PanelBase):
         top.addWidget(self.hint)
 
         self.glw = _Glw(self._on_leave)
-        self.glw.setBackground("#F7F9FB")
+        self.glw.setBackground(theme.paint("@@SURFACE_SUBTLE@@"))
         self.glw.setMinimumHeight(140)
         self._proxy = pg.SignalProxy(self.glw.scene().sigMouseMoved, rateLimit=30, slot=self._on_mouse)
 
@@ -205,8 +206,8 @@ class PlotPanel(PanelBase):
             p.setDownsampling(auto=True, mode="peak")
             p.getAxis("left").setWidth(58)
             for ax in ("left", "bottom"):
-                p.getAxis(ax).setPen("#B7C4D0")
-                p.getAxis(ax).setTextPen("#51616F")
+                p.getAxis(ax).setPen(theme.LINE_STRONG)
+                p.getAxis(ax).setTextPen(theme.MUTED)
             if i == 0:
                 first = p
             else:
@@ -222,8 +223,8 @@ class PlotPanel(PanelBase):
             self._vlines.append(vline)
             self._plots.append(p)
         if not self.stacked and self._plots and ids:
-            self._plots[0].addLegend(offset=(8, 6), labelTextColor="#121A22",
-                                     brush=pg.mkBrush(10, 22, 38, 220), pen=pg.mkPen("#D6DEE6"))
+            self._plots[0].addLegend(offset=(8, 6), labelTextColor=theme.INK,
+                                     brush=pg.mkBrush(10, 22, 38, 220), pen=pg.mkPen(theme.BORDER))
         for i, sid in enumerate(ids):
             st = self.styles[sid]
             target = self._plots[i if self.stacked else 0]
@@ -248,7 +249,7 @@ class PlotPanel(PanelBase):
             rng = (vr[0] + 0.55 * span, vr[0] + 0.85 * span)
         for p in self._plots:
             r = pg.LinearRegionItem(values=rng, brush=pg.mkBrush(53, 198, 244, 40),
-                                    pen=pg.mkPen("#0E6E8C", width=1.5))
+                                    pen=pg.mkPen(theme.ACCENT, width=1.5))
             r.setZValue(10)
             r.sigRegionChanged.connect(self._on_region)
             p.addItem(r, ignoreBounds=True)
@@ -292,7 +293,7 @@ class PlotPanel(PanelBase):
             t.setCellWidget(r, COL_VIS, self._center(cb))
             btn = QPushButton()
             btn.setFixedSize(34, 18)
-            btn.setStyleSheet(f"background:{st['color']}; border:1px solid #B7C4D0; border-radius:3px;")
+            btn.setStyleSheet(f"background:{st['color']}; border:1px solid {theme.LINE_STRONG}; border-radius:3px;")
             btn.setToolTip("Rengi değiştir")
             btn.clicked.connect(lambda _c=False, s=sid, b=btn: self._pick_color(s, b))
             t.setCellWidget(r, COL_COLOR, self._center(btn))
@@ -343,7 +344,7 @@ class PlotPanel(PanelBase):
         if not c.isValid():
             return
         self.styles[sid]["color"] = c.name()
-        btn.setStyleSheet(f"background:{c.name()}; border:1px solid #B7C4D0; border-radius:3px;")
+        btn.setStyleSheet(f"background:{c.name()}; border:1px solid {theme.LINE_STRONG}; border-radius:3px;")
         self._apply_pen(sid)
         self.changed.emit()
 
@@ -508,7 +509,7 @@ class GaugePanel(PanelBase):
         self.gauge.setMaximumHeight(16777215)
         self.name_label = QLabel("")
         self.name_label.setAlignment(Qt.AlignCenter)
-        self.name_label.setStyleSheet("color:#51616F; font-size:11px;")
+        self.name_label.setStyleSheet(f"color:{theme.MUTED}; font-size:11px;")
         self.min_spin, self.max_spin = QDoubleSpinBox(), QDoubleSpinBox()
         for s, v in ((self.min_spin, 0.0), (self.max_spin, 100.0)):
             s.setRange(-1e9, 1e9)

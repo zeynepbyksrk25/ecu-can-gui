@@ -22,10 +22,11 @@ from PySide6.QtGui import QColor, QGuiApplication
 from PySide6.QtWidgets import (
     QCompleter, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFileDialog,
     QFormLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMdiArea, QMdiSubWindow,
-    QMenu, QMessageBox, QPushButton, QSplitter, QStackedWidget, QTreeWidget,
-    QTreeWidgetItem, QVBoxLayout, QWidget,
+    QMenu, QMessageBox, QPushButton, QSplitter, QTreeWidget, QTreeWidgetItem,
+    QVBoxLayout, QWidget,
 )
 
+from app import theme
 from app.persist import atomic_write_json, load_json
 from app.signal_hub import OP_LABELS, SignalHub, kind_of, label_of
 from app.ui.workspace_panels import GaugePanel, PlotPanel, TablePanel
@@ -94,14 +95,14 @@ def _apply_mdi_palette():
     from PySide6.QtWidgets import QApplication
     pal = QPalette()
     for grp in (QPalette.Active, QPalette.Inactive, QPalette.Disabled):
-        pal.setColor(grp, QPalette.Highlight, QColor("#CFE5EE"))
-        pal.setColor(grp, QPalette.HighlightedText, QColor("#121A22"))
+        pal.setColor(grp, QPalette.Highlight, QColor(theme.paint("@@ACCENT_SOFT@@")))
+        pal.setColor(grp, QPalette.HighlightedText, QColor(theme.INK))
         pal.setColor(grp, QPalette.Window, QColor("#E3EAF0"))
         pal.setColor(grp, QPalette.Button, QColor("#E3EAF0"))
-        pal.setColor(grp, QPalette.WindowText, QColor("#243442"))
-        pal.setColor(grp, QPalette.ButtonText, QColor("#243442"))
-        pal.setColor(grp, QPalette.Text, QColor("#243442"))
-        pal.setColor(grp, QPalette.Base, QColor("#FFFFFF"))
+        pal.setColor(grp, QPalette.WindowText, QColor(theme.HEAD))
+        pal.setColor(grp, QPalette.ButtonText, QColor(theme.HEAD))
+        pal.setColor(grp, QPalette.Text, QColor(theme.HEAD))
+        pal.setColor(grp, QPalette.Base, QColor(theme.SURFACE))
     QApplication.setPalette(pal, "QMdiSubWindow")
 
 
@@ -118,11 +119,11 @@ class _Sub(QMdiSubWindow):
         from PySide6.QtGui import QPalette
         pal = self.palette()
         for grp in (QPalette.Active, QPalette.Inactive):
-            pal.setColor(grp, QPalette.Highlight, QColor("#CFE5EE"))
-            pal.setColor(grp, QPalette.HighlightedText, QColor("#121A22"))
-            pal.setColor(grp, QPalette.Window, QColor("#B7C4D0"))
-            pal.setColor(grp, QPalette.WindowText, QColor("#121A22"))
-            pal.setColor(grp, QPalette.Text, QColor("#121A22"))
+            pal.setColor(grp, QPalette.Highlight, QColor(theme.paint("@@ACCENT_SOFT@@")))
+            pal.setColor(grp, QPalette.HighlightedText, QColor(theme.INK))
+            pal.setColor(grp, QPalette.Window, QColor(theme.LINE_STRONG))
+            pal.setColor(grp, QPalette.WindowText, QColor(theme.INK))
+            pal.setColor(grp, QPalette.Text, QColor(theme.INK))
         self.setPalette(pal)
         super().showEvent(ev)
 
@@ -148,7 +149,7 @@ class _Float(QWidget):
         self.setAttribute(Qt.WA_DeleteOnClose, True)
         from app.ui.dark_theme import dark_qss
         self.setObjectName("floatBody")
-        self.setStyleSheet("QWidget#floatBody { background:#EEF2F6; }" + dark_qss("floatBody"))
+        self.setStyleSheet(theme.paint("QWidget#floatBody { background:@@BG@@; }") + dark_qss("floatBody"))
         btn = QPushButton("⤓  Çalışma alanına geri yerleştir")
         btn.clicked.connect(lambda: self.dock_requested.emit(self))
         lay = QVBoxLayout(self)
@@ -205,7 +206,7 @@ class MathDialog(QDialog):
         self.row_win = (QLabel("Pencere"), self.window)
         form.addRow(*self.row_win)
         self.error = QLabel("")
-        self.error.setStyleSheet("color:#C22A1D;")
+        self.error.setStyleSheet(f"color:{theme.DANGER};")
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         bb.button(QDialogButtonBox.Ok).setText("Kaydet")
         bb.button(QDialogButtonBox.Cancel).setText("Vazgeç")
@@ -399,7 +400,7 @@ class WorkspaceTab(QWidget):
         _apply_mdi_palette()
         self.mdi = QMdiArea()
         self.mdi.setViewMode(QMdiArea.SubWindowView)
-        self.mdi.setBackground(QColor("#EEF2F6"))
+        self.mdi.setBackground(QColor(theme.BG))
         split = QSplitter(Qt.Horizontal)
         split.addWidget(left)
         split.addWidget(self.mdi)
@@ -717,10 +718,10 @@ class WorkspaceTab(QWidget):
     def _update_state_label(self):
         if self.frozen:
             self.state_label.setText("● DONDURULDU")
-            self.state_label.setStyleSheet("color:#9A6208; font-weight:700;")
+            self.state_label.setStyleSheet(f"color:{theme.WARN_INK}; font-weight:700;")
         else:
             self.state_label.setText("● CANLI")
-            self.state_label.setStyleSheet("color:#1B8A4C; font-weight:700;")
+            self.state_label.setStyleSheet(f"color:{theme.OK}; font-weight:700;")
 
     # ====================================================================
     # Sinyal tarayıcı

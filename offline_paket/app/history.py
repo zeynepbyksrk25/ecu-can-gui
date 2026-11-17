@@ -11,7 +11,6 @@ isteğe bağlı olarak diske (JSON) kalıcı yazılır ve açılışta geri okun
 """
 
 import json
-import os
 import time
 from app.persist import atomic_write_json, load_json
 from dataclasses import asdict, dataclass

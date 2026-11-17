@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.a2l import A2LDatabase
+from app.ui.background import run_with_progress
 from app.ui.a2l_tree import ROLE_OBJECT, filter_tree, measurements_root, new_tree, payload_item  # noqa: F401
 from app.ui.dash_widgets import DK_CYAN, IconLabel
 
@@ -88,12 +89,19 @@ class A2LTab(QWidget):
         if not path:
             return
         try:
-            summary = self.db.load(path)
+            self.load_path(path)
         except ValueError as exc:
             QMessageBox.critical(self.window(), "A2L yüklenemedi", str(exc))
-            return
+
+    def load_path(self, path: str, notify: bool = True):
+        """A2L dosyasını ARKA PLANDA ayrıştırır (büyük dosyada saniyeler sürer; arayüz donmaz, ilerleme
+        penceresi görünür), sonra özeti gösterir ve ``a2l_loaded`` yayar. Hata: ValueError."""
+        summary = run_with_progress(self.window(), f"A2L yükleniyor: {os.path.basename(path)}",
+                                    lambda: self.db.load(path))
         self.show_loaded(path, summary)
-        self.a2l_loaded.emit()
+        if notify:
+            self.a2l_loaded.emit()
+        return summary
 
     def show_loaded(self, path: str, summary):
         """Yüklenen A2L'in özetini şeritte ve ağaçta gösterir (profil uygulanırken de kullanılır)."""

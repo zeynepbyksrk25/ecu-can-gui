@@ -4,8 +4,6 @@ profil olarak kaydedilip diskte (JSON) saklanır, sonra tek tıkla tekrar
 uygulanabilir.
 """
 
-import json
-import os
 from dataclasses import asdict, dataclass
 
 from app.persist import atomic_write_json, load_json

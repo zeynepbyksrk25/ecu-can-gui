@@ -17,12 +17,14 @@ import math
 
 import pyqtgraph as pg
 
+from app import theme
+from app.ui.dash_widgets import make_card
 from app.ccp.mapio import grid_shape as _grid_shape
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QAbstractItemView, QApplication, QCheckBox, QGroupBox, QHBoxLayout,
+    QAbstractItemView, QApplication, QCheckBox, QHBoxLayout,
     QLabel, QLineEdit, QPushButton, QSplitter, QTableWidget,
     QTableWidgetItem, QTabWidget, QTreeWidgetItem,
     QVBoxLayout, QWidget, QHeaderView,
@@ -103,7 +105,7 @@ class MapDocument(QWidget):
             "gerçek donanımla kullanmadan önce PCAN-View trace'iyle kontrol edin."
         )
         self.caveat_label.setWordWrap(True)
-        self.caveat_label.setStyleSheet("color: #9A6208;")
+        self.caveat_label.setStyleSheet(f"color: {theme.WARN_INK};")
         self.caveat_label.setVisible(
             c.kind in ("CURVE", "MAP") and any(a.attribute != "FIX_AXIS" for a in c.axes)
         )
@@ -154,7 +156,7 @@ class MapDocument(QWidget):
         bulk.addStretch()
 
         # --- INCA/Lookup tarzı grafik (üstte) ---
-        self.plot = pg.PlotWidget(background="#F7F9FB")
+        self.plot = pg.PlotWidget(background=theme.paint("@@SURFACE_SUBTLE@@"))
         self.plot.showGrid(x=True, y=True, alpha=0.25)
         self.plot.setMinimumHeight(150)
         self.plot.setMaximumHeight(300)
@@ -167,7 +169,7 @@ class MapDocument(QWidget):
         self.table = QTableWidget()
         self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         # Eksen değerleri (başlıklar) Lookup penceresindeki gibi gri zeminde, kalın
-        hdr_css = "QHeaderView::section { background:#16304d; color:#243442; font-weight:bold; padding:3px 8px; border:1px solid #D6DEE6; }"
+        hdr_css = theme.paint("QHeaderView::section { background:@@LINE_SOFT@@; color:@@HEAD@@; font-weight:bold; padding:3px 8px; border:1px solid @@BORDER@@; }")
         self.table.horizontalHeader().setStyleSheet(hdr_css)
         self.table.verticalHeader().setStyleSheet(hdr_css)
         self.table.setSelectionBehavior(QAbstractItemView.SelectItems)
@@ -259,11 +261,11 @@ class MapDocument(QWidget):
         if self._online:
             self.online_label.setText("ONLINE")
             self.online_label.setStyleSheet(
-                "background:#1b8a4c; color:white; font-weight:bold; border-radius:4px; padding:3px 8px;")
+                f"background:{theme.OK}; color:white; font-weight:bold; border-radius:4px; padding:3px 8px;")
         else:
             self.online_label.setText("OFFLINE")
             self.online_label.setStyleSheet(
-                "background:#9AA8B5; color:#243442; font-weight:bold; border-radius:4px; padding:3px 8px;")
+                f"background:#9AA8B5; color:{theme.HEAD}; font-weight:bold; border-radius:4px; padding:3px 8px;")
 
     def set_online(self, online: bool):
         self._online = bool(online)
@@ -289,7 +291,7 @@ class MapDocument(QWidget):
             return
         cols = len(vals[0])
         xs = self._axis_x_values(cols)
-        palette = ["#0E6E8C", "#C22A1D", "#1B8A4C", "#9A6208", "#7B3FD1", "#0E8C7C", "#51616F"]
+        palette = [theme.ACCENT, theme.DANGER, theme.OK, theme.WARN_INK, theme.PURPLE, "#0E8C7C", theme.MUTED]
         for r, row in enumerate(vals):
             pts = [(x, v) for x, v in zip(xs, row) if v is not None]
             if not pts:
@@ -438,9 +440,14 @@ class MapDocument(QWidget):
             self._refresh_cell_colors()
             self.changed.emit()
 
+    def load_grid_as_edit(self, grid: list):
+        """Değerleri tabloya DÜZENLEME olarak getirir (ECU'ya yazılmaz; geri alınabilir tek undo adımı)."""
+        self._fill_table(grid)
+        self._push_history()
+
     def _set_status(self, message: str, ok: bool = True, warn: bool = False):
         self.status_label.setText(message)
-        color = "#9A6208" if warn else ("#1B8A4C" if ok else "#C22A1D")
+        color = theme.WARN_INK if warn else (theme.OK if ok else theme.DANGER)
         self.status_label.setStyleSheet(f"color: {color};")
 
     def _on_write_clicked(self):
@@ -523,16 +530,16 @@ class MapDocument(QWidget):
                     and abs(self._original_grid[r][c] - val) > 1e-9
                 )
                 if val is None:
-                    item.setBackground(QColor("#F7F9FB"))
-                    item.setForeground(QColor("#121A22"))
+                    item.setBackground(QColor(theme.paint("@@SURFACE_SUBTLE@@")))
+                    item.setForeground(QColor(theme.INK))
                 elif heatmap_on:
                     ratio = (val - vmin) / span
                     color = QColor.fromHsvF(0.66 * (1.0 - ratio), 0.7, 0.55)  # mavi (düşük) -> kırmızı (yüksek)
                     item.setBackground(color)
-                    item.setForeground(MODIFIED_FG if modified else QColor("#ffffff"))
+                    item.setForeground(MODIFIED_FG if modified else QColor(theme.SURFACE))
                 else:
-                    item.setBackground(MODIFIED_BG if modified else QColor("#F7F9FB"))
-                    item.setForeground(MODIFIED_FG if modified else QColor("#121A22"))
+                    item.setBackground(MODIFIED_BG if modified else QColor(theme.paint("@@SURFACE_SUBTLE@@")))
+                    item.setForeground(MODIFIED_FG if modified else QColor(theme.INK))
                 font = item.font()
                 font.setBold(modified)
                 item.setFont(font)
@@ -689,8 +696,8 @@ class MapEditorTab(QWidget):
         layout.addWidget(splitter)
 
     # ---- Nesne tarayıcı ---------------------------------------------------
-    def _build_tree_panel(self) -> QGroupBox:
-        box = QGroupBox("A2L nesneleri")
+    def _build_tree_panel(self) -> QWidget:
+        box, body, _head = make_card("A2L nesneleri", "sliders")
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText("İsme göre ara...")
         self.search_edit.textChanged.connect(self._apply_filter)
@@ -700,7 +707,7 @@ class MapEditorTab(QWidget):
         layout = QVBoxLayout()
         layout.addWidget(self.search_edit)
         layout.addWidget(self.tree)
-        box.setLayout(layout)
+        body.addLayout(layout, 1)
         box.setMinimumWidth(180)
         return box
 
@@ -758,10 +765,16 @@ class MapEditorTab(QWidget):
         self.write_all_button.clicked.connect(self.write_all_requested.emit)
         self.read_all_button.setEnabled(False)
         self.write_all_button.setEnabled(False)
+        self.restore_button = QPushButton("Yedekten Yükle…")
+        self.restore_button.setToolTip("Bu tablonun, ECU'ya yazılmadan önce otomatik alınan yedeklerinden birini tabloya "
+                                       "yükler (ECU'ya yazılmaz; 'ECU'ya Yaz' ile ayrıca yazarsınız).")
+        self.restore_button.clicked.connect(self._on_restore_clicked)
+        self.restore_button.setEnabled(False)
 
         top = QHBoxLayout()
         top.addWidget(self.read_all_button)
         top.addWidget(self.write_all_button)
+        top.addWidget(self.restore_button)
         top.addStretch()
 
         self.empty_label = QLabel("Soldaki listeden bir nesneye tıklayarak tabloyu yeni bir sekmede açın.")
@@ -781,6 +794,34 @@ class MapEditorTab(QWidget):
         layout.addWidget(self.empty_label, stretch=1)
         layout.addWidget(self.tabs, stretch=1)
         return panel
+
+    def _on_restore_clicked(self):
+        from PySide6.QtWidgets import QInputDialog, QMessageBox
+        from app.ccp import mapio, table_backup
+        from app.paths import data_path
+        doc = self.current_document()
+        if doc is None:
+            return
+        ch = doc.characteristic
+        backups = table_backup.list_backups(data_path("tablo_yedekleri"), ch)
+        if not backups:
+            QMessageBox.information(self.window(), "Yedek yok", f"{ch.name} için kayıtlı bir yedek yok. Yedekler, tablo "
+                                                                 "ECU'ya yazılmadan hemen önce otomatik alınır.")
+            return
+        label, ok = QInputDialog.getItem(self.window(), "Yedekten yükle", f"{ch.name}: yedek seçin (en yenisi üstte)",
+                                         [b.label for b in backups], 0, False)
+        if not ok:
+            return
+        chosen = next(b for b in backups if b.label == label)
+        try:
+            grid = table_backup.load(chosen.path, ch, mapio.grid_shape(ch))
+        except ValueError as exc:
+            QMessageBox.warning(self.window(), "Yedek yüklenemedi", str(exc))
+            return
+        doc.load_grid_as_edit(grid)
+        # set_write_result KULLANILMAZ: başarıda tabloyu "ECU ile aynı" sayıp değişiklik işaretini silerdi.
+        doc._set_status(f"Yedek yüklendi ({label.split('  ')[0]}); ECU'ya HENÜZ yazılmadı. "
+                        "Yazmak için 'ECU'ya Yaz'ı kullanın.", ok=True, warn=True)
 
     def open_characteristic(self, characteristic) -> MapDocument:
         """Nesneyi yeni sekmede açar; zaten açıksa o sekmeye geçer."""
@@ -819,6 +860,7 @@ class MapEditorTab(QWidget):
         self.empty_label.setVisible(not has_docs)
         self.read_all_button.setEnabled(has_docs)
         self.write_all_button.setEnabled(has_docs)
+        self.restore_button.setEnabled(has_docs)
 
     def set_online(self, online: bool):
         """CCP bağlantı durumunu tüm açık dokümanlara (ve yenilerine) yansıtır."""

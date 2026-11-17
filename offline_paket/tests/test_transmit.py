@@ -96,7 +96,6 @@ def qapp():
 
 
 def test_deleting_row_keeps_widgets_bound_to_correct_row(qapp):
-    from PySide6.QtWidgets import QMessageBox
     from app.ui.transmit_tab import TransmitTab
     t = TransmitTab()
     started, stopped = [], []

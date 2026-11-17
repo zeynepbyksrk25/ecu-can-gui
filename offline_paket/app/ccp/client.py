@@ -17,6 +17,7 @@ bu yontemle, kisa araliklarla tekrar tekrar UPLOAD gonderilerek
 guncellenir. Gercek DAQ (event-driven, sync/cyclic) ayri bir asama.
 """
 
+import contextlib
 import queue
 import threading
 import time
@@ -74,6 +75,15 @@ class CCPClient:
         self._connected = False
         self._lock = threading.Lock()  # CCP protokolü tek seferde tek komut bekler
         self._ctr_lock = threading.Lock()
+        # MTA0'a dayanan çok komutlu diziler (SET_MTA + DNLOAD/PROGRAM) BÖLÜNEMEZ: araya başka bir iş
+        # parçacığının SET_MTA'sı girerse yazma yanlış adrese gider. Uzun yazmalar arka plan iş parçacığında,
+        # güvenlik komutları arayüz iş parçacığında çalıştığı için her dizi bu kilit altında yürür.
+        self._seq_lock = threading.RLock()
+        # Python kilitleri adil değildir: parça parça yazan uzun iş kilidi bırakıp hemen geri alabilir.
+        # Acil komut bekliyorsa (urgent) uzun iş bir sonraki parçadan önce ona yol verir.
+        self._urgent_waiters = 0
+        self._urgent_lock = threading.Lock()
+        self._tls = threading.local()      # in_urgent: bu iş parçacığı urgent bloğunun içinde mi
 
         # dto_queue verildiyse (GUI kullanımı) o kuyruğu okuruz; verilmediyse
         # (bağımsız/test kullanımı) kendi Notifier'ımızı açıp kendi
@@ -159,6 +169,36 @@ class CCPClient:
         self.last_error = None
         return data
 
+    # ---- Dizi kilidi / öncelik -------------------------------------------
+    @contextlib.contextmanager
+    def urgent(self):
+        """Bu blok içindeki yazmalar, süren uzun bir yazmanın (harita/flaş) parçaları ARASINA girer:
+        uzun iş en çok bir parça (SET_MTA + DNLOAD) sonra yol verir. Acil Durdurma, override kapatma ve
+        arayüz iş parçacığından yapılan kısa yazmalar için."""
+        with self._urgent_lock:
+            self._urgent_waiters += 1
+        try:
+            with self._seq_lock:
+                self._tls.in_urgent = True
+                try:
+                    yield self
+                finally:
+                    self._tls.in_urgent = False
+        finally:
+            with self._urgent_lock:
+                self._urgent_waiters -= 1
+
+    @contextlib.contextmanager
+    def _sequence(self):
+        """MTA0'a dayanan bir komut dizisini bölünmez yapar; öncelikli bekleyen varsa önce ona yol verir."""
+        if getattr(self._tls, "in_urgent", False):
+            yield                         # urgent bloğunun içi: kilit zaten bu iş parçacığında
+            return
+        while self._urgent_waiters > 0:
+            time.sleep(0.001)
+        with self._seq_lock:
+            yield
+
     # ---- Yüksek seviye CCP işlemleri ------------------------------------
     def connect(self):
         self.start_listening()
@@ -230,6 +270,30 @@ class CCPClient:
         data = self._command(cro, ctr, ccp.SHORT_UP)
         return self._exact(data, size, "SHORT_UP")
 
+    # ---- Koruma: GET_SEED / UNLOCK ------------------------------------
+    def get_seed(self, resource: int = ccp.RESOURCE_CAL) -> tuple[bool, bytes]:
+        """Kaynağın (kalibrasyon/DAQ/programlama) koruma durumunu ve tohumunu (seed) ister.
+        Döner: (korumalı_mı, seed[4]). Korumasızsa seed anlamsızdır."""
+        ctr = self._next_ctr()
+        data = self._command(ccp.build_get_seed(ctr, resource), ctr, ccp.GET_SEED)
+        return bool(data[0]), bytes(data[1:5])
+
+    def unlock(self, key: bytes) -> int:
+        """GET_SEED'den hesaplanan anahtarı gönderir; ECU'nun açık kaynak bitlerini (privilege) döner."""
+        ctr = self._next_ctr()
+        return self._command(ccp.build_unlock(ctr, key), ctr, ccp.UNLOCK)[0]
+
+    def unlock_resource(self, resource: int, key_fn) -> bool:
+        """Kaynak korumalıysa ``key_fn(seed: bytes) -> bytes`` ile anahtarı hesaplayıp açar.
+
+        Seed-key algoritması ECU'ya özeldir (genellikle üreticinin DLL'i); bu katman onu BİLMEZ, çağıran verir.
+        Döner: kaynak artık yazmaya açık mı. Korumasızsa anahtar hesaplanmaz."""
+        protected, seed = self.get_seed(resource)
+        if not protected:
+            return True
+        privilege = self.unlock(bytes(key_fn(seed)))
+        return bool(privilege & resource)
+
     def dnload(self, data: bytes) -> bytes:
         """Mevcut MTA0'a en fazla 5 bayt yazar (önce set_mta() çağrılmalı)."""
         ctr = self._next_ctr()
@@ -265,11 +329,12 @@ class CCPClient:
         offset = 0
         while offset < len(data):
             chunk = data[offset:offset + 6]
-            self.set_mta(address + offset, address_extension)
-            if len(chunk) == 6:
-                self.dnload6(chunk)
-            else:
-                self.dnload(chunk)
+            with self._sequence():
+                self.set_mta(address + offset, address_extension)
+                if len(chunk) == 6:
+                    self.dnload6(chunk)
+                else:
+                    self.dnload(chunk)
             offset += len(chunk)
         if verify:
             back = self.read_memory(address, len(data), address_extension)
@@ -309,20 +374,22 @@ class CCPClient:
         """SET_MTA + (isteğe bağlı) CLEAR_MEMORY + PROGRAM/PROGRAM_6 ile
         KALICI (flaş) belleğe yazar. write_memory()'nin flaş karşılığıdır;
         aynı 5/6 baytlık parçalama mantığını kullanır."""
-        self.set_mta(address, address_extension)
-        if clear_first:
-            self.clear_memory(len(data))
-            self.set_mta(address, address_extension)  # bazı ECU'lar CLEAR_MEMORY sonrası MTA0'ı sıfırlayabilir
         offset = 0
-        while offset < len(data):
+        while offset < len(data) or offset == 0:
             chunk = data[offset:offset + 6]
-            if offset > 0:
+            with self._sequence():
                 self.set_mta(address + offset, address_extension)
-            if len(chunk) == 6:
-                self.program6(chunk)
-            else:
-                self.program(chunk)
+                if offset == 0 and clear_first:
+                    self.clear_memory(len(data))
+                    self.set_mta(address, address_extension)  # bazı ECU'lar CLEAR_MEMORY sonrası MTA0'ı sıfırlayabilir
+                if chunk:
+                    if len(chunk) == 6:
+                        self.program6(chunk)
+                    else:
+                        self.program(chunk)
             offset += len(chunk)
+            if not chunk:
+                break
         if verify:
             back = self.read_memory(address, len(data), address_extension)
             if back != bytes(data):

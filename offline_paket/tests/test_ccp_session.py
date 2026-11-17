@@ -10,7 +10,7 @@ from app.can_worker import CanConnection
 from app.ccp import protocol as ccp
 from app.ccp import worker as cw
 from app.ccp.simulator import CCPSlaveSimulator
-from app.ccp.worker import CONNECTING, IDLE, LOST, ONLINE, CcpSession, EcuSilent, ReadPending
+from app.ccp.worker import CONNECTING, IDLE, LOST, ONLINE, CcpSession, EcuSilent
 
 CRO, DTO = 0x6F9, 0x6F8
 _ch = itertools.count()

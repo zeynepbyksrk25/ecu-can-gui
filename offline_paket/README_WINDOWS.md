@@ -164,6 +164,24 @@ uygulamada donanımla doğrulanmamıştır**. Bu yüzden:
   her değişkenin **Değer** ve **Anahtar (`_sw`)** eşleşmesi ayrı ayrı **CAN (DBC) ya da A2L**
   olarak seçilir (sensörlerde isteğe bağlı *Arıza* biti de). Motoru Başlat / Durdur / Acil
   Durdurma da CAN veya A2L olabilir. Eski `dashboard_config.json` otomatik göç eder.
+- **Arayüz uzun işlemlerde donmaz:** harita/tablo, flaş ve toplu parametre yazmaları arka plan iş
+  parçacığında yürür (durum çubuğunda "⏳ … yazılıyor"; o sırada Kalibrasyon ve Kontrol Paneli sayfaları
+  geçici kilitlenir, ikinci bir uzun iş başlatılamaz, pencere kapatılamaz). Acil Durdurma, eyleyici ve
+  override kapatma yazmaları süren işin parçaları arasına ÖNCELİKLE girer. Kontrol Paneli / Ana Sayfa
+  periyodik CAN gönderimi de ayrı iş parçacıklarındadır: arayüz takılsa bile kareler kesilmez. Gönderilen
+  TÜM kareler (periyodik olanlar dahil) CAN Monitor'da ve CSV kaydında TX olarak görünür.
+- **Acil Durdurma ONAY SORMAZ:** tek tıkla ya da **`Ctrl+Shift+E`** ile (hangi sayfa açık olursa olsun, odak bir
+  giriş kutusunda bile) gönderilir. `Ctrl+1` … `Ctrl+6` sayfalar arasında geçer. Ana düğmelerin ve durum
+  göstergelerinin ekran okuyucu adları vardır.
+- **Tablo yedeğinden geri yükleme:** Harita Editörü > **Yedekten Yükle…** seçili tablonun, ECU'ya yazılmadan
+  önce otomatik alınmış yedeklerinden birini tabloya getirir (aynı nesne, adres ve boyut doğrulanır). ECU'ya
+  YAZILMAZ; "ECU'ya Yaz" ile ayrıca yazarsınız ve tek adımda Geri Al ile vazgeçilebilir.
+- **Windows zamanlayıcı çözünürlüğü:** uygulama açılışta sistem zamanlayıcısını 1 ms'ye çeker; 10 ms'lik
+  periyodik gönderim ~15,6 ms'e yuvarlanmaz. (Gerçek PCAN ile ölçülüp doğrulanmalıdır.)
+- **CCP koruma (GET_SEED / UNLOCK):** `CCPClient.get_seed`, `unlock`, `unlock_resource(kaynak, anahtar_fonksiyonu)`
+  hazırdır; ECU'ya özel seed-key algoritması bilinmediği için arayüze bağlı değildir.
+- **Hatalar sessizce yutulmaz:** kapanış/temizlik dışındaki tüm `except` bloklarında hata `openecu.log`'a yazılır
+  (CAN kayıt kancası, bus yeniden açma geri çağrıları, periyodik gönderim durdurma vb.).
 - **Acil Durdurma ve Motoru Durdur güvenlik komutlarıdır:** (Acil Durdurma için) eşleme yoksa düğmenin yanında kalıcı "⚠ Acil Durdurma
   eşlenmemiş" uyarısı görünür ve basınca komut GİTMEDİĞİ açıkça bildirilir. Eşleme varsa A2L min/max,
   READ_ONLY ve DBC min/max denetimi komutu ENGELLEMEZ (sınır dışıysa olay günlüğüne not düşülür);
@@ -351,3 +369,28 @@ Aşağıdakiler yazılımın otomatik testleriyle **kanıtlanamaz**; gerçek ECU
 - **Biçim:** `time,signal,value,unix_time` (time = oturum başından saniye; unix_time = mutlak zaman). Excel'de açılabilir.
 - **Geri açma:** Analiz → Çalışma Alanı → **CSV aç** ile kayıt yüklenip grafikte çizilir, yeni bir kayıtla üst üste karşılaştırılabilir.
 - Veri saniyede bir diske işlenir (çökmede en çok ~1 sn kaybolur). Disk hatasında kayıt durur ve olay günlüğüne HATA yazılır. Manuel adresli (A2L'siz) Parametre Listesi satırları kaydedilmez. Oturum başlatılmadıkça kayıt yapılmaz.
+
+## Geliştirici notları: kod yapısı, testler ve CI
+
+- **Ana pencere parçalara bölündü.** `app/ui/main_window.py` yalnızca pencere çatısını, sayfaları, sinyal
+  bağlantılarını ve kapanışı içerir. İş mantığı `app/ui/mainwin/` altındadır: `connection.py` (CAN bağlantısı,
+  sağlık izleme, alım/gönderim), `calibration.py` (CCP oturumu, arka plan CCP işleri, harita / Parametre
+  Listesi / tanılama / geri alma), `dashboard.py` (eşleşme yazımı, motor komutları, göstergeler),
+  `panel.py` (Kontrol Paneli, simülasyon, Performans), `profiles.py` (rol ve profiller), `common.py` (sabitler).
+- **Renkler tek yerden:** `app/theme.py` içindeki token'lar (`theme.DANGER`, `theme.OK`, `theme.ACCENT`…).
+  Arayüz kodunda yeni renk sabiti yazmayın; token kullanın. Süslü parantezli stil metinlerinde
+  `theme.paint("... color: @@DANGER@@; ...")` yer tutucusu kullanılır (bir test token'ı olan renklerin elle
+  yazılmasını engeller). Yalnızca satıra özgü tek seferlik tonlar (grafik serileri, satır vurguları) koddadır. Kalibrasyon sayfasının tüm iç sekmeleri artık
+  diğer sayfalarla aynı kart görünümünü kullanır.
+- **A2L arka planda yüklenir** (`A2LTab.load_path`): arayüz donmaz, ilerleme penceresi görünür. Ayrıştırma
+  ilişkileri toplu (eager) yüklediği için 6.000 nesnelik dosya ~17 sn yerine ~3,5 sn'de açılır; SQLite oturumu
+  ayrıştıran iş parçacığında kapatılır ve bellekte tutulmaz.
+- **Testler:** `python -m pytest tests -q` (Windows'ta `3_testleri_calistir.bat`). Her testten sonra açık
+  pencereler kapatılır, zamanlayıcıları durdurulur ve çöp toplanır (`tests/conftest.py`); testler birbirini
+  etkilemez. Test sürecinin çıkışındaki PySide kapanış çökmesi (yüzlerce pencere birikince) testlerin sonucunu
+  bozmaz: süreç, testlerin çıkış koduyla sonlandırılır (gerçek uygulama etkilenmez, temiz kapanır).
+  Hızlı koşu için `pip install pytest-xdist` ve `pytest tests -q -n auto`
+  (CI böyle çalışır; testler paralel işlemlerde de güvenlidir).
+- **Statik denetim:** `ruff check .` (ayar: `ruff.toml`; yalnızca gerçek hata kuralları).
+- **CI:** `.github/workflows/testler.yml` her push ve pull request'te ruff + tüm testleri çalıştırır
+  (Ubuntu, Python 3.11, ekransız Qt).

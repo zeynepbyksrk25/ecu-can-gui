@@ -6,12 +6,13 @@ import time
 from collections import deque
 
 import pyqtgraph as pg
-from PySide6.QtCore import QPointF, Qt, QTimer, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFrame, QHBoxLayout, QInputDialog,
-    QLabel, QListWidget, QListWidgetItem, QMenu, QPushButton, QVBoxLayout, QWidget,
+    QCheckBox, QDialog, QDialogButtonBox, QFrame, QHBoxLayout, QInputDialog, QLabel,
+    QListWidget, QListWidgetItem, QMenu, QPushButton, QVBoxLayout, QWidget,
 )
 
+from app import theme
 from app.sim_interface import (
     INPUT_BY_KEY, PERF_BY_KEY, PERF_DEFS, SimConfig, auto_match, list_sources, threshold_level,
 )
@@ -24,7 +25,7 @@ UI_MS = 500
 STALE_S = 3.0
 HIST_MAX_S = 600
 
-GRAPH_COLORS = ["#0E6E8C", "#C2570F", "#1B8A4C", "#7B3FD1", "#B58900", "#0E8C7C",
+GRAPH_COLORS = [theme.ACCENT, "#C2570F", theme.OK, theme.PURPLE, "#B58900", "#0E8C7C",
                 "#D6336C", "#5B8A00", "#6B7C8A"]
 
 
@@ -60,12 +61,12 @@ class _GraphBox(QFrame):
         self.index = index
         self.spec = spec
         self.setObjectName("graphBox")
-        self.setStyleSheet("QFrame#graphBox { background:#FFFFFF; border:1px solid #D6DEE6; border-radius:10px; }")
+        self.setStyleSheet(theme.paint("QFrame#graphBox { background:@@SURFACE@@; border:1px solid @@BORDER@@; border-radius:10px; }"))
         lay = QVBoxLayout(self)
         lay.setContentsMargins(8, 6, 8, 8)
         head = QHBoxLayout()
         self.title = QLabel(spec["title"])
-        self.title.setStyleSheet("font-weight:700; color:#243442; background:transparent;")
+        self.title.setStyleSheet(f"font-weight:700; color:{theme.HEAD}; background:transparent;")
         self.norm = QCheckBox("Normalize")
         self.norm.setChecked(bool(spec.get("normalize")))
         self.norm.toggled.connect(lambda v: on_norm(index, v))
@@ -76,7 +77,7 @@ class _GraphBox(QFrame):
         head.addWidget(self.norm)
         head.addWidget(btn)
         lay.addLayout(head)
-        self.plot = pg.PlotWidget(background="#F7F9FB")
+        self.plot = pg.PlotWidget(background=theme.paint("@@SURFACE_SUBTLE@@"))
         style_plot(self.plot)
         self.plot.setMinimumHeight(190)
         self.plot.showGrid(x=True, y=True, alpha=0.25)
@@ -143,8 +144,8 @@ class PerformanceTab(QWidget):
             b = QPushButton(label)
             b.setCheckable(True)
             b.setFixedHeight(28)
-            b.setStyleSheet("QPushButton { border:1px solid #D6DEE6; background:#FFFFFF; color:#243442; padding:0 14px; font-weight:600; }"
-                            "QPushButton:checked { background:#0E6E8C; color:#FFFFFF; border-color:#0E6E8C; }")
+            b.setStyleSheet(theme.paint("QPushButton { border:1px solid @@BORDER@@; background:@@SURFACE@@; color:@@HEAD@@; padding:0 14px; font-weight:600; }"
+                            "QPushButton:checked { background:@@ACCENT@@; color:@@SURFACE@@; border-color:@@ACCENT@@; }"))
             self._win_group.addButton(b)
             self._win_buttons[sec] = b
             wl.addWidget(b)
@@ -159,7 +160,7 @@ class PerformanceTab(QWidget):
         root.addLayout(top)
 
         self.banner = QLabel("")
-        self.banner.setStyleSheet("background:#FBE3E0; color:#C22A1D; font-weight:700; padding:6px 10px; border-radius:6px;")
+        self.banner.setStyleSheet(f"background:#FBE3E0; color:{theme.DANGER}; font-weight:700; padding:6px 10px; border-radius:6px;")
         self.banner.setVisible(False)
         root.addWidget(self.banner)
 

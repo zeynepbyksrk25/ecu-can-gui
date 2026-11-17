@@ -1,8 +1,7 @@
 """Koyu tema: sayfa sarmalayıcı, diyalog okunurluğu, A2L sayfası."""
 import os
 
-import pytest
-from PySide6.QtWidgets import QLabel, QMessageBox, QWidget
+from PySide6.QtWidgets import QLabel, QMessageBox
 
 DATA = os.path.join(os.path.dirname(__file__), "data")
 
@@ -51,7 +50,7 @@ def test_message_box_inside_dark_body_is_readable_not_transparent(qapp):
 
 
 def test_a2l_page_summary_tree_filter_and_details(qapp):
-    from app.ui.a2l_tab import A2LTab, ROLE_OBJECT
+    from app.ui.a2l_tab import A2LTab
     tab = A2LTab()
     summary = tab.db.load(os.path.join(DATA, "sample.a2l"))
     tab.show_loaded(os.path.join(DATA, "sample.a2l"), summary)
@@ -76,7 +75,6 @@ def test_a2l_page_summary_tree_filter_and_details(qapp):
 
 
 def test_small_pages_dark_and_accessors(tmp_path):
-    from PySide6.QtWidgets import QApplication
     from app.ui.main_window import MainWindow
     w = MainWindow()
     assert w.tanilama_tab in w._dark_pages

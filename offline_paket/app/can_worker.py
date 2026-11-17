@@ -3,11 +3,14 @@ mesaj dinleme (Receive Thread). UI thread'i asla doğrudan bloklamaz;
 gelen mesajlar thread-safe bir queue.Queue üzerinden aktarılır.
 """
 
+import logging
 import queue
 import threading
 import time
 
 import can
+
+log = logging.getLogger(__name__)
 
 # PCAN-Basic durum kodlarından "hat (bus) düzeyi" olanlar: kablo/ECU/sonlandırma
 # kaynaklı geçici durumlardır, ADAPTÖR gitmiş demek DEĞİLDİR (ör. ECU kapalıyken
@@ -37,6 +40,7 @@ RX_ERROR_STREAK_LIMIT = 3
 
 
 RX_QUEUE_MAX = 50000
+TX_QUEUE_MAX = 20000
 CCP_QUEUE_MAX = 2000
 
 
@@ -71,6 +75,10 @@ class CanConnection:
         # düşürülür ve sayılır (dropped_frames) — sessiz kayıp olmasın.
         self.rx_queue: "queue.Queue[can.Message]" = queue.Queue(maxsize=RX_QUEUE_MAX)
         self.dropped_frames = 0
+        # Gönderilen kareler (elle, periyodik, Kontrol Paneli, güvenlik tekrarları): hangi iş parçacığı
+        # gönderirse göndersin buraya düşer; arayüz izleme tablosuna ve CSV kaydına buradan aktarır.
+        self.tx_queue: "queue.Queue[can.Message]" = queue.Queue(maxsize=TX_QUEUE_MAX)
+        self.dropped_tx = 0
         # CCP/CAL katmanı aynı fiziksel bus'ı paylaşır; tek RX thread her
         # mesajı okuyup CCP DTO ID'sine uyanları da (rx_queue'ya EK olarak)
         # bu kuyruğa yazar. İki ayrı thread'in aynı bus.recv()'i yarışarak
@@ -145,6 +153,17 @@ class CanConnection:
             is_extended_id=extended,
         )
         self.bus.send(msg)
+        self.note_tx(msg)
+
+    def note_tx(self, msg: "can.Message"):
+        """Başarıyla gönderilmiş bir kareyi TX kuyruğuna yazar (her iş parçacığından çağrılabilir)."""
+        # Kopya: periyodik görev aynı Message nesnesini yeniden kullanır; zaman damgası paylaşılmasın.
+        copy = can.Message(timestamp=time.time(), arbitration_id=msg.arbitration_id, data=msg.data,
+                           is_extended_id=msg.is_extended_id)
+        try:
+            self.tx_queue.put_nowait(copy)
+        except queue.Full:
+            self.dropped_tx += 1
 
     def link_state(self) -> tuple[str, str]:
         """Bağlantının GERÇEK durumunu sürücüden sorgular ve üç durumdan
@@ -177,7 +196,7 @@ class CanConnection:
             try:
                 status_text = getattr(self.bus, "status_string", lambda: None)() or ""
             except Exception:
-                pass
+                log.debug("durum metni okunamadı", exc_info=True)
             status_text = status_text or f"Durum kodu 0x{status:X}"
             if status & ~_PCAN_BUS_LEVEL_BITS:
                 return "lost", status_text
@@ -262,7 +281,7 @@ class CanConnection:
             try:
                 self.bus.shutdown()
             except Exception:
-                pass
+                log.warning("bus kapatılamadı (yeniden açılıyor)", exc_info=True)
             self.bus = None
         self._open_bus_and_thread()
         self.reopen_count += 1
@@ -270,7 +289,7 @@ class CanConnection:
             try:
                 cb()
             except Exception:
-                pass
+                log.exception("bus yeniden açma geri çağrısı hata verdi")
 
     def is_healthy(self) -> tuple[bool, str]:
         """Geriye uyumluluk: link_state() "ok" ise True."""

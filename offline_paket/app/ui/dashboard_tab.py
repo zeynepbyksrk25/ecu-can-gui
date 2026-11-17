@@ -24,9 +24,9 @@ from PySide6.QtCore import QRegularExpression
 from PySide6.QtGui import QColor, QRegularExpressionValidator
 from PySide6.QtWidgets import QLineEdit
 
+from app import theme
 from app.dashboard_config import (
-    ACTUATOR_KEYS, ACTUATOR_KINDS, ACTUATOR_LABELS, CONTROL_KEYS, EYLEYICI_KEYS, GAUGE_KEYS, Binding,
-    DashboardConfig,
+    ACTUATOR_KEYS, ACTUATOR_KINDS, CONTROL_KEYS, EYLEYICI_KEYS, GAUGE_KEYS, Binding, DashboardConfig,
 )
 from app.ui.dash_widgets import (  # noqa: F401  (ToggleSwitch: eski import yolu)
     ACCENTS, DK_CYAN, DK_MUT, DashGauge, GaugeCard, IconLabel, LockButton, ToggleSwitch,
@@ -192,24 +192,28 @@ class DashboardTab(QWidget):
                                    "CAN ya da A2L seçin. O zamana dek motoru manuel/fiziksel olarak durdurun.")
         self.estop_warn.setVisible(True)
 
-    def _on_estop_clicked(self):
+    estop_hint = ""      # "Kısayol: Ctrl+Shift+E" (MainWindow doldurur)
+
+    def update_estop_tooltip(self):
+        """Eşleme yoksa uyarı, varsa yalnızca kısayol bilgisi."""
+        parts = []
         if not self.config.estop.binding.is_set:
-            # Onay sorusu anlamsız: gönderilecek bir şey yok. MainWindow hatayı açıkça bildirir ve günlüğe yazar.
-            self.estop_requested.emit()
-            return
-        confirm = QMessageBox.warning(
-            self, "ACİL DURDURMA gönderilsin mi?",
-            "Motoru derhal durdurmak üzere ACİL DURDURMA komutu gönderilecek. Devam edilsin mi?",
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes,
-        )
-        if confirm == QMessageBox.Yes:
-            self.estop_requested.emit()
+            parts.append("UYARI: Acil Durdurma için eşleme tanımlı DEĞİL; basınca komut gönderilemez. "
+                         "⚙ Eşleşmeler penceresinden tanımlayın.")
+        if self.estop_hint:
+            parts.append(self.estop_hint)
+        self.estop_button.setToolTip("\n\n".join(parts))
+
+    def _on_estop_clicked(self):
+        # ONAY SORULMAZ: acil komutta fazladan bir tık gecikmedir. Eşleme yoksa MainWindow hatayı açıkça
+        # bildirir ve günlüğe yazar.
+        self.estop_requested.emit()
 
     # ======================================================================
     # Son olaylar (komut gönderildi, hata, bağlantı...): sol sütunun kalan yüksekliğini doldurur
     # ======================================================================
-    EVENT_COLORS = {"HATA": "#C22A1D", "MOTOR": "#1B8A4C", "EYLEYICI": "#D9710B", "BAGLANTI": "#0E6E8C",
-                    "KULLANICI": "#7B3FD1", "SİMÜLASYON": "#1F6FE0", "SIMÜLASYON": "#1F6FE0", "AYAR": "#51616F"}
+    EVENT_COLORS = {"HATA": theme.DANGER, "MOTOR": theme.OK, "EYLEYICI": theme.ORANGE, "BAGLANTI": theme.ACCENT,
+                    "KULLANICI": theme.PURPLE, "SİMÜLASYON": theme.BLUE, "SIMÜLASYON": theme.BLUE, "AYAR": theme.MUTED}
     EVENT_MAX = 60
 
     def _build_events_card(self) -> QFrame:
@@ -249,7 +253,7 @@ class DashboardTab(QWidget):
         text = (f"{_t.strftime('%H:%M:%S', _t.localtime(entry.timestamp))}  "
                 f"{entry.category}  ·  {entry.message}")
         item = QListWidgetItem(text)
-        item.setForeground(QColor(self.EVENT_COLORS.get(entry.category, "#51616F")))
+        item.setForeground(QColor(self.EVENT_COLORS.get(entry.category, theme.MUTED)))
         item.setToolTip(f"{entry.user} / {entry.role}\n{entry.message}")
         self.events_empty.setVisible(False)
         self.events_list.insertItem(0, item)
@@ -545,7 +549,7 @@ class DashboardTab(QWidget):
             onoff = QLabel("OFF")
             onoff.setObjectName("onoff")
             onoff.setProperty("on", False)
-            sw = ToggleSwitch(on_color="#1B8A4C")
+            sw = ToggleSwitch(on_color=theme.OK)
             sw.toggled.connect(lambda checked, k=key: self._on_actuator_toggle(k, checked))
             cl.addWidget(onoff)
             cl.addWidget(sw)
@@ -584,7 +588,7 @@ class DashboardTab(QWidget):
         e["name"].setEnabled(opened)
         e["icon"].setEnabled(opened)
         e["control"].setEnabled(opened)
-        e["name"].setStyleSheet("" if opened else "color:#5F7080;")
+        e["name"].setStyleSheet("" if opened else theme.paint("color:@@SLATE@@;"))
 
     def set_role(self, role: Role):
         self._role = role
@@ -812,9 +816,7 @@ class DashboardTab(QWidget):
         for btn, cmd, label in ((self.start_button, cfg.motor_start, "Motoru Başlat"),
                                  (self.stop_button, cfg.motor_stop, "Motoru Durdur")):
             btn.setToolTip("" if btn.isEnabled() else f"{label} için ⚙ Eşleşmeler penceresinden DBC sinyali veya A2L değişkeni seçin.")
-        self.estop_button.setToolTip(
-            "" if cfg.estop.binding.is_set else
-            "UYARI: Acil Durdurma için eşleme tanımlı DEĞİL; basınca komut gönderilemez. ⚙ Eşleşmeler penceresinden tanımlayın.")
+        self.update_estop_tooltip()
         for key in GAUGE_KEYS:
             if key not in cfg.gauge_a2l_map() and key not in cfg.gauge_can_map():
                 self._values.pop(key, None)

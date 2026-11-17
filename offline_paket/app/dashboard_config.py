@@ -14,8 +14,6 @@ her eyleyicinin ``value`` (değer) ve ``sw`` (anahtar) olmak üzere İKİ ayrı
 eşleşmesi vardır; ikisinin kaynağı (CAN/A2L) birbirinden bağımsız seçilir.
 """
 
-import json
-import os
 
 from app.persist import atomic_write_json, load_json
 from dataclasses import asdict, dataclass, field

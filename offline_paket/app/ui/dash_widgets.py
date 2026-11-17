@@ -11,29 +11,31 @@ from PySide6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget,
 )
 
+from app import theme
+
 # ---- Koyu tema renkleri (Ana Sayfa) ---------------------------------------
-DK_BG = "#EEF2F6"
-DK_CARD = "#FFFFFF"
-DK_CARD2 = "#F4F7FA"
-DK_LINE = "#D6DEE6"
-DK_LINE2 = "#B7C4D0"
-DK_INK = "#121A22"
-DK_MUT = "#51616F"
-DK_DIM = "#7C8B98"
-DK_BLUE = "#1F6FE0"
-DK_CYAN = "#0E6E8C"
-DK_GREEN = "#1B8A4C"
-DK_AMBER = "#B9790F"
-DK_RED = "#C22A1D"
-DK_PURPLE = "#7B3FD1"
+DK_BG = theme.BG
+DK_CARD = theme.SURFACE
+DK_CARD2 = theme.SURFACE_ALT
+DK_LINE = theme.BORDER
+DK_LINE2 = theme.LINE_STRONG
+DK_INK = theme.INK
+DK_MUT = theme.MUTED
+DK_DIM = theme.DIM
+DK_BLUE = theme.BLUE
+DK_CYAN = theme.ACCENT
+DK_GREEN = theme.OK
+DK_AMBER = theme.WARN
+DK_RED = theme.DANGER
+DK_PURPLE = theme.PURPLE
 
 # Kart/kadran vurgu renkleri: her bölüm ayrı bir renkle ayırt edilir (Ana Sayfa "renksiz" görünmesin).
-ACCENTS = {"blue": "#1F6FE0", "green": "#1B8A4C", "orange": "#D9710B", "teal": "#0E6E8C",
-           "purple": "#7B3FD1", "slate": "#51616F"}
+ACCENTS = {"blue": theme.BLUE, "green": theme.OK, "orange": theme.ORANGE, "teal": theme.ACCENT,
+           "purple": theme.PURPLE, "slate": theme.MUTED}
 # Her gösterge kendi renginde: Canlı Trend'deki seri renkleriyle uyumlu (RPM teal, Tt5 turuncu, FP mor ...).
-GAUGE_ACCENT = {"RPM": "#0E6E8C", "İtki": "#1F6FE0", "PLA": "#1B8A4C", "Tt5": "#D9710B",
-                "FP": "#7B3FD1", "FT": "#B9790F", "Ps2": "#0E8C7C", "Tt2": "#D6336C"}
-DK_ORANGE = "#D9710B"
+GAUGE_ACCENT = {"RPM": theme.ACCENT, "İtki": theme.BLUE, "PLA": theme.OK, "Tt5": theme.ORANGE,
+                "FP": theme.PURPLE, "FT": theme.WARN, "Ps2": "#0E8C7C", "Tt2": "#D6336C"}
+DK_ORANGE = theme.ORANGE
 
 # ---- Çizgi simgeleri (20x20) ----------------------------------------------
 ICONS = {
@@ -126,7 +128,7 @@ class IconButton(QPushButton):
         col = self._checked_color if on else self._color
         border = QColor(col if on else DK_LINE2)
         border.setAlpha(150 if on else 255)
-        fill = QColor("#FFFFFF")
+        fill = QColor(theme.SURFACE)
         if on:
             fill = QColor(col)
             fill.setAlpha(36)
@@ -148,7 +150,7 @@ class LockButton(IconButton):
     lock_requested = Signal(bool)   # True: kilidi aç (sw=1), False: kilitle (sw=0)
 
     def __init__(self, size: int = 28, parent=None):
-        super().__init__("lock", size, DK_MUT, "#9A6208", parent)
+        super().__init__("lock", size, DK_MUT, theme.WARN_INK, parent)
         self.setCheckable(True)
         self.setToolTip("Kilitli: değer değiştirilemez (anahtar=0). Tıkla: manuel değer (anahtar=1)")
         self.clicked.connect(self._clicked)
@@ -188,11 +190,11 @@ class ToggleSwitch(QPushButton):
         on = self.isChecked()
         painter.setOpacity(1.0 if self.isEnabled() else 0.4)
         painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor(self._on_color) if on else QColor("#B7C4D0"))
+        painter.setBrush(QColor(self._on_color) if on else QColor(theme.LINE_STRONG))
         painter.drawRoundedRect(self.rect(), 11, 11)
         d = 16
         x = self.width() - d - 3 if on else 3
-        painter.setBrush(QColor("#FFFFFF") if on else QColor("#FFFFFF"))
+        painter.setBrush(QColor(theme.SURFACE) if on else QColor(theme.SURFACE))
         painter.drawEllipse(x, 3, d, d)
 
 
@@ -358,7 +360,7 @@ class DashGauge(QWidget):
         p.drawText(QRectF(0, cy + 46, self._DW, 16), Qt.AlignHCenter | Qt.AlignVCenter, self._unit)
         if self._label:
             p.setFont(font(15, True))
-            p.setPen(QColor("#243442"))
+            p.setPen(QColor(theme.HEAD))
             p.drawText(QRectF(0, cy + 64, self._DW, 20), Qt.AlignHCenter | Qt.AlignVCenter, self._label)
 
 
@@ -406,9 +408,9 @@ class GaugeCard(QFrame):
         self.tag.setVisible(bool(text))
         self.tag.setText(text)
         if kind == "fault":
-            css = "background:#FBE9E7; color:#C22A1D; border:1px solid #E3A29B;"
+            css = f"background:{theme.DANGER_BG}; color:{theme.DANGER}; border:1px solid {theme.DANGER_LINE};"
         else:
-            css = "background:#FFF4DC; color:#9A6208; border:1px solid #D9A441;"
+            css = f"background:{theme.WARN_BG}; color:{theme.WARN_INK}; border:1px solid {theme.WARN_LINE};"
         self.tag.setStyleSheet(f"{css} border-radius:8px; padding:0 6px; font-size:11px; font-weight:700;")
         self.gauge.set_alert(kind == "fault")
         state = kind

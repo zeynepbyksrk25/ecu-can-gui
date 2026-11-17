@@ -1,0 +1,42 @@
+name: Testler
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: offline_paket
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            offline_paket/requirements_build.txt
+            offline_paket/requirements-dev.txt
+      - name: Qt sistem kitaplıkları
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libegl1 libgl1 libxkbcommon0 libfontconfig1 libdbus-1-3
+      - name: Bağımlılıklar
+        # requirements.lock.txt Windows tekerlekleri için hash'lidir; Linux'ta sabit sürümlü doğrudan
+        # bağımlılık listesi kurulur (yalnızca Windows'a özgü paketler hariç).
+        run: |
+          python -m pip install --upgrade pip
+          grep -viE '^(pefile|pywin32-ctypes|pyinstaller)==' requirements_build.txt > /tmp/requirements-ci.txt
+          pip install -r /tmp/requirements-ci.txt -r requirements-dev.txt ruff pytest-xdist
+      - name: Statik denetim (ruff)
+        run: ruff check .
+      - name: Testler
+        run: python -m pytest tests -q -n auto

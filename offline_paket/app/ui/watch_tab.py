@@ -11,7 +11,7 @@ bildirir. Değer hücresi düzenlenince ECU'ya yazılmaz; yalnızca satırın
 düğmelerine basılınca write_requested yayılır (onay diyaloğu yok).
 """
 
-import json
+import logging
 import math
 import os
 import re
@@ -27,8 +27,11 @@ from PySide6.QtWidgets import (
     QTableWidgetItem, QVBoxLayout, QWidget, QStyledItemDelegate, QAbstractItemDelegate,
 )
 
+from app import theme
 from app.persist import atomic_write_json, load_json
 from app.ccp import codec
+
+log = logging.getLogger(__name__)
 
 POLL_INTERVAL_MS = 250          # canlı okuma: önbellekten (bloklamaz), bkz. app/ccp/worker.py
 VERIFY_WINDOW_S = 1.5           # yazılan değerin ECU'dan geri okunarak doğrulanma süresi
@@ -45,7 +48,7 @@ PENDING_BG = QColor("#FFE8A8")   # yazılmayı bekleyen değer (map_editor MODIF
 PENDING_FG = QColor("#7A4F00")
 INVALID_BG = QColor("#FBDCD8")   # ayrıştırılamayan sayı
 INVALID_FG = QColor("#A8241A")
-ERROR_FG = QColor("#C22A1D")
+ERROR_FG = QColor(theme.DANGER)
 
 _HEX_RE = re.compile(r"[+-]?0[xX][0-9a-fA-F]+")
 
@@ -166,7 +169,7 @@ class A2LPickerDialog(QDialog):
         hint = QLabel("İpucu: Dizi/tablo (ARRAY / CURVE / MAP) nesneleri burada "
                       "listelenmez; onlar için Harita Editörü'nü kullanın.")
         hint.setWordWrap(True)
-        hint.setStyleSheet("color: #51616F; font-size: 11px;")
+        hint.setStyleSheet(f"color: {theme.MUTED}; font-size: 11px;")
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.button(QDialogButtonBox.Ok).setText("Seçilenleri Ekle")
@@ -244,7 +247,7 @@ class ManualEntryDialog(QDialog):
 
         self.warn_label = QLabel("")
         self.warn_label.setWordWrap(True)
-        self.warn_label.setStyleSheet("color: #C22A1D;")
+        self.warn_label.setStyleSheet(f"color: {theme.DANGER};")
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.button(QDialogButtonBox.Ok).setText("Ekle")
@@ -365,9 +368,9 @@ class WatchTab(QWidget):
         self.delete_button = QPushButton("Seçili Satırları Sil")
         self.clear_button = QPushButton("Listeyi Temizle")
         self.live_label = QLabel("● CCP bağlı değil")
-        self.live_label.setStyleSheet("color: #C22A1D; font-weight: bold;")
+        self.live_label.setStyleSheet(f"color: {theme.DANGER}; font-weight: bold;")
         self.hint_label = QLabel("Değerler canlı izlenir · değiştirmek için Değer hücresine yazıp Enter'a basın (Esc iptal)")
-        self.hint_label.setStyleSheet("color: #51616F;")
+        self.hint_label.setStyleSheet(f"color: {theme.MUTED};")
 
         self.add_a2l_button.clicked.connect(self._on_add_a2l)
         self.add_manual_button.clicked.connect(self._on_add_manual)
@@ -642,7 +645,7 @@ class WatchTab(QWidget):
 
     def set_live_state(self, state: str, text: str):
         """CCP oturum durumu (idle/connecting/online/lost) -> araç çubuğundaki canlı etiketi."""
-        color = {"idle": "#C22A1D", "connecting": "#9A6208", "online": "#1B8A4C", "lost": "#C22A1D"}.get(state, "#C22A1D")
+        color = {"idle": theme.DANGER, "connecting": theme.WARN_INK, "online": theme.OK, "lost": theme.DANGER}.get(state, theme.DANGER)
         dot = "●" if state in ("online", "lost", "connecting") else "○"
         self.live_label.setText(f"{dot} {text}")
         self.live_label.setStyleSheet(f"color: {color}; font-weight: bold;")
@@ -693,7 +696,7 @@ class WatchTab(QWidget):
             e.verify_raw = bytes(e.raw)
             e.verify_deadline = time.monotonic() + VERIFY_WINDOW_S
         except Exception:
-            pass
+            log.warning("%s: yazılan değer Hex hücresine yansıtılamadı", getattr(e, "name", "?"), exc_info=True)
         self._render_row(row)
 
     def discard_pending(self, rows):
@@ -721,7 +724,7 @@ class WatchTab(QWidget):
         if ok is None:
             self.status_label.setStyleSheet("")
         else:
-            self.status_label.setStyleSheet("color: #1B8A4C;" if ok else "color: #C22A1D;")
+            self.status_label.setStyleSheet(f"color: {theme.OK};" if ok else f"color: {theme.DANGER};")
 
     # ---- Düzenleme / yazma ---------------------------------------------------
     def _on_item_changed(self, item: QTableWidgetItem):

@@ -10,13 +10,15 @@ düzenine uyar ve CCP client'ın tek bir yerde (MainWindow) yaşamasını
 sağlar.
 """
 
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import (
-    QCheckBox, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
+    QCheckBox, QFormLayout, QHBoxLayout, QLabel, QLineEdit,
     QMessageBox, QPushButton, QTreeWidgetItem, QVBoxLayout,
     QWidget,
 )
 
+from app import theme
+from app.ui.dash_widgets import make_card
 from app.ui.a2l_tree import ROLE_OBJECT, filter_tree, measurements_root, new_tree, payload_item  # noqa: F401 (ROLE_OBJECT: eski içe aktarma yolu)
 
 POLL_INTERVAL_MS = 250   # seçili nesne HER ZAMAN canlı okunur (önbellekten; bloklamaz)
@@ -48,8 +50,8 @@ class CCPTab(QWidget):
         self.poll_timer.timeout.connect(self.read_requested.emit)
 
     # ---- Bağlantı -------------------------------------------------------
-    def _build_connection_group(self) -> QGroupBox:
-        box = QGroupBox("CCP bağlantısı")
+    def _build_connection_group(self) -> QWidget:
+        box, body, _head = make_card("CCP bağlantısı", "spark")
 
         self.cro_edit = QLineEdit("6F9")
         self.dto_edit = QLineEdit("6F8")
@@ -64,7 +66,7 @@ class CCPTab(QWidget):
         self.disconnect_button.clicked.connect(self.disconnect_requested.emit)
 
         self.status_label = QLabel("● CCP bağlı değil")
-        self.status_label.setStyleSheet("color: #C22A1D; font-weight: bold;")
+        self.status_label.setStyleSheet(f"color: {theme.DANGER}; font-weight: bold;")
 
         # CAN hattına bağlanınca CCP'yi de otomatik bağlamak için. Manuel
         # "CCP Bağlan" / "CCP Bağlantıyı Kes" düğmeleri bundan bağımsız
@@ -93,7 +95,7 @@ class CCPTab(QWidget):
         outer.addLayout(form)
         outer.addWidget(self.auto_connect_checkbox)
         outer.addLayout(buttons)
-        box.setLayout(outer)
+        body.addLayout(outer)
         return box
 
     def auto_connect_enabled(self) -> bool:
@@ -133,10 +135,10 @@ class CCPTab(QWidget):
         self.station_edit.setEnabled(not connected)
         if connected:
             self.status_label.setText(f"● CCP bağlı  {info}".rstrip())
-            self.status_label.setStyleSheet("color: #1B8A4C; font-weight: bold;")
+            self.status_label.setStyleSheet(f"color: {theme.OK}; font-weight: bold;")
         else:
             self.status_label.setText("● CCP bağlı değil")
-            self.status_label.setStyleSheet("color: #C22A1D; font-weight: bold;")
+            self.status_label.setStyleSheet(f"color: {theme.DANGER}; font-weight: bold;")
             self._session_active = False
             self._update_live()
 
@@ -149,18 +151,18 @@ class CCPTab(QWidget):
         self.disconnect_button.setEnabled(active)
         for w in (self.cro_edit, self.dto_edit, self.station_edit):
             w.setEnabled(not active)
-        color = {"idle": "#C22A1D", "connecting": "#9A6208", "online": "#1B8A4C", "lost": "#C22A1D"}[state]
+        color = {"idle": theme.DANGER, "connecting": theme.WARN_INK, "online": theme.OK, "lost": theme.DANGER}[state]
         self.status_label.setText(f"● {text}")
         self.status_label.setStyleSheet(f"color: {color}; font-weight: bold;")
         self._update_live()
 
     def set_auto_connect_failed(self, message: str):
         self.status_label.setText(f"● CCP otomatik bağlanamadı: {message}")
-        self.status_label.setStyleSheet("color: #9A6208; font-weight: bold;")
+        self.status_label.setStyleSheet(f"color: {theme.WARN_INK}; font-weight: bold;")
 
     # ---- Nesne tarayıcı ---------------------------------------------------
-    def _build_tree_panel(self) -> QGroupBox:
-        box = QGroupBox("Nesne tarayıcı (A2L)")
+    def _build_tree_panel(self) -> QWidget:
+        box, body, _head = make_card("Nesne tarayıcı (A2L)", "sliders")
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText("İsme göre ara...")
         self.search_edit.textChanged.connect(self._apply_filter)
@@ -170,7 +172,7 @@ class CCPTab(QWidget):
         layout = QVBoxLayout()
         layout.addWidget(self.search_edit)
         layout.addWidget(self.tree)
-        box.setLayout(layout)
+        body.addLayout(layout, 1)
         return box
 
     def refresh_objects(self):
@@ -208,8 +210,8 @@ class CCPTab(QWidget):
         filter_tree(self.tree, text)
 
     # ---- Değer paneli ------------------------------------------------------
-    def _build_value_panel(self) -> QGroupBox:
-        box = QGroupBox("Canlı değer")
+    def _build_value_panel(self) -> QWidget:
+        box, body, _head = make_card("Canlı değer", "gauge")
 
         self.sel_name = QLabel("-")
         self.sel_kind = QLabel("-")
@@ -225,7 +227,7 @@ class CCPTab(QWidget):
         form.addRow("Birim:", self.sel_unit)
 
         self.value_display = QLabel("-")
-        self.value_display.setStyleSheet("font-size: 16px; font-weight: bold; color: #121A22;")
+        self.value_display.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {theme.INK};")
         form.addRow("Okunan değer:", self.value_display)
 
         # "Oku" ve "Sürekli oku" kaldırıldı: nesne seçilince ve CCP çevrimiçiyken değer sürekli güncellenir.
@@ -234,14 +236,14 @@ class CCPTab(QWidget):
         for hidden in (self.read_button, self.poll_checkbox):
             hidden.setVisible(False)
         self.live_hint = QLabel("● Canlı: seçili değer sürekli okunur")
-        self.live_hint.setStyleSheet("color: #51616F;")
+        self.live_hint.setStyleSheet(f"color: {theme.MUTED};")
         read_row = QHBoxLayout()
         read_row.addWidget(self.live_hint)
         read_row.addStretch()
 
         self.array_hint_label = QLabel("")
         self.array_hint_label.setWordWrap(True)
-        self.array_hint_label.setStyleSheet("color: #9A6208;")
+        self.array_hint_label.setStyleSheet(f"color: {theme.WARN_INK};")
         self.array_hint_label.setVisible(False)
         self.open_map_button = QPushButton("Harita Editörü'nde Aç (tüm elemanları gör/düzenle)")
         self.open_map_button.setVisible(False)
@@ -284,7 +286,7 @@ class CCPTab(QWidget):
         layout.addWidget(self.flash_enable_checkbox)
         layout.addWidget(self.op_status_label)
         layout.addStretch()
-        box.setLayout(layout)
+        body.addLayout(layout, 1)
 
         self._set_write_enabled(False)
         return box
@@ -389,4 +391,4 @@ class CCPTab(QWidget):
         # Her yazma denemesinden sonra flaş izni kapanır (tek seferlik izin).
         self.flash_enable_checkbox.setChecked(False)
         self.op_status_label.setText(message)
-        self.op_status_label.setStyleSheet("color: #1B8A4C;" if ok else "color: #C22A1D;")
+        self.op_status_label.setStyleSheet(f"color: {theme.OK};" if ok else f"color: {theme.DANGER};")

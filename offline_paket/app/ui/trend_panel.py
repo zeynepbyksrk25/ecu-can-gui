@@ -8,6 +8,7 @@ A/B imleçleri (değer + Δ), iki sinyalin farkı (A−B) eğrisi, test başlang
 işaretleri ve CSV / MAT / MDF dışa aktarım.
 """
 
+import logging
 import csv
 import time
 
@@ -16,18 +17,20 @@ import pyqtgraph as pg
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QFileDialog, QFrame, QHBoxLayout, QInputDialog, QLabel, QMenu, QMessageBox,
-    QPushButton, QVBoxLayout, QWidget,
+    QPushButton, QVBoxLayout,
 )
 
+from app import theme
 from app.ui.dash_widgets import (
-    DK_AMBER, DK_CYAN, DK_GREEN, DK_INK, DK_LINE, DK_LINE2, DK_MUT, DK_ORANGE, DK_PURPLE,
-    IconButton, icon_pixmap,
+    DK_CYAN, DK_GREEN, DK_INK, DK_LINE2, DK_MUT, DK_ORANGE, DK_PURPLE, IconButton, icon_pixmap,
 )
+
+log = logging.getLogger(__name__)
 
 WINDOWS = [("60 sn", 60.0), ("5 dk", 300.0), ("10 dk", 600.0), ("1 sa", 3600.0)]
 MAX_HISTORY_S = 3600.0
-PALETTE = [DK_CYAN, DK_ORANGE, DK_PURPLE, DK_GREEN, "#D6336C", "#B58900", "#1F6FE0", "#C22A1D"]
-PLOT_BG = "#F7F9FB"
+PALETTE = [DK_CYAN, DK_ORANGE, DK_PURPLE, DK_GREEN, "#D6336C", "#B58900", theme.BLUE, theme.DANGER]
+PLOT_BG = theme.paint("@@SURFACE_SUBTLE@@")
 
 
 class _RelAxis(pg.AxisItem):
@@ -214,10 +217,10 @@ class TrendPanel(QFrame):
         root.addWidget(self.plot, 1)
 
         # imleç çizgileri
-        self._cur_a = pg.InfiniteLine(angle=90, movable=True, pen=pg.mkPen("#121A22", width=1.4),
-                                      label="A", labelOpts={"position": 0.06, "color": "#121A22"})
-        self._cur_b = pg.InfiniteLine(angle=90, movable=True, pen=pg.mkPen("#51616F", width=1.2, style=Qt.DashLine),
-                                      label="B", labelOpts={"position": 0.06, "color": "#51616F"})
+        self._cur_a = pg.InfiniteLine(angle=90, movable=True, pen=pg.mkPen(theme.INK, width=1.4),
+                                      label="A", labelOpts={"position": 0.06, "color": theme.INK})
+        self._cur_b = pg.InfiniteLine(angle=90, movable=True, pen=pg.mkPen(theme.MUTED, width=1.2, style=Qt.DashLine),
+                                      label="B", labelOpts={"position": 0.06, "color": theme.MUTED})
         for ln in (self._cur_a, self._cur_b):
             ln.setZValue(50)
             ln.sigPositionChanged.connect(self._update_cursor_readout)
@@ -294,14 +297,14 @@ class TrendPanel(QFrame):
             try:
                 self.pi.scene().removeItem(vb)
             except Exception:
-                pass
+                log.debug("ek eksen görünümü kaldırılamadı", exc_info=True)
         for ax in self._extra_axes:
             try:
                 self.pi.layout.removeItem(ax)
                 ax.setParentItem(None)
                 self.pi.scene().removeItem(ax)
             except Exception:
-                pass
+                log.debug("ek eksen kaldırılamadı", exc_info=True)
         self._extra_vbs, self._extra_axes = [], []
         self.pi.hideAxis("right")
 
@@ -312,7 +315,7 @@ class TrendPanel(QFrame):
                 try:
                     ser.curve.getViewBox().removeItem(ser.curve)
                 except Exception:
-                    pass
+                    log.debug("eğri kaldırılamadı", exc_info=True)
                 ser.curve = None
         self._remove_extra()
         # birim grupları (sıra korunur)
@@ -539,7 +542,7 @@ class TrendPanel(QFrame):
                                 f"Birimler farklı ({sa.unit or '—'} / {sb.unit or '—'}); fark anlamlı olmaz.")
             return
         key = f"d:{ka}|{kb}"
-        ser = _Series(key, f"{a} − {b}", sa.unit, "#ffffff")
+        ser = _Series(key, f"{a} − {b}", sa.unit, theme.SURFACE)
         ta, va = sa.arrays()
         tb, vb = sb.arrays()
         if len(ta) and len(tb):
@@ -556,7 +559,7 @@ class TrendPanel(QFrame):
     def start_test(self):
         now = time.time()
         self._test_start = now
-        self.add_event("Test Başlangıcı", now, "#1B8A4C")
+        self.add_event("Test Başlangıcı", now, theme.OK)
         self.btn_test_start.setEnabled(False)
         self.btn_test_end.setEnabled(True)
         self.test_label.setVisible(True)
@@ -567,7 +570,7 @@ class TrendPanel(QFrame):
             return
         now = time.time()
         dur = now - self._test_start
-        self.add_event("Test Bitişi", now, "#C22A1D")
+        self.add_event("Test Bitişi", now, theme.DANGER)
         self._test_start = None
         self.btn_test_start.setEnabled(True)
         self.btn_test_end.setEnabled(False)
@@ -583,7 +586,7 @@ class TrendPanel(QFrame):
             try:
                 self.vb.removeItem(it)
             except Exception:
-                pass
+                log.debug("olay işareti kaldırılamadı", exc_info=True)
         self._event_items = []
         for t, label, color in self._events:
             stamp = time.strftime("%H:%M:%S", time.localtime(t))

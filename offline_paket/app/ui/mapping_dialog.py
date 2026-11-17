@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QLabel, QPushButton, QScrollArea, QTabWidget, QVBoxLayout, QWidget,
 )
 
+from app import theme
 from app.dashboard_config import (
     ACTUATOR_LABELS, CONTROL_KEYS, EYLEYICI_KEYS, MOTOR_COMMAND_KEYS, MOTOR_COMMAND_LABELS, SENSOR_KEYS,
     SENSOR_LABELS, SOURCE_A2L, SOURCE_CAN, Binding, DashboardConfig, MotorCommand, SignalMap,
@@ -181,7 +182,7 @@ class MappingDialog(QDialog):
         super().__init__(parent)
         self.setObjectName("mappingDialog")
         self.setWindowTitle("Eşleşmeler — CAN (DBC) / A2L")
-        self.setStyleSheet("QDialog#mappingDialog { background: #EEF2F6; }")
+        self.setStyleSheet(theme.paint("QDialog#mappingDialog { background: @@BG@@; }"))
         from PySide6.QtGui import QGuiApplication
         screen = QGuiApplication.primaryScreen()
         avail_h = screen.availableGeometry().height() if screen is not None else 800
@@ -204,9 +205,9 @@ class MappingDialog(QDialog):
 
         warn = ""
         if not self._dbc_names:
-            warn += "   <span style='color:#9A6208'>⚠ DBC yüklü değil.</span>"
+            warn += f"   <span style='color:{theme.WARN_INK}'>⚠ DBC yüklü değil.</span>"
         if not self._a2l:
-            warn += "   <span style='color:#9A6208'>⚠ A2L yüklü değil.</span>"
+            warn += f"   <span style='color:{theme.WARN_INK}'>⚠ A2L yüklü değil.</span>"
         info = QLabel(
             "Her sensör, eyleyici ve Motor Kontrol girişi için <b>Değer</b> ve <b>Anahtar (_sw)</b> ayrı ayrı CAN (DBC) "
             "ya da A2L olarak seçilir. Anahtar 1 iken değer arayüzden değiştirilebilir, 0 iken değiştirilemez. "

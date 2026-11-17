@@ -1,7 +1,7 @@
 from PySide6.QtWidgets import (
     QCheckBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QHBoxLayout,
     QHeaderView, QLabel, QLineEdit, QPushButton, QSpinBox, QTableWidget,
-    QTableWidgetItem, QVBoxLayout,
+    QVBoxLayout,
 )
 
 from app.bitpack import BitFieldError, pack_fields

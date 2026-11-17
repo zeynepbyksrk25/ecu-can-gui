@@ -22,3 +22,8 @@ offline_paket/workspace_layouts.json
 offline_paket/tablo_yedekleri/
 offline_paket/can_loglari/
 offline_paket/*.json.bak
+offline_paket/oturum_kayitlari/
+offline_paket/can_ayarlari.json
+offline_paket/*.corrupt-*
+offline_paket/.yazma_testi
+.ruff_cache/

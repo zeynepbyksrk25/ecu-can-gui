@@ -7,6 +7,8 @@ Tek bir QSS string'i olarak tutulur ve main.py içinde
 
 """
 
+import re
+
 # ---- Tasarım token'ları (mockup'taki CSS değişkenlerinin karşılığı) -------
 BG = "#EEF2F6"           # pencere / sayfa zemini
 SURFACE = "#FFFFFF"      # panel / kart zemini
@@ -14,6 +16,11 @@ BORDER = "#D6DEE6"
 INK = "#121A22"          # birincil metin
 INK_2 = "#5B6B79"        # ikincil metin
 INK_3 = "#8697A5"        # üçüncül / ipucu metni
+MUTED = "#51616F"        # sayfa içi ikincil metin (ipucu, açıklama)
+DIM = "#7C8B98"          # devre dışı / soluk metin
+HEAD = "#243442"         # kart ve tablo başlıkları
+SURFACE_ALT = "#F4F7FA"  # düğme / ikincil yüzey
+LINE_STRONG = "#B7C4D0"  # belirgin kenarlık (giriş kutusu, düğme)
 
 ACCENT = "#0E6E8C"       # birincil / aktif ("enstrüman turkuazı")
 ACCENT_INK = "#064A60"   # hover / pressed
@@ -25,6 +32,34 @@ WARN = "#B9790F"
 WARN_WEAK = "#FBF0DC"
 DANGER = "#C22A1D"
 DANGER_WEAK = "#FBE8E5"
+WARN_INK = "#9A6208"     # açık zemin üzerinde okunur uyarı metni
+BLUE = "#1F6FE0"         # seçili / vurgu (segment düğmesi, grafik serisi)
+PURPLE = "#7B3FD1"
+ORANGE = "#D9710B"
+
+# Açık zemin / kenarlık tonları (sayfa içi CSS parçalarında kullanılır)
+SURFACE_SUBTLE = "#F7F9FB"   # tablo/ağaç zemini
+HOVER_BG = "#F1F5F8"
+ACCENT_SOFT = "#CFE5EE"      # seçili satır / vurgulu kenarlık
+ACCENT_BG = "#E8F1F5"
+BLUE_BG = "#E3EEFB"
+SLATE = "#5F7080"
+LINE_SOFT = "#E3E9EF"
+LINE_MID = "#C9D3DC"
+OK_BG = "#E6F4EC"
+WARN_BG = "#FFF4DC"
+WARN_BG_HOVER = "#FBE6B8"
+WARN_LINE = "#D9A441"
+WARN_DEEP = "#7A4E05"
+DANGER_BG = "#FBE9E7"
+DANGER_BG2 = "#FDECEA"
+DANGER_LINE = "#E3A29B"
+
+
+def paint(css: str) -> str:
+    """CSS/QSS metnindeki ``@@AD@@`` yer tutucularını bu modüldeki renk token'larıyla doldurur. Süslü
+    parantezli (f-string kullanılamayan) stil metinlerinde rengi koda elle yazmamak için kullanılır."""
+    return re.sub(r"@@([A-Z0-9_]+)@@", lambda m: globals()[m.group(1)], css)
 
 # Annunciator (lamba) şeridi — yalnızca Ana Sayfa'daki uyarı lambaları paneli
 LAMP_STRIP_BG = "#101820"

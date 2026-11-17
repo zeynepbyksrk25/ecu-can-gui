@@ -1,5 +1,4 @@
 """Eyleyiciler kartı: satır yüksekliği sınırlı, KOMUT başlığı kontrollerle hizalı."""
-from PySide6.QtWidgets import QApplication
 
 
 def _shown(qapp, h):

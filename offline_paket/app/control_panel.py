@@ -21,17 +21,18 @@ CSV / eşleme hazırlamaz. Bu modül:
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import re
+import threading
 import time
 from dataclasses import dataclass, field
 
-from PySide6.QtCore import QObject, QTimer, Signal
+from PySide6.QtCore import QObject, Signal
 
 from app.ccp import codec as ccp_codec
 from app.persist import atomic_write_json, load_json
+from app.scheduler import PeriodicThread
 
 log = logging.getLogger(__name__)
 
@@ -351,12 +352,28 @@ def parse_input_value(text, choices: dict | None = None) -> float | None:
 
 
 # ---- Periyodik CAN gönderici ------------------------------------------------
+class _TxThread(PeriodicThread):
+    """Bir mesajı kendi periyoduyla gönderen iş parçacığı. İlk kare ``set_values`` tarafından hemen
+    gönderildiği için bu iş parçacığı ilk gönderimini bir periyot SONRA yapar."""
+
+    def __init__(self, tick, period_s: float):
+        super().__init__(period_s, first_delay=period_s, name="panel-tx")
+        self._tick_fn = tick
+
+    def tick(self):
+        self._tick_fn()
+
+
 class TxScheduler(QObject):
     """DBC mesajlarını periyodik olarak gönderir. Bir mesajın TÜM sinyalleri
     son değerleriyle tek karede kodlanır (ECU yarım değişmiş mesaj görmez).
-    Gönderim hatası (bus-off, TX kuyruğu dolu, hat toparlanıyor...) mesajı DURDURMAZ: zamanlayıcı
-    sürer, hata yalnızca bir kez (ardışık hata dizisinin başında) `failed` ile bildirilir ve hat
-    düzelince gönderim kendiliğinden devam eder."""
+
+    Gönderim ARAYÜZ İŞ PARÇACIĞINDA DEĞİL, mesaj başına bir arka plan iş parçacığında yapılır: arayüz
+    takılsa (uzun işlem, pencere sürükleme, modal kutu) bile ECU'ya giden kareler kesilmez. Kare, değerler
+    değiştiğinde (``set_values``, arayüz iş parçacığı) bir kez kodlanır; iş parçacığı yalnızca hazır baytları
+    yollar. Gönderim hatası (bus-off, TX kuyruğu dolu, hat toparlanıyor...) mesajı DURDURMAZ: hata yalnızca
+    bir kez (ardışık hata dizisinin başında) `failed` ile bildirilir ve hat düzelince gönderim kendiliğinden
+    devam eder."""
 
     failed = Signal(str, str)        # mesaj, hata (ardışık hata dizisinin başında bir kez)
     recovered = Signal(str)          # hata dizisinden sonra gönderim yeniden başarılı
@@ -365,20 +382,23 @@ class TxScheduler(QObject):
     def __init__(self, dbc, send_fn, parent=None):
         super().__init__(parent)
         self._dbc = dbc
-        self._send = send_fn                 # (can_id, data: bytes, extended: bool)
+        self._send = send_fn                 # (can_id, data: bytes, extended: bool); her iş parçacığından çağrılır
         self._values: dict[str, dict] = {}   # mesaj -> {sinyal: değer}
-        self._timers: dict[str, QTimer] = {}
+        self._frames: dict[str, tuple] = {}  # mesaj -> (can_id, data, extended): gönderilecek hazır kare
+        self._cycles: dict[str, int] = {}    # mesaj -> son kullanılan periyot (ms)
+        self._tasks: dict[str, _TxThread] = {}
+        self._lock = threading.Lock()
         self.frames_sent = 0
         self.errors = 0
         self._failing: set = set()          # şu an hata dizisinde olan mesajlar
 
     # -- durum --
     def running_messages(self) -> set:
-        return {n for n, t in self._timers.items() if t.isActive()}
+        return {n for n, t in self._tasks.items() if not t.stopped()}
 
     def is_running(self, message: str) -> bool:
-        t = self._timers.get(message)
-        return bool(t and t.isActive())
+        t = self._tasks.get(message)
+        return bool(t is not None and not t.stopped())
 
     def values_of(self, message: str) -> dict:
         return dict(self._values.get(message, {}))
@@ -392,24 +412,27 @@ class TxScheduler(QObject):
         cur = self._values.setdefault(message, {})
         cur.update(values)
         frame = self._send_now(message)          # hata -> istisna çağırana gider
+        if cycle_ms:
+            self._cycles[message] = max(1, int(cycle_ms))
         if start:
-            self._ensure_timer(message, cycle_ms or self._cycle_of(message))
+            self._ensure_task(message, self._cycles.get(message) or self._cycle_of(message))
         return frame
 
     def _cycle_of(self, message: str) -> int:
         msg = self._dbc.get_message(message) if self._dbc is not None else None
         return _msg_cycle_ms(msg) if msg is not None else DEFAULT_CYCLE_MS
 
-    def _ensure_timer(self, message: str, cycle_ms: int):
-        t = self._timers.get(message)
-        if t is None:
-            t = QTimer(self)
-            t.timeout.connect(lambda m=message: self._tick(m))
-            self._timers[message] = t
-        t.setInterval(max(1, int(cycle_ms)))
-        if not t.isActive():
-            t.start()
-            self.state_changed.emit()
+    def _ensure_task(self, message: str, cycle_ms: int):
+        cycle_ms = max(1, int(cycle_ms))
+        self._cycles[message] = cycle_ms
+        t = self._tasks.get(message)
+        if t is not None and not t.stopped():
+            t.period_s = cycle_ms / 1000.0
+            return
+        t = _TxThread(lambda m=message: self._tick(m), cycle_ms / 1000.0)
+        self._tasks[message] = t
+        t.start()
+        self.state_changed.emit()
 
     def _defaults_for(self, message: str) -> dict:
         msg = self._dbc.get_message(message)
@@ -423,53 +446,102 @@ class TxScheduler(QObject):
                 d[s.name] = 0
         return d
 
-    def _send_now(self, message: str) -> tuple[int, bytes]:
+    def _encode(self, message: str) -> tuple:
         merged = self._defaults_for(message)
         merged.update(self._values.get(message, {}))
-        can_id, data, extended = self._dbc.encode(message, merged)
+        return self._dbc.encode(message, merged)
+
+    def _send_now(self, message: str) -> tuple[int, bytes]:
+        """Güncel değerlerle kareyi kodlar, periyodik gönderimin kullanacağı hazır kareyi günceller ve
+        bir kare yollar (arayüz iş parçacığı)."""
+        can_id, data, extended = self._encode(message)
+        with self._lock:
+            self._frames[message] = (can_id, data, extended)
         self._send(can_id, data, extended)
         self.frames_sent += 1
         return can_id, data
 
+    def refresh_frames(self):
+        """DBC yeniden yüklenince: hazır kareler yeni tanımla yeniden kodlanır. Artık kodlanamayan
+        (DBC'den silinmiş / değeri sığmayan) mesajın gönderimi durdurulur ve `failed` ile bildirilir."""
+        for message in list(self._frames):
+            try:
+                frame = self._encode(message)
+            except Exception as exc:  # noqa: BLE001
+                self.stop_message(message)
+                with self._lock:
+                    self._frames.pop(message, None)
+                self.failed.emit(message, f"DBC değişti, mesaj kodlanamıyor: {exc}")
+                continue
+            with self._lock:
+                self._frames[message] = frame
+
     def _tick(self, message: str):
-        try:
-            self._send_now(message)
-        except Exception as exc:
-            self.errors += 1
-            if message not in self._failing:       # hata dizisinin başında bir kez bildir
-                self._failing.add(message)
-                self.failed.emit(message, str(exc))
+        """Hazır kareyi bir kez yollar (periyodik iş parçacığından çağrılır)."""
+        with self._lock:
+            frame = self._frames.get(message)
+        if frame is None:
             return
-        if message in self._failing:
+        try:
+            self._send(*frame)
+        except Exception as exc:
+            with self._lock:
+                self.errors += 1
+                first = message not in self._failing    # hata dizisinin başında bir kez bildir
+                self._failing.add(message)
+            if first:
+                self._emit(self.failed, message, str(exc))
+            return
+        with self._lock:
+            self.frames_sent += 1
+            was_failing = message in self._failing
             self._failing.discard(message)
-            self.recovered.emit(message)
+        if was_failing:
+            self._emit(self.recovered, message)
+
+    @staticmethod
+    def _emit(signal, *args):
+        try:
+            signal.emit(*args)       # arka plan iş parçacığından: Qt, alıcıya kuyruklu iletir
+        except RuntimeError:         # uygulama kapanırken nesne silinmiş olabilir
+            pass
+
+    def _stop_task(self, message: str) -> bool:
+        t = self._tasks.pop(message, None)
+        if t is None or t.stopped():
+            return False
+        t.stop()
+        if t is not threading.current_thread():
+            t.join(timeout=0.3)      # "durdur" döndüğünde artık kare gitmiyor olsun
+        return True
 
     def stop_message(self, message: str):
-        t = self._timers.get(message)
-        if t is not None and t.isActive():
-            t.stop()
+        if self._stop_task(message):
             self.state_changed.emit()
 
     def stop_all(self):
         changed = False
-        for t in self._timers.values():
-            if t.isActive():
-                t.stop()
-                changed = True
+        for m in list(self._tasks):
+            changed = self._stop_task(m) or changed
         if changed:
             self.state_changed.emit()
 
     def resume_all(self):
-        """Durdurulmuş (ör. Gönderimi durdur) mesajları son değerleriyle sürdürür."""
+        """Durdurulmuş (ör. Gönderimi durdur) mesajları son değerleri ve son periyotlarıyla sürdürür."""
         for m in list(self._values):
             try:
-                self._ensure_timer(m, self._cycle_of(m))
-            except Exception:
-                pass
+                if m not in self._frames:
+                    with self._lock:
+                        self._frames[m] = self._encode(m)
+                self._ensure_task(m, self._cycles.get(m) or self._cycle_of(m))
+            except Exception:  # noqa: BLE001
+                log.exception("%s gönderimi sürdürülemedi", m)
 
     def clear_values(self):
         self.stop_all()
         self._values.clear()
+        with self._lock:
+            self._frames.clear()
 
 
 def now() -> float:
