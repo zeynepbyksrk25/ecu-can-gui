@@ -116,8 +116,8 @@ def test_session_workbook_has_summary_stats_long_wide_events_and_calibration_she
     stats = write_session_workbook(out, info, events, history)
     assert stats == {"rows": 55, "signals": 2}
     data = read_xlsx(out)
-    assert list(data) == ["Özet", "Sinyal özeti", "Parametre kaydı", "Geniş tablo", "Olay günlüğü",
-                          "Kalibrasyon yazımları"]
+    assert list(data) == ["Özet", "Girişler (tüm sayfalar)", "Kalibrasyon yazımları", "Olay günlüğü",
+                          "Sinyal özeti", "Parametre kaydı", "Geniş tablo"]
     summary = {r[0]: r[1] for r in data["Özet"][1:] if len(r) > 1}
     assert summary["Operatör"] == "Zeynep" and summary["Parametre kaydı: örnek sayısı"] == 55
     assert summary["  bunlardan HATA"] == 1 and summary["Kalibrasyon yazımı (RAM)"] == 1
@@ -142,7 +142,7 @@ def test_session_workbook_without_a_record_file_still_has_events_and_notes(tmp_p
     out = str(tmp_path / "bos.xlsx")
     stats = write_session_workbook(out, SessionInfo(name="Kayıtsız"), [], [])
     assert stats == {"rows": 0, "signals": 0}
-    assert list(read_xlsx(out)) == ["Özet", "Olay günlüğü", "Kalibrasyon yazımları"]
+    assert list(read_xlsx(out)) == ["Özet", "Girişler (tüm sayfalar)", "Kalibrasyon yazımları", "Olay günlüğü"]
 
 
 def test_can_csv_converts_to_xlsx_and_skips_corrupt_lines(tmp_path):
@@ -191,7 +191,7 @@ def test_ending_a_session_saves_an_excel_file_next_to_the_csv_without_touching_t
     st.operator_edit.setText("Zeynep")
     st._on_start()
     for i in range(30):
-        win.workspace_tab.push("gauge:RPM", 3000 + i)
+        win.workspace_tab.push("input:throttle", 3000 + i)
     win._log_event("KALIBRASYON", "elle bir olay")
     csv_path = win.session_recorder.path
     st._on_stop()
@@ -209,7 +209,7 @@ def test_excel_failure_keeps_the_csv_and_reports_an_error(win, monkeypatch):
     import app.ui.mainwin.exports as ex
     st = win.session_tab
     st._on_start()
-    win.workspace_tab.push("gauge:RPM", 1.0)
+    win.workspace_tab.push("input:throttle", 1.0)
     csv_path = win.session_recorder.path
     monkeypatch.setattr(ex, "write_session_workbook", lambda *a, **k: (_ for _ in ()).throw(OSError("disk dolu")))
     st._on_stop()
@@ -240,3 +240,84 @@ def test_manual_excel_export_and_can_log_stop_create_files(win, tmp_path, monkey
     win._on_log_stop()
     new = set(os.listdir(tmp_path / "can")) - before
     assert new and not any(f.endswith(".xlsx") for f in new)
+
+
+# ---------------------------------------------------------------- tüm sayfalardaki girişler Excel'de
+@pytest.fixture
+def can_win(win, monkeypatch):
+    """DBC yüklü, CAN 'bağlı' (gönderilen kareler toplanır), Mühendis rolü."""
+    from app.user_roles import Role
+    sent = []
+    monkeypatch.setattr(type(win.connection), "is_connected", property(lambda s: True))
+    monkeypatch.setattr(win.connection, "send", lambda i, d, e: sent.append((i, bytes(d))))
+    win.transmit_tab.dbc.load(os.path.join(os.path.dirname(__file__), "data", "sample.dbc"))
+    win.sim_config.input_map["altitude"] = "dbc:AIRCRAFT.altitude"
+    win._on_dashboard_sources_changed()
+    win._panel_sources_changed()
+    win.current_role = Role.ENGINEER
+    win.current_user = "Zeynep"
+    win.dashboard_tab.set_role(Role.ENGINEER)
+    win.control_panel_tab.set_allowed(True)
+    win.dashboard_tab.sim_inputs.set_allowed(True)
+    return win
+
+
+def test_inputs_from_every_page_are_recorded_and_exported_together(can_win, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+    from app.dashboard_config import SOURCE_CAN, Binding
+    win = can_win
+    # Ana Sayfa: eyleyici değeri + switch, motor komutu, uçuş koşulu
+    assert win._write_binding(Binding(SOURCE_CAN, "OVERRIDE", "pump_dc"), 45.0, "Yakıt Pompası Start değeri")
+    assert win._write_binding(Binding(SOURCE_CAN, "OVERRIDE", "pump_dc_sw"), 1.0, "Yakıt Pompası Start anahtarı")
+    assert win._write_binding(Binding(SOURCE_CAN, "CMD", "start_req"), 1.0, "Motor Start", merge=False)
+    win._on_sim_inputs({"altitude": 8.0})
+    # Kontrol Paneli
+    win._on_panel_apply({"can": {"AIRCRAFT": {"mach": 0.5}}, "cycles": {}, "ccp": []})
+    entries = win.input_log.entries
+    by = {(e.page, e.kind, e.target): e for e in entries}
+    assert by[("Ana Sayfa", "Değer girişi", "OVERRIDE.pump_dc")].new_value == 45.0
+    assert ("Ana Sayfa", "Switch (_sw)", "OVERRIDE.pump_dc_sw") in by
+    assert ("Ana Sayfa", "Motor komutu", "CMD.start_req") in by
+    assert by[("Ana Sayfa", "Uçuş koşulu", "AIRCRAFT.altitude")].new_value == 8.0
+    assert by[("Kontrol Paneli", "Uçak girişi (CAN)", "AIRCRAFT.mach")].new_value == 0.5
+    assert {e.user for e in entries} == {"Zeynep"} and all(e.role == "Mühendis" for e in entries)
+    # aynı hedefe ikinci giriş: eski değer önceki girilen değerdir
+    assert win._write_binding(Binding(SOURCE_CAN, "OVERRIDE", "pump_dc"), 60.0, "Yakıt Pompası Start değeri")
+    assert win.input_log.entries[-1].old_value == 45.0 and win.input_log.entries[-1].new_value == 60.0
+    # Excel: tüm sayfalardan girişler TEK sayfada
+    target = str(tmp_path / "hepsi.xlsx")
+    from PySide6.QtWidgets import QFileDialog
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", staticmethod(lambda *a, **k: (target, "")))
+    monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a, **k: QMessageBox.Ok))
+    win.session_tab.excel_button.click()
+    data = read_xlsx(target)
+    rows = data["Girişler (tüm sayfalar)"]
+    assert rows[0][1:5] == ["Sayfa", "Tür", "Kaynak", "Hedef (sinyal / parametre)"]
+    pages = {r[1] for r in rows[1:]}
+    assert {"Ana Sayfa", "Kontrol Paneli"} <= pages
+    assert any(r[4] == "OVERRIDE.pump_dc" and r[6] == 60.0 and r[5] == 45.0 for r in rows[1:])
+    summary = {r[0]: r[1] for r in data["Özet"][1:] if len(r) > 1}
+    assert summary["Giriş / değişiklik sayısı (tüm sayfalar)"] == len(win.input_log.entries)
+    assert summary["  Ana Sayfa"] >= 5 and summary["  Kontrol Paneli"] >= 1
+
+
+def test_failed_attempts_are_recorded_too(win, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+    from app.dashboard_config import SOURCE_CAN, Binding
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: QMessageBox.Ok))
+    assert not win._write_binding(Binding(SOURCE_CAN, "OVERRIDE", "pump_dc"), 5.0, "Pompa değeri")   # CAN bağlı değil
+    e = win.input_log.entries[-1]
+    assert (e.page, e.ok, e.new_value) == ("Ana Sayfa", False, 5.0) and "CAN bağlı değil" in e.detail
+
+
+def test_session_inputs_are_also_written_to_a_csv_next_to_the_recording_and_end_up_in_the_session_excel(can_win):
+    from app.dashboard_config import SOURCE_CAN, Binding
+    win = can_win
+    win.session_tab._on_start()
+    win._write_binding(Binding(SOURCE_CAN, "OVERRIDE", "pump_dc"), 12.5, "Pompa değeri")
+    csv_path = os.path.splitext(win.session_recorder.path)[0] + "_girisler.csv"
+    assert os.path.exists(csv_path) and "OVERRIDE.pump_dc" in open(csv_path, encoding="utf-8").read()
+    win.session_tab._on_stop()
+    xlsx = os.path.splitext(win.session_recorder.path)[0] + ".xlsx"
+    rows = read_xlsx(xlsx)["Girişler (tüm sayfalar)"]
+    assert any(r[4] == "OVERRIDE.pump_dc" and r[6] == 12.5 for r in rows[1:])

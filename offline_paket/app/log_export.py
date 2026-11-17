@@ -14,6 +14,7 @@ import datetime
 import math
 import os
 import time
+from collections import Counter
 from dataclasses import dataclass, field
 
 from app.xlsx_export import XlsxWorkbook
@@ -89,7 +90,8 @@ class SessionInfo:
     notes: list = field(default_factory=list)
 
 
-def _write_summary(wb: XlsxWorkbook, info: SessionInfo, rows: int, n_signals: int, events: list, history: list):
+def _write_summary(wb: XlsxWorkbook, info: SessionInfo, rows: int, n_signals: int, events: list, history: list,
+                   inputs: list):
     errors = sum(1 for e in events if e.category == "HATA")
     ram = sum(1 for h in history if not h.persistent)
     flash = sum(1 for h in history if h.persistent)
@@ -105,14 +107,18 @@ def _write_summary(wb: XlsxWorkbook, info: SessionInfo, rows: int, n_signals: in
         ("Parametre kaydı: sinyal sayısı", n_signals),
         ("Olay sayısı", len(events)),
         ("  bunlardan HATA", errors),
+        ("Giriş / değişiklik sayısı (tüm sayfalar)", len(inputs)),
+        ("  bunlardan BAŞARISIZ", sum(1 for e in inputs if not e.ok)),
+        *[(f"  {page}", n) for page, n in sorted(Counter(e.page for e in inputs).items())],
         ("Kalibrasyon yazımı (RAM)", ram),
         ("Kalibrasyon yazımı (FLAŞ)", flash),
         ("Kaynak CSV", info.record_csv or "-"),
         ("Excel oluşturulma", _fmt_time(time.time())),
         ("", ""),
         ("NOT", "Bu dosya yalnızca bilgisayarınıza kaydedilir; kayıtlar ECU'ya (RAM/flaş) yazılmaz."),
-        ("NOT", "Sayfalar: Sinyal özeti, Parametre kaydı (uzun biçim), Geniş tablo (1 sn, son değer korunur), "
-                "Olay günlüğü, Kalibrasyon yazımları."),
+        ("NOT", "Sayfalar: Girişler (tüm sayfalar: Ana Sayfa, Kontrol Paneli, Kalibrasyon...), Kalibrasyon yazımları, "
+                "Olay günlüğü, Sinyal özeti, Parametre kaydı (her veri kendi geliş zamanıyla), Geniş tablo (1 sn, "
+                "son değer korunur)."),
     ]
     for note in info.notes:
         items.append(("NOT", note))
@@ -166,6 +172,17 @@ def _write_events(wb: XlsxWorkbook, events: list):
         sh.row([_dt(e.timestamp), e.category, e.user, e.role, e.message])
 
 
+def _write_inputs(wb: XlsxWorkbook, inputs: list):
+    """Kullanıcının HER sayfada yaptığı giriş/değişiklik (Ana Sayfa, Kontrol Paneli, Kalibrasyon...)."""
+    sh = wb.sheet("Girişler (tüm sayfalar)",
+                  ["Tarih/saat", "Sayfa", "Tür", "Kaynak", "Hedef (sinyal / parametre)", "Eski değer", "Yeni değer",
+                   "Birim", "Sonuç", "Kullanıcı", "Rol", "Açıklama"],
+                  widths=[24, 30, 24, 9, 40, 14, 14, 9, 12, 16, 12, 60], formats=["datetime"] + [None] * 11)
+    for e in inputs:
+        sh.row([_dt(e.timestamp), e.page, e.kind, e.source, e.target, e.old_value, e.new_value, e.unit,
+                "Başarılı" if e.ok else "BAŞARISIZ", e.user, e.role, e.detail])
+
+
 def _write_history(wb: XlsxWorkbook, history: list):
     sh = wb.sheet("Kalibrasyon yazımları",
                   ["Tarih/saat", "Tür", "Kullanıcı", "Rol", "Nesne", "Eski değer", "Yeni değer", "Birim", "Açıklama"],
@@ -175,9 +192,11 @@ def _write_history(wb: XlsxWorkbook, history: list):
                 h.old_value, h.new_value, h.unit, h.detail])
 
 
-def write_session_workbook(path: str, info: SessionInfo, events: list, history: list) -> dict:
-    """Oturum için tek Excel dosyası yazar. ``events``/``history``: bu oturuma ait girişler (zaman süzgeci
-    çağıranda). Döner: {"rows": parametre örnek sayısı, "signals": sinyal sayısı}."""
+def write_session_workbook(path: str, info: SessionInfo, events: list, history: list, inputs: list | None = None) -> dict:
+    """Oturum için tek Excel dosyası yazar. ``events``/``history``/``inputs``: bu oturuma ait kayıtlar (zaman
+    süzgeci çağıranda). Sayfa sırası: önce küçük ve önemli olanlar (Özet, Girişler, Kalibrasyon yazımları, Olay
+    günlüğü), sonra büyük veri sayfaları. Döner: {"rows": parametre örnek sayısı, "signals": sinyal sayısı}."""
+    inputs = list(inputs or [])
     stats, rows = ({}, 0)
     if info.record_csv and os.path.exists(info.record_csv):
         stats, rows = record_stats(info.record_csv)
@@ -185,13 +204,14 @@ def write_session_workbook(path: str, info: SessionInfo, events: list, history: 
         info.notes.append(f"Geniş tablo ilk {WIDE_MAX_SIGNALS} sinyali içerir ({len(stats)} sinyal var); "
                           "tamamı 'Parametre kaydı' sayfasındadır.")
     with XlsxWorkbook(path) as wb:
-        _write_summary(wb, info, rows, len(stats), events, history)
+        _write_summary(wb, info, rows, len(stats), events, history, inputs)
+        _write_inputs(wb, inputs)
+        _write_history(wb, history)
+        _write_events(wb, events)
         if stats:
             _write_signal_summary(wb, stats)
             _write_record_long(wb, info.record_csv)
             _write_record_wide(wb, info.record_csv, sorted(stats))
-        _write_events(wb, events)
-        _write_history(wb, history)
     return {"rows": rows, "signals": len(stats)}
 
 

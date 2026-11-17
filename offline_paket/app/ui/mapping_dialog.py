@@ -11,7 +11,7 @@ seçilir.
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QComboBox, QCompleter, QDialog, QDoubleSpinBox, QFrame, QGridLayout, QHBoxLayout,
+    QComboBox, QCompleter, QDialog, QFrame, QGridLayout, QHBoxLayout,
     QLabel, QPushButton, QScrollArea, QTabWidget, QVBoxLayout, QWidget,
 )
 
@@ -209,8 +209,9 @@ class MappingDialog(QDialog):
         if not self._a2l:
             warn += f"   <span style='color:{theme.WARN_INK}'>⚠ A2L yüklü değil.</span>"
         info = QLabel(
-            "Her sensör, eyleyici ve Motor Kontrol girişi için <b>Değer</b> ve <b>Anahtar (_sw)</b> ayrı ayrı CAN (DBC) "
-            "ya da A2L olarak seçilir. Anahtar 1 iken değer arayüzden değiştirilebilir, 0 iken değiştirilemez. "
+            "Sensör, Motor Kontrol ve Motor Komutları için yalnızca <b>Değer</b> (komutlarda <b>Komut</b>) seçilir; "
+            "<b>Anahtar (_sw)</b> yalnızca <b>Eyleyicilerde</b> vardır (anahtar 1 iken değer değiştirilebilir, 0 iken "
+            "değiştirilemez). Motor komutları basılınca eşlenen sinyale doğrudan 1 yazar. "
             "CAN için ad <b>MESAJ.SİNYAL</b> biçimindedir; kutunun solundaki kutudan CAN/A2L seçin." + warn)
         info.setObjectName("mutedSmall")
         info.setTextFormat(Qt.RichText)
@@ -221,7 +222,6 @@ class MappingDialog(QDialog):
         self.actuator_ed: dict = {}
         self.control_ed: dict = {}
         self.motor_ed: dict = {}
-        self.motor_sw_ed: dict = {}
         self.input_ed: dict = {}
 
         self.tabs = QTabWidget()
@@ -231,7 +231,7 @@ class MappingDialog(QDialog):
 
         bar = QHBoxLayout()
         bar.setSpacing(8)
-        auto = QPushButton("_sw'yi isimden otomatik bul (boş olanlar)")
+        auto = QPushButton("Eyleyicilerin _sw'sini isimden otomatik bul (boş olanlar)")
         auto.setProperty("compact", True)
         auto.clicked.connect(self._auto_sw)
         bar.addWidget(auto)
@@ -260,17 +260,17 @@ class MappingDialog(QDialog):
 
         # ---- Sensörler (tam genişlik)
         card, grid, _h = _card("Sensörler", "gauge")
-        for c, t in enumerate(("", "Değer", "Anahtar (_sw)", "Arıza biti (isteğe bağlı, ≠0 = arıza)")):
+        for c, t in enumerate(("", "Değer", "Arıza biti (isteğe bağlı, ≠0 = arıza)")):
             grid.addWidget(_col_head(t), 0, c)
         for r, key in enumerate(SENSOR_KEYS, start=1):
             smap = self._cfg.sensors.get(key, SignalMap())
             grid.addWidget(_row_label(SENSOR_LABELS[key]), r, 0)
-            ed = {"value": self._editor(smap.value), "sw": self._editor(smap.sw), "fault": self._editor(smap.fault)}
-            for c, name in enumerate(("value", "sw", "fault"), start=1):
+            ed = {"value": self._editor(smap.value), "fault": self._editor(smap.fault)}
+            for c, name in enumerate(("value", "fault"), start=1):
                 grid.addWidget(ed[name], r, c)
             self.sensor_ed[key] = ed
         grid.setColumnMinimumWidth(0, 150)
-        for c in (1, 2, 3):
+        for c in (1, 2):
             grid.setColumnStretch(c, 1)
         v.addWidget(card)
 
@@ -292,45 +292,34 @@ class MappingDialog(QDialog):
         grid.setColumnStretch(2, 1)
         row.addWidget(card, 1)
 
-        # Motor Kontrol: Eyleyicilerle aynı model (CAN ya da A2L); _sw burada İSTEĞE BAĞLI
+        # Motor Kontrol: CAN ya da A2L DEĞER eşlemesi. Switch (_sw) YOKTUR (yalnızca Eyleyicilerde var).
         card, grid, _h = _card("Motor Kontrol", "sliders")
-        for c, t in enumerate(("", "Değer", "Anahtar (_sw, isteğe bağlı)")):
+        for c, t in enumerate(("", "Değer")):
             grid.addWidget(_col_head(t), 0, c)
         for r, key in enumerate(CONTROL_KEYS, start=1):
             smap = self._cfg.actuators.get(key, SignalMap())
             grid.addWidget(_row_label(ACTUATOR_LABELS[key]), r, 0)
-            ed = {"value": self._editor(smap.value), "sw": self._editor(smap.sw)}
+            ed = {"value": self._editor(smap.value)}
             grid.addWidget(ed["value"], r, 1)
-            grid.addWidget(ed["sw"], r, 2)
             self.control_ed[key] = ed
         grid.setColumnMinimumWidth(0, 140)
         grid.setColumnStretch(1, 1)
-        grid.setColumnStretch(2, 1)
         row.addWidget(card, 1)
         v.addLayout(row)
 
-        # Motor Komutları (Başlat / Durdur / Acil Durdurma): komut + yazılacak değer + isteğe bağlı _sw
+        # Motor Komutları (Başlat / Durdur / Acil Durdurma): yalnızca komut sinyali/değişkeni. Değer ve Switch YOK:
+        # düğmeye basınca eşlenen sinyale doğrudan 1 yazılır.
         card, grid, _h = _card("Motor Komutları", "play")
-        for c, t in enumerate(("", "Komut (CAN ya da A2L)", "Değer", "Anahtar (_sw, isteğe bağlı: değerden sonra 1 yazılır)")):
+        for c, t in enumerate(("", "Komut (CAN ya da A2L) — basınca doğrudan çalışır")):
             grid.addWidget(_col_head(t), 0, c)
         for r, key in enumerate(MOTOR_COMMAND_KEYS, start=1):
             cmd: MotorCommand = getattr(self._cfg, key)
             grid.addWidget(_row_label(MOTOR_COMMAND_LABELS[key]), r, 0)
             be = self._editor(cmd.binding)
-            sw = self._editor(cmd.sw)
-            val = QDoubleSpinBox()
-            val.setRange(-1e9, 1e9)
-            val.setDecimals(3)
-            val.setValue(cmd.value)
-            val.setFixedWidth(96)
             grid.addWidget(be, r, 1)
-            grid.addWidget(val, r, 2)
-            grid.addWidget(sw, r, 3)
-            self.motor_ed[key] = (be, val)
-            self.motor_sw_ed[key] = sw
+            self.motor_ed[key] = be
         grid.setColumnMinimumWidth(0, 140)
         grid.setColumnStretch(1, 2)
-        grid.setColumnStretch(3, 2)
         v.addWidget(card)
         v.addStretch(1)
         return _scroll(page)
@@ -385,11 +374,9 @@ class MappingDialog(QDialog):
 
     # ------------------------------------------------------------ otomatik
     def _auto_sw(self):
-        """Değeri girilmiş ama anahtarı boş olanlar için aynı kaynakta ``<ad>_sw`` bulur (sensör, eyleyici,
-        Motor Kontrol ve Motor Komutları). Yalnızca ANAHTAR aranır: komutun kendisi (özellikle Acil
-        Durdurma) isimden tahmin edilip otomatik bağlanmaz; onu siz seçersiniz."""
-        pairs = [{"value": be, "sw": self.motor_sw_ed[key]} for key, (be, _val) in self.motor_ed.items()]
-        for store in (self.sensor_ed.values(), self.actuator_ed.values(), self.control_ed.values(), pairs):
+        """Değeri girilmiş ama anahtarı boş olanlar için aynı kaynakta ``<ad>_sw`` bulur. YALNIZCA Eyleyicilerde
+        switch vardır (sensör, Motor Kontrol ve Motor Komutları'nda yoktur). Yalnızca ANAHTAR aranır."""
+        for store in (self.actuator_ed.values(),):                   # switch YALNIZCA Eyleyicilerde
             for ed in store:
                 if ed["sw"].text() or not ed["value"].text():
                     continue
@@ -415,13 +402,13 @@ class MappingDialog(QDialog):
         cfg = DashboardConfig()
         cfg.graph_signals = list(self._cfg.graph_signals)
         for key, ed in self.sensor_ed.items():
-            cfg.sensors[key] = SignalMap(value=ed["value"].binding(), sw=ed["sw"].binding(),
-                                         fault=ed["fault"].binding())
-        for key, ed in list(self.actuator_ed.items()) + list(self.control_ed.items()):
+            cfg.sensors[key] = SignalMap(value=ed["value"].binding(), fault=ed["fault"].binding())
+        for key, ed in self.actuator_ed.items():
             cfg.actuators[key] = SignalMap(value=ed["value"].binding(), sw=ed["sw"].binding())
-        for key, (be, val) in self.motor_ed.items():
-            setattr(cfg, key, MotorCommand(binding=be.binding(), value=float(val.value()),
-                                           sw=self.motor_sw_ed[key].binding()))
+        for key, ed in self.control_ed.items():
+            cfg.actuators[key] = SignalMap(value=ed["value"].binding())
+        for key, be in self.motor_ed.items():
+            setattr(cfg, key, MotorCommand(binding=be.binding()))
         return cfg
 
     def accept(self):

@@ -31,10 +31,12 @@ SENSOR_LABELS = {
 
 # Eyleyiciler (manuel override).
 EYLEYICI_KEYS = ["pompa_start", "pompa_fuel", "valf", "glow_plug", "starter"]
-# Motor Kontrol (Çalıştırma, Ateşleme, Gaz Kolu, Birincil Yakıt): Eyleyicilerle AYNI model — değer + _sw,
-# her biri CAN (DBC) ya da A2L, kilitle (rol + onay) açılır. Fark: _sw bu satırlarda İSTEĞE BAĞLIDIR
-# (eşlenmemişse kilit yalnızca değeri açar; kilitlenince değer 0'a çekilir).
-CONTROL_KEYS = ["start", "spark", "throttle", "primary_fuel"]
+# Motor Kontrol (Çalıştırma, Gaz Kolu): CAN (DBC) ya da A2L, kilitle (rol + onay) açılan DEĞER kutusu. ANAHTAR (_sw)
+# YOKTUR: switch (_sw) yalnızca Eyleyicilerdedir (kilitlenince değer 0'a çekilir). Ateşleme ve Birincil Yakıt
+# kaldırıldı (zaten Eyleyicilerde var).
+CONTROL_KEYS = ["start", "throttle"]
+# _sw (anahtar) eşlemesi olan TEK grup: Eyleyiciler. Sensörlerde ve Motor Kontrol'de switch yoktur.
+SWITCH_KEYS = EYLEYICI_KEYS
 # Manuel-override (kilitli) davranışı olan TÜM satırlar.
 ACTUATOR_KEYS = EYLEYICI_KEYS + CONTROL_KEYS
 ACTUATOR_LABELS = {
@@ -44,23 +46,18 @@ ACTUATOR_LABELS = {
     "glow_plug": "Glow Plug",
     "starter": "Başlatma Motoru",
     "start": "Çalıştırma (Start)",
-    "spark": "Ateşleme (Spark)",
     "throttle": "Gaz Kolu (PLA)",
-    "primary_fuel": "Birincil Yakıt",
 }
-# "valve" -> 0-100 arası sayısal komut (kilit açılınca _sw=1, değer % olarak girilir);
-# "toggle" -> yalnızca ON/OFF (0/1) anahtarı. Tüm eyleyiciler 0-100 değer alabilsin diye "valve".
+# "valve" -> sayısal değer kutusu (Eyleyicilerde kilit açılınca _sw=1 yazılır). Ana Sayfa'da ON/OFF anahtarı
+# (toggle) YOKTUR: tüm satırlar değer kutusudur.
 ACTUATOR_KINDS = {
     "pompa_start": "valve",
     "pompa_fuel": "valve",
     "valf": "valve",
     "glow_plug": "valve",
     "starter": "valve",
-    # Motor Kontrol: anahtarlar ON/OFF, gaz kolu 0-120 % değer
-    "start": "toggle",
-    "spark": "toggle",
+    "start": "valve",
     "throttle": "valve",
-    "primary_fuel": "toggle",
 }
 
 MOTOR_COMMAND_KEYS = ["motor_start", "motor_stop", "estop"]
@@ -105,14 +102,32 @@ class SignalMap:
     fault: Binding = field(default_factory=Binding)   # yalnız sensörler: ≠0 ise arıza
 
 
+# Motor komutları (Başlat / Durdur / Acil Durdurma) basılınca bu sabit değeri eşlenen sinyale/değişkene yazar.
+COMMAND_VALUE = 1.0
+
+
 @dataclass
 class MotorCommand:
-    """Motor Başlat/Durdur/Acil Durdurma: CAN veya A2L; ``value`` yazılacak değer.
-    ``sw`` (isteğe bağlı): eyleyicilerdeki gibi anahtar (``<ad>_sw``); tanımlıysa değer yazıldıktan sonra
-    ``sw = 1`` yazılır (ECU değeri yalnızca anahtar 1 iken kabul ediyorsa)."""
+    """Motor Başlat/Durdur/Acil Durdurma: yalnızca CAN sinyali ya da A2L değişkeni eşlenir. Düğmeye basınca
+    ``COMMAND_VALUE`` (1) doğrudan yazılır; Değer ve Switch (_sw) YOKTUR. (``value``/``sw`` alanları yalnızca eski
+    kayıtların okunması içindir: yüklerken ve kaydederken temizlenir, çalışma mantığında kullanılmaz.)"""
     binding: Binding = field(default_factory=Binding)
-    value: float = 1.0
+    value: float = COMMAND_VALUE
     sw: Binding = field(default_factory=Binding)
+
+
+def strip_unused_switches(cfg: "DashboardConfig") -> "DashboardConfig":
+    """Switch (_sw) yalnızca Eyleyicilerde kullanılır: sensör ve Motor Kontrol satırlarının eski kayıtlardan gelen
+    anahtar eşlemeleri temizlenir (arayüzde de çalışma mantığında da yoktur)."""
+    for smap in cfg.sensors.values():
+        smap.sw = Binding()
+    for key in CONTROL_KEYS:
+        if key in cfg.actuators:
+            cfg.actuators[key].sw = Binding()
+    for key in MOTOR_COMMAND_KEYS:                    # komutlarda Değer ve Switch yok: sabit 1, anahtarsız
+        cmd = getattr(cfg, key)
+        cmd.value, cmd.sw = COMMAND_VALUE, Binding()
+    return cfg
 
 
 def _default_sensors() -> dict:
@@ -247,7 +262,7 @@ def config_from_dict(raw: dict) -> DashboardConfig:
     sigs = raw.get("graph_signals")
     if isinstance(sigs, list):
         cfg.graph_signals = [s for s in sigs if isinstance(s, str) and s]
-    return cfg
+    return strip_unused_switches(cfg)
 
 
 class DashboardConfigStore:
@@ -264,4 +279,4 @@ class DashboardConfigStore:
             return DashboardConfig()
 
     def save(self, cfg: DashboardConfig) -> bool:
-        return atomic_write_json(self.path, asdict(cfg))
+        return atomic_write_json(self.path, asdict(strip_unused_switches(cfg)))

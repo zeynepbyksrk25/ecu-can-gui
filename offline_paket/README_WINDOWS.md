@@ -101,9 +101,11 @@ girilir (bkz. aşağıdaki bölüm).
 
 **Ana Sayfa → Uçuş Koşulları (sol panel):** Altitude (0–30 kft), Alfa/Beta (±90°) ve sabit değerler (Ma, Toplam Giriş Basıncı, Ortam Basıncı, Ortam Sıcaklığı). Değerler Enter/bırakma ile anında CAN'dan gönderilir; "Hepsini gönder" tümünü yollar. Girişler DBC sinyallerine bağlanır: panel ilk DBC yüklemesinde isimle otomatik eşler, olmayanlar ⚙ Eşleşmeler > Uçuş Koşulları'ndan seçilir. Gönderim için Mühendis/Yönetici rolü ve CAN bağlantısı gerekir. Kontrol Paneli ile aynı değer tablosunu paylaşır.
 
-**Ana Sayfa → Motor Kontrol** (Çalıştırma/Start, Ateşleme/Spark, Gaz Kolu/PLA, Birincil Yakıt) **Eyleyiciler gibi çalışır:** her satırın **Değer** ve **Anahtar (`_sw`)** eşleşmesi ayrı ayrı **CAN (DBC) ya da A2L** seçilir (⚙ Eşleşmeler > Sinyaller > Motor Kontrol); satır **kilitli** açılır (Mühendis/Yönetici + ilk kullanımda onay). Eyleyicilerden tek fark: `_sw` burada **isteğe bağlıdır** (eşlenmemişse kilit yalnızca değeri açar, kilitlenince değer 0'a çekilir). Eski sürümde doğrudan gönderilen Start/Spark/Gaz Kolu/Yakıt eşleşmeleri ilk açılışta otomatik olarak yeni modele taşınır (yalnızca değer bağlaması; `_sw`'yi siz seçin).
+**Ana Sayfa → Motor Kontrol** (Çalıştırma/Start, Gaz Kolu/PLA): her satırın **Değer** eşleşmesi **CAN (DBC) ya da A2L** seçilir (⚙ Eşleşmeler > Sinyaller > Motor Kontrol); satır **kilitli** açılır (Mühendis/Yönetici + ilk kullanımda onay), kutuya değer yazıp **Enter**'a basılır; kilitleyince değer 0'a çekilir. **Switch (`_sw`) YOKTUR ve ON/OFF anahtarı yoktur.** Ateşleme (Spark) ve Birincil Yakıt kaldırıldı (zaten Eyleyicilerde var).
 
-**Motor Komutları (Başlat / Durdur / Acil Durdurma)** ⚙ Eşleşmeler'de **Komut** (CAN `MESAJ.SİNYAL` ya da A2L değişken) + **Değer** + isteğe bağlı **Anahtar (`_sw`)** alır. Düğmeye basınca önce değer, sonra `_sw = 1` yazılır; ikisi aynı CAN mesajındaysa tek karede gider. Komutlar kilitsizdir (Acil Durdurma her zaman basılabilir).
+**Switch (`_sw`) yalnızca Eyleyicilerdedir.** Sensörlerde (Motor Parametreleri) ve Motor Kontrol'de switch eşlemesi ve manuel değer/kilit yoktur; eski `dashboard_config.json` içindeki bu `_sw`'ler yüklenirken temizlenir.
+
+**Motor Komutları (Başlat / Durdur / Acil Durdurma)** ⚙ Eşleşmeler'de yalnızca **Komut** (CAN `MESAJ.SİNYAL` ya da A2L değişken) alır; **Değer ve Switch yoktur**. Düğmeye basınca eşlenen sinyale doğrudan **1** yazılır (tek sinyallik, tek seferlik darbe). Komutlar kilitsizdir ve onay sormaz (Acil Durdurma her zaman basılabilir). Eski kayıttaki değer/switch yok sayılır.
 
 **Analiz → Performans:** Compressor / Combustion / Turbine / Nozzle kartları (kadran + siyah dijital kutular), A kartında gönderilen uçuş koşullarının geri okunuşu ve 3 grafik. Değerler DBC (CAN) ya da A2L (CCP) kaynağından okunur; eşleme isimle otomatik denenir, eşleşmeyen kutuya **sağ tık → Sinyal bağla…**. Kutuya sağ tık → **Eşik ayarla…** (ör. Surge Margin altında sarı/kırmızı); eşik girilmezse renk değişmez. Kadran aralığı A2L min/max'tan alınır, yoksa otomatiktir (sağ tık → Aralığı ayarla). Grafiklerde "Seç…" ile sinyaller, "Normalize" ile farklı birimler tek eksende karşılaştırılır. Ayarlar `sim_interface.json` içinde saklanır.
 
@@ -158,12 +160,12 @@ uygulamada donanımla doğrulanmamıştır**. Bu yüzden:
 
 - Üstte yatay sekme çubuğu; **Ana Sayfa sekmesi sabittir** (kapatılamaz/taşınamaz) ve
   16" laptopta (en az ~1280x720 etkin çözünürlük) **kaydırma olmadan** tek ekrana sığar.
-- Sol: **Uçuş Koşulları**, **Motor Kontrol** ve **Eyleyiciler** (ikisi kilitli, değer + `_sw`, CAN/A2L) +
+- Sol: **Uçuş Koşulları**, **Motor Kontrol** (kilitli değer kutusu, switch yok) ve **Eyleyiciler** (kilitli, değer + `_sw`, CAN/A2L) +
   **Son olaylar** (komut gönderildi / hata / bağlantı, renkli). Sağ: **Motor Parametreleri** (8 gösterge) + **Canlı Trendler**.
-- **⚙ Eşleşmeler**: sensör, eyleyici, motor komutu ve giriş sinyalleri. Sensör ve eyleyicilerde
-  her değişkenin **Değer** ve **Anahtar (`_sw`)** eşleşmesi ayrı ayrı **CAN (DBC) ya da A2L**
-  olarak seçilir (sensörlerde isteğe bağlı *Arıza* biti de). Motoru Başlat / Durdur / Acil
-  Durdurma da CAN veya A2L olabilir. Eski `dashboard_config.json` otomatik göç eder.
+- **⚙ Eşleşmeler**: sensör, eyleyici, motor komutu ve giriş sinyalleri. Eyleyicilerde **Değer** ve
+  **Anahtar (`_sw`)** eşleşmesi ayrı ayrı **CAN (DBC) ya da A2L** seçilir; sensörlerde yalnızca **Değer** (+ isteğe bağlı
+  *Arıza* biti), Motor Kontrol'de yalnızca **Değer**, Motoru Başlat / Durdur / Acil Durdurma'da yalnızca **Komut**
+  eşlenir (switch yalnızca Eyleyicilerdedir). Eski `dashboard_config.json` otomatik göç eder.
 - **Arayüz uzun işlemlerde donmaz:** harita/tablo, flaş ve toplu parametre yazmaları arka plan iş
   parçacığında yürür (durum çubuğunda "⏳ … yazılıyor"; o sırada Kalibrasyon ve Kontrol Paneli sayfaları
   geçici kilitlenir, ikinci bir uzun iş başlatılamaz, pencere kapatılamaz). Acil Durdurma, eyleyici ve
@@ -173,6 +175,9 @@ uygulamada donanımla doğrulanmamıştır**. Bu yüzden:
 - **Acil Durdurma ONAY SORMAZ:** tek tıkla ya da **`Ctrl+Shift+E`** ile (hangi sayfa açık olursa olsun, odak bir
   giriş kutusunda bile) gönderilir. `Ctrl+1` … `Ctrl+6` sayfalar arasında geçer. Ana düğmelerin ve durum
   göstergelerinin ekran okuyucu adları vardır.
+- **Parametre Listesi'nde değer yazma:** Değer hücresine yazıp **Enter** ile RAM'e yazılır. Bunun için rolün
+  **Mühendis veya Yönetici** olması gerekir (sağ üstteki ⚙ Ayarlar > rol). **Operatör** rolünde Değer hücreleri
+  kilitlidir ve ipucu satırı nedenini söyler; değerler yine canlı izlenir.
 - **Tablo yedeğinden geri yükleme:** Harita Editörü > **Yedekten Yükle…** seçili tablonun, ECU'ya yazılmadan
   önce otomatik alınmış yedeklerinden birini tabloya getirir (aynı nesne, adres ve boyut doğrulanır). ECU'ya
   YAZILMAZ; "ECU'ya Yaz" ile ayrıca yazarsınız ve tek adımda Geri Al ile vazgeçilebilir.
@@ -193,7 +198,7 @@ uygulamada donanımla doğrulanmamıştır**. Bu yüzden:
   Aynı sınır muafiyeti Motoru Durdur için de geçerlidir; Motoru Başlat ve eyleyici yazımlarında sınır
   denetimi aynen geçerlidir. Bu davranış otomatik
   testlerle yazılım düzeyinde sınanmıştır; gerçek ECU'da motoru durdurduğu donanımda ayrıca doğrulanmalıdır.
-- **Kilit (`_sw`)**: kilitli (anahtar=0) iken değer değiştirilemez. Kilit açılınca (Mühendis/Yönetici
+- **Kilit (`_sw`, yalnızca Eyleyiciler)**: kilitli (anahtar=0) iken değer değiştirilemez. Kilit açılınca (Mühendis/Yönetici
   + onay) önce değer, sonra `<ad>_sw = 1` yazılır; tekrar kilitleyince `<ad>_sw = 0`.
 - **Canlı Trendler**: normalize yok, her sinyal gerçek birimiyle (çoklu Y ekseni); 60 sn/5 dk/10 dk/1 sa,
   yakınlaştır/uzaklaştır, A/B imleçleri ve Δ, iki sinyalin farkı, Test Başlat/Bitir işaretleri,
@@ -229,7 +234,11 @@ uygulamada donanımla doğrulanmamıştır**. Bu yüzden:
   geri çekilmeli olarak (0,5 → 5 sn) sürekli dener. Durum üst şeritteki çipte ve CCP/Kalibrasyon
   sekmelerinde görünür.
 - **Kalibrasyon > Parametre Listesi:** değerler sürekli canlıdır; Değer hücresine yazıp **Enter** yazar
-  (Esc / başka yere tıklamak iptal), yazılan değer ECU'dan geri okunup doğrulanır.
+  (Esc / başka yere tıklamak iptal), yazılan değer ECU'dan geri okunup doğrulanır. A2L'den eklenen **ölçüm
+  (MEASUREMENT)** satırlarına da değer girilir (bu ECU'da override değişkenleri `clbc_*` ölçüm olarak tanımlıdır; ECU
+  yazılan değeri kendi hesabıyla geri ezebilir). Değer yazmak için **Mühendis veya Yönetici** rolü gerekir:
+  Operatör rolünde Değer hücreleri kilitlidir ve listenin üstünde nedeni yazar. (Eskiden canlı okuma her 250 ms'de
+  hücreyi yenilerken açık düzenleyiciyi sıfırladığı için yazılan karakterler siliniyordu; düzeltildi.)
 - **Ayarlanabilir parametreler (clbc_*)** grafik/trend/çalışma alanı/performans listelerinde
   "Ayarlanabilir parametreler" grubunda görünür.
 - Doğrulanamayanlar: PCAN-USB'nin gerçek bus-off davranışı ve gerçek ECU açılış süresi yalnızca
@@ -365,10 +374,13 @@ Aşağıdakiler yazılımın otomatik testleriyle **kanıtlanamaz**; gerçek ECU
 ## Oturum parametre kaydı (CSV)
 **Tanılama ve Oturum → Oturumu Başlat** ile birlikte izlenen parametrelerin değerleri diske sürekli yazılır; böylece oturum bittikten (program kapandıktan/çöktükten sonra bile) incelenebilir.
 - **Dosya:** veri klasöründe `oturum_kayitlari\<test_ismi>_<tarih_saat>.csv`. Her oturum yeni dosya açar, eskisinin üzerine yazılmaz. Yol oturum kartında ve olay günlüğünde (OTURUM) görünür.
-- **Neler yazılır:** A2L/CCP ile okunan ve izlenen değerler (`a2l:<ölçüm>`: Ana Sayfa göstergeleri ve grafiği, Parametre Listesi, Çalışma Alanı), Ana Sayfa göstergeleri (`gauge:<anahtar>`), Simülasyon girişleri (`input:<anahtar>`) ve Çalışma Alanı'nda seçili DBC sinyalleri (`dbc:<MESAJ>.<SİNYAL>`). Aynı değer iki kaynaktan gelirse tek satır yazılır.
+- **Kayıt ilkesi — her veri kendi geliş zamanında ve kendi periyoduyla yazılır** (arayüz zamanlayıcısına bağlı örnekleme yoktur, veri kaybolmaz):
+  - **CAN (`dbc:<MESAJ>.<SİNYAL>`):** DBC'deki **tüm** mesajların **her gelişinde**, mesajdaki tüm sinyaller, karenin gerçek geliş zamanıyla yazılır; ekranda kullanılmayan sinyaller de dahil. 10 ms'de bir gelen mesaj 10 ms'de bir, 100 sn'de bir gelen 100 sn'de bir satır üretir. Aynı değer tekrar gelse de her geliş bir satırdır. Ayrı bir iş parçacığında yazılır; kuyruk dolarsa düşen kare sayısı olay günlüğüne HATA olarak yazılır.
+  - **A2L/CCP (`a2l:<ölçüm>`):** CCP iş parçacığı her okumada değeri izler; **değer değiştiğinde** okuma zamanıyla bir satır yazılır (başlangıç değeri dahil). ECU'daki bir değişken 10 sn'de bir güncelleniyorsa 10 sn'de bir satır oluşur; değişmeyen değer tekrar tekrar yazılmaz (Excel'in **Geniş tablo** sayfası son değeri korur). Yalnızca arayüzde izlenen (gösterge, Parametre Listesi, Çalışma Alanı, Kontrol Paneli...) değişkenler okunduğu için yalnızca onlar kaydolur.
+  - **Kullanıcı girişleri (`input:<anahtar>`):** girildikleri anda. Ana Sayfa göstergeleri ayrıca yazılmaz; değerleri kaynak kimlikleriyle (`a2l:`/`dbc:`) zaten kayıttadır.
 - **Biçim:** `time,signal,value,unix_time` (time = oturum başından saniye; unix_time = mutlak zaman). Excel'de açılabilir.
 - **Geri açma:** Analiz → Çalışma Alanı → **CSV aç** ile kayıt yüklenip grafikte çizilir, yeni bir kayıtla üst üste karşılaştırılabilir.
-- Veri saniyede bir diske işlenir (çökmede en çok ~1 sn kaybolur). Disk hatasında kayıt durur ve olay günlüğüne HATA yazılır. Manuel adresli (A2L'siz) Parametre Listesi satırları kaydedilmez. Oturum başlatılmadıkça kayıt yapılmaz.
+- Veri saniyede bir diske işlenir (çökmede en çok ~1 sn kaybolur). Oturum boyunca girişleriniz de ayrıca `<oturum>_girisler.csv` dosyasına satır satır yazılır. Disk hatasında kayıt durur ve olay günlüğüne HATA yazılır. Manuel adresli (A2L'siz) Parametre Listesi satırları kaydedilmez. Oturum başlatılmadıkça kayıt yapılmaz.
 
 ## Kayıtlar ve Excel (.xlsx) — testlerden sonra inceleme
 
@@ -382,10 +394,14 @@ yalnızca sizin açıkça başlattığınız kalibrasyon işlemleridir (RAM'e Ya
 | **Elle Excel'e aktar** | *Tanılama ve Oturum* > **Excel'e Aktar** | seçtiğiniz klasör |
 
 Oturum Excel dosyasının sayfaları:
-**Özet** (oturum adı, operatör, süre, olay / hata / RAM ve FLAŞ yazım sayıları) · **Sinyal özeti** (her sinyalin örnek
-sayısı, ilk/son, min/maks/ortalama) · **Parametre kaydı** (uzun biçim: tarih/saat, süre, sinyal, değer) ·
-**Geniş tablo** (1 sn'de bir satır, sinyaller sütun; son değer korunur: Excel'de tek zaman ekseniyle doğrudan
-grafik çizilir) · **Olay günlüğü** · **Kalibrasyon yazımları** (RAM / FLAŞ, eski ve yeni değer).
+**Özet** (oturum adı, operatör, süre, olay / hata sayıları, **sayfa başına giriş sayıları**, RAM ve FLAŞ yazım sayıları) ·
+**Girişler (tüm sayfalar)** — hangi sayfada ne yaptıysanız hepsi: Ana Sayfa (eyleyici değeri, switch, motor komutu,
+uçuş koşulu), Kontrol Paneli, Kalibrasyon (Parametre Listesi, CCP, Harita Editörü, geri alma); tarih/saat, sayfa,
+tür, hedef (sinyal/parametre), eski ve yeni değer, **başarılı mı / başarısız mı** (reddedilen denemeler dahil),
+kullanıcı, rol · **Kalibrasyon yazımları** (RAM / FLAŞ, eski ve yeni değer) · **Olay günlüğü** · **Sinyal özeti**
+(her sinyalin örnek sayısı, ilk/son, min/maks/ortalama) · **Parametre kaydı** (her değer kendi geliş zamanıyla:
+tarih/saat, süre, sinyal, değer) · **Geniş tablo** (1 sn'de bir satır, sinyaller sütun; son değer korunur: Excel'de
+tek zaman ekseniyle doğrudan grafik çizilir).
 
 Notlar:
 - Kayıt **oturum boyunca CSV'ye sürekli** yazılır (program çökse bile veri kaybolmaz); Excel dosyası kayıt bitince

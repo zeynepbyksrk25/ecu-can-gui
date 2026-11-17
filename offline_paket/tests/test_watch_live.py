@@ -199,3 +199,188 @@ def test_watch_rows_show_ecu_yok_quickly_and_recover_after_power_cycle(live_wind
     assert wait_for(lambda: tab._entries[0].error is None and
                     tab.table.item(0, wt.COL_VALUE).text() == "12.5", pump=pump)
     assert "çevrimiçi" in tab.live_label.text()
+
+
+# ---------------------------------------------------------------- değer girişi (ölçüm + rol)
+def _a2l_tab_with_objects(qapp):
+    from app.a2l import A2LDatabase
+    db = A2LDatabase()
+    summary = db.load(os.path.join(DATA, "sample.a2l"))
+    t = wt.WatchTab()
+    t.a2l_db = db
+    meas = next(m for m in summary.measurements if m.name == "clbc_Fuel_pump_dc_perc")
+    char = next(c for c in summary.characteristics if c.name == "clbc_Fuel_pump_gain")
+    t.add_a2l_objects([("measurement", meas), ("characteristic", char)])
+    return t
+
+
+def test_a2l_measurement_rows_accept_typed_values_like_calibration_parameters(qapp):
+    """Eskiden A2L'den eklenen ölçümler zorla salt-okunurdu: hiçbirine değer girilemiyordu."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    t = _a2l_tab_with_objects(qapp)
+    t.resize(1200, 400)
+    t.show()
+    got = []
+    t.write_requested.connect(lambda rows: got.append(list(rows)))
+    for row in (0, 1):                                              # 0: ölçüm, 1: karakteristik
+        item = t.table.item(row, wt.COL_VALUE)
+        assert item.flags() & Qt.ItemIsEditable, f"satır {row} düzenlenemiyor"
+        idx = t.table.model().index(row, wt.COL_VALUE)
+        t.table.setCurrentIndex(idx)
+        t.table.edit(idx)
+        editor = t.table.viewport().focusWidget()
+        QTest.keyClicks(editor, "42.5")
+        QTest.keyClick(editor, Qt.Key_Return)
+        QTest.qWait(50)                                              # düzenleyici kapansın, sonra sıradaki satır
+    assert got == [[0], [1]]                                        # gerçek klavye girişi iki satırı da yazdırdı
+    assert t.pending_text(0) == "42.5" and t.pending_text(1) == "42.5"
+    assert "ölçüm değişkeni" in t.table.item(0, wt.COL_NAME).toolTip()
+
+
+def test_measurement_rows_stay_writable_after_the_list_is_saved_and_reloaded(qapp, tmp_path):
+    from PySide6.QtCore import Qt
+    t = _a2l_tab_with_objects(qapp)
+    t.set_storage_path(str(tmp_path / "w.json"))
+    t._save()
+    t2 = wt.WatchTab()
+    t2.a2l_db = t.a2l_db
+    t2.set_storage_path(str(tmp_path / "w.json"))
+    t2.refresh_objects()
+    assert t2.table.item(0, wt.COL_VALUE).flags() & Qt.ItemIsEditable
+
+
+def test_operator_role_locks_a2l_rows_including_measurements(qapp):
+    from PySide6.QtCore import Qt
+    t = _a2l_tab_with_objects(qapp)
+    t.set_write_allowed(False)
+    assert "Mühendis veya Yönetici" in t.hint_label.text()
+    for row in (0, 1):                                                  # ölçüm ve karakteristik
+        assert not t.table.item(row, wt.COL_VALUE).flags() & Qt.ItemIsEditable
+    t.set_write_allowed(True)
+    for row in (0, 1):
+        assert t.table.item(row, wt.COL_VALUE).flags() & Qt.ItemIsEditable
+
+
+def test_typed_value_on_a_measurement_row_reaches_the_ecu_and_is_recorded(live_window):
+    """Uçtan uca: ölçüm (clbc_*) satırına değer girilir, ECU belleğine yazılır, giriş kaydına düşer."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    w, ecu, obj, pump = live_window
+    w.watch_tab._entries[0].read_only = True                 # fixture'ın zorladığı bayrağı geri al: gerçek yol
+    w.watch_tab.refresh_objects()                            # A2L'den yeniden çözümle (gerçek varsayılanlar)
+    w.watch_tab.set_write_allowed(True)
+    tab = w.watch_tab
+    assert wait_for(lambda: tab.table.item(0, wt.COL_VALUE).text() == "12.5", pump=pump)
+    idx = tab.table.model().index(0, wt.COL_VALUE)
+    assert tab.table.item(0, wt.COL_VALUE).flags() & Qt.ItemIsEditable
+    tab.table.setCurrentIndex(idx)
+    tab.table.edit(idx)
+    editor = tab.table.viewport().focusWidget()
+    QTest.keyClicks(editor, "33.5")
+    QTest.keyClick(editor, Qt.Key_Return)
+    assert wait_for(lambda: struct.unpack("<f", bytes(ecu.read_memory_bytes(obj.address, 4)))[0] == 33.5, pump=pump)
+    rec = [e for e in w.input_log.entries if e.page == "Kalibrasyon > Parametre Listesi"]
+    assert rec and rec[-1].target == "clbc_Fuel_pump_dc_perc" and rec[-1].new_value == 33.5 and rec[-1].ok
+
+
+def test_ccp_values_are_recorded_when_they_change_with_the_read_time_not_per_ui_poll(live_window):
+    """Oturum kaydı: değer ECU'da değiştiğinde, okuma anıyla yazılır; arayüz her yoklayışında tekrar yazılmaz."""
+    import csv
+    w, ecu, obj, pump = live_window
+    tab = w.watch_tab
+    assert wait_for(lambda: tab.table.item(0, wt.COL_VALUE).text() == "12.5", pump=pump)
+    w.session_tab._on_start()
+    assert wait_for(lambda: w.session_recorder.rows >= 1, pump=pump)          # başlangıç değeri
+    end = time.time() + 0.8                                                   # değer SABİT: onlarca okuma/yoklama
+    while time.time() < end:
+        pump()
+        w._on_watch_read()                                                    # arayüz yoklaması da kayıt üretmemeli
+        time.sleep(0.01)
+    assert w.session_recorder.rows == 1
+    t1 = time.time()
+    ecu.write_memory_bytes(obj.address, struct.pack("<f", 20.0))
+    assert wait_for(lambda: w.session_recorder.rows >= 2, pump=pump)
+    ecu.write_memory_bytes(obj.address, struct.pack("<f", 30.0))
+    assert wait_for(lambda: w.session_recorder.rows >= 3, pump=pump)
+    time.sleep(0.2)
+    assert w.session_recorder.rows == 3
+    path = w.session_recorder.path
+    w.session_tab._on_stop()
+    with open(path, newline="", encoding="utf-8") as f:
+        rows = list(csv.reader(f))[1:]
+    assert [(r[1], float(r[2])) for r in rows] == [("a2l:clbc_Fuel_pump_dc_perc", 12.5),
+                                                    ("a2l:clbc_Fuel_pump_dc_perc", 20.0),
+                                                    ("a2l:clbc_Fuel_pump_dc_perc", 30.0)]
+    assert t1 <= float(rows[1][3]) <= t1 + 1.5                                # ECU'da değiştiği ana yakın okuma zamanı
+
+
+# ---------------------------------------------------------------- gerçek düzenleme akışı (çift tıkla, yaz, Enter)
+def _type_into_cell(tab, text, pump, hold=0.5):
+    """Hücreyi çift tıklayıp yazar; yazarken canlı güncelleme turları (zamanlayıcı) sürer. Düzenleyiciyi döner."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    item = tab.table.item(0, wt.COL_VALUE)
+    tab.table.setCurrentCell(0, wt.COL_VALUE)
+    tab.table.scrollToItem(item)
+    pos = tab.table.visualItemRect(item).center()
+    QTest.mouseDClick(tab.table.viewport(), Qt.LeftButton, Qt.NoModifier, pos)
+    pump()
+    if tab.table.state() != wt.QAbstractItemView.EditingState:      # ilk çift tıklama pencere odağı alırken kaçabilir
+        QTest.mouseDClick(tab.table.viewport(), Qt.LeftButton, Qt.NoModifier, pos)
+        pump()
+    editor = tab.table.findChild(QLineEdit)
+    assert editor is not None and editor.isVisible(), "düzenleyici açılmadı"
+    editor.selectAll()
+    QTest.keyClicks(editor, text)
+    end = time.time() + hold                 # yazdıktan sonra canlı güncelleme turlarının geçmesini bekle
+    while time.time() < end:
+        pump()
+        time.sleep(0.02)
+    return editor
+
+
+def test_typed_characters_survive_live_updates_and_enter_writes(live_window):
+    """Hata: canlı okuma her turda hücrenin bayraklarını yeniden işaretleyince Qt açık düzenleyiciyi model değerine
+    sıfırlıyor, yazılan karakterler siliniyordu ("değer girilmiyor")."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    w, ecu, obj, pump = live_window
+    tab = w.watch_tab
+    w.resize(1500, 900)
+    w.show()                                                    # gerçek kullanımdaki gibi: pencere ve sekme açık
+    w.nav_bar.setCurrentIndex(2)
+    w.kalibrasyon_tab.inner_tabs.setCurrentWidget(tab)
+    tab.set_write_allowed(True)
+    assert wait_for(lambda: tab.table.item(0, wt.COL_VALUE).text() == "12.5", pump=pump)
+    editor = _type_into_cell(tab, "33.5", pump)
+    assert editor.text() == "33.5", "yazılan metin canlı güncellemeyle silindi"
+    QTest.keyClick(editor, Qt.Key_Return)
+    assert wait_for(lambda: struct.unpack("<f", ecu.read_memory_bytes(obj.address, 4))[0] == 33.5, pump=pump)
+    assert wait_for(lambda: "doğrulandı" in tab.status_label.text(), pump=pump)
+
+
+def test_operator_sees_locked_cells_with_a_reason_and_engineer_unlocks_them(live_window):
+    from PySide6.QtCore import Qt
+    from app.user_roles import Role
+    w, ecu, obj, pump = live_window
+    tab = w.watch_tab
+    assert wait_for(lambda: tab.table.item(0, wt.COL_VALUE).text() == "12.5", pump=pump)
+    w._on_role_applied("zeynep", Role.OPERATOR.value)
+    item = tab.table.item(0, wt.COL_VALUE)
+    assert not (item.flags() & Qt.ItemIsEditable)
+    assert "Mühendis veya Yönetici" in tab.hint_label.text() and "Mühendis veya Yönetici" in item.toolTip()
+    w._on_role_applied("zeynep", Role.ENGINEER.value)
+    assert item.flags() & Qt.ItemIsEditable and "Enter" in tab.hint_label.text()
+    w._on_role_applied("zeynep", Role.ADMIN.value)
+    assert item.flags() & Qt.ItemIsEditable
+
+
+def test_unchanged_live_refresh_does_not_notify_the_view(tab):
+    """Aynı durumdaki satır yenilenince Qt'ye veri değişti bildirimi gitmemeli (açık düzenleyiciyi sıfırlar)."""
+    tab.set_connected(True)
+    seen = []
+    tab.table.model().dataChanged.connect(lambda *a: seen.append(a))
+    for _ in range(5):
+        tab._render_value_cell_guarded(0)
+    assert seen == []

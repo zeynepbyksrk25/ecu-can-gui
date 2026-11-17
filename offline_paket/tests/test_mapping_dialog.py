@@ -39,13 +39,14 @@ def dlg(qapp):
     w.close()
 
 
-def test_dialog_has_value_sw_and_fault_columns_for_sensors_and_value_sw_for_actuators(dlg):
+def test_switch_column_exists_only_for_actuators(dlg):
     w, d = dlg
-    assert set(d.sensor_ed["RPM"]) == {"value", "sw", "fault"}
-    assert set(d.actuator_ed["pompa_fuel"]) == {"value", "sw"}
-    assert set(d.control_ed) == {"start", "spark", "throttle", "primary_fuel"}      # Motor Kontrol: Eyleyici modeli
-    assert set(d.control_ed["start"]) == {"value", "sw"}
-    assert set(d.motor_sw_ed) == {"motor_start", "motor_stop", "estop"}               # komutlarda isteğe bağlı _sw
+    assert set(d.sensor_ed["RPM"]) == {"value", "fault"}                             # sensörde switch yok
+    assert set(d.actuator_ed["pompa_fuel"]) == {"value", "sw"}                        # switch YALNIZCA Eyleyicilerde
+    assert set(d.control_ed) == {"start", "throttle"}                                # Spark / Birincil Yakıt kaldırıldı
+    assert set(d.control_ed["start"]) == {"value"}                                   # Motor Kontrol'de switch yok
+    assert set(d.motor_ed) == {"motor_start", "motor_stop", "estop"}                  # komutlarda yalnızca eşleme (Değer/Switch yok)
+    assert not hasattr(d, "motor_sw_ed")
     assert [d.tabs.tabText(i) for i in range(d.tabs.count())] == ["Sinyaller", "Uçuş Koşulları"]
 
 
@@ -57,7 +58,7 @@ def test_result_config_keeps_independent_sources_and_auto_sw(dlg):
     assert ed["sw"].binding() == Binding(SOURCE_A2L, a2l_name="clbc_Fuel_pump_dc_perc_sw")
     d.actuator_ed["valf"]["value"].set_binding(Binding(SOURCE_CAN, "OVERRIDE", "valf_cmd"))
     d.actuator_ed["valf"]["sw"].set_binding(Binding(SOURCE_A2L, a2l_name="clbc_Fuel_pump_dc_perc_sw"))
-    d.motor_ed["estop"][0].set_binding(Binding(SOURCE_A2L, a2l_name="clbc_Fuel_pump_dc_perc_sw"))
+    d.motor_ed["estop"].set_binding(Binding(SOURCE_A2L, a2l_name="clbc_Fuel_pump_dc_perc_sw"))
     cfg = d.result_config()
     assert cfg.actuators["valf"].value.source == SOURCE_CAN and cfg.actuators["valf"].sw.source == SOURCE_A2L
     assert cfg.estop.binding.source == SOURCE_A2L

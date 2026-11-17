@@ -117,6 +117,9 @@ class CcpSession:
         self.round_ms = 0.0
         self.items = 0
         self.reconnects = 0
+        # Her BAŞARILI okuma için (CCP iş parçacığında) çağrılır: on_read((adres, uzantı, boyut), bayt, okuma_zamanı).
+        # Oturum kaydı değişkenleri arayüz zamanlayıcısıyla değil, okumanın gerçek anında yazar.
+        self.on_read = None
         self.reader = CachedReader(self)
         self.guarded = GuardedClient(self)
 
@@ -344,6 +347,12 @@ class CcpSession:
             try:
                 data = self._client.read_memory(address, size, ext)
                 successes += 1
+                cb = self.on_read
+                if cb is not None:
+                    try:
+                        cb(key, data, time.time())
+                    except Exception:  # noqa: BLE001 - kayıt hatası okuma turunu bozmasın
+                        log.debug("on_read hata verdi", exc_info=True)
             except ccp.CCPTimeoutError as exc:
                 err, dead = exc, True
             except ccp.CCPError as exc:

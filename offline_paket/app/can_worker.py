@@ -79,6 +79,9 @@ class CanConnection:
         # gönderirse göndersin buraya düşer; arayüz izleme tablosuna ve CSV kaydına buradan aktarır.
         self.tx_queue: "queue.Queue[can.Message]" = queue.Queue(maxsize=TX_QUEUE_MAX)
         self.dropped_tx = 0
+        # Alınan HER kare için (alım iş parçacığında, bloklamadan) çağrılır: oturum kaydı karenin GERÇEK geliş zamanında
+        # yazabilsin diye (arayüz zamanlayıcısından bağımsız). Hatası alım döngüsünü durdurmaz.
+        self.frame_tap = None
         # CCP/CAL katmanı aynı fiziksel bus'ı paylaşır; tek RX thread her
         # mesajı okuyup CCP DTO ID'sine uyanları da (rx_queue'ya EK olarak)
         # bu kuyruğa yazar. İki ayrı thread'in aynı bus.recv()'i yarışarak
@@ -319,6 +322,12 @@ class CanConnection:
                     self.rx_queue.put_nowait(msg)
                 except queue.Full:
                     self.dropped_frames += 1
+                tap = self.frame_tap
+                if tap is not None:
+                    try:
+                        tap(msg)
+                    except Exception:  # noqa: BLE001
+                        log.debug("frame_tap hata verdi", exc_info=True)
                 if self.ccp_dto_id is not None and msg.arbitration_id == self.ccp_dto_id:
                     try:
                         self.ccp_queue.put_nowait(msg)

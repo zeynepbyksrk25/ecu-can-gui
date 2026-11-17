@@ -1,5 +1,6 @@
 """Ana Sayfa: eşleşme (Binding) yazımı, motor komutları ve Acil Durdurma, gösterge/grafik beslemesi,
 oturum parametre kaydı ve Çalışma Alanı okuması."""
+import os
 
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
@@ -10,7 +11,7 @@ from app.ccp import codec as ccp_codec
 from app.ccp import protocol as ccp_protocol
 from app import control_panel as cpanel
 from app.dashboard_config import (
-    CONTROL_KEYS, GAUGE_KEYS, SOURCE_A2L, SOURCE_CAN, Binding,
+    COMMAND_VALUE, CONTROL_KEYS, GAUGE_KEYS, SOURCE_A2L, SOURCE_CAN, Binding,
 )
 from app.paths import data_path
 from app.ui.mainwin.common import (
@@ -36,8 +37,14 @@ class DashboardMixin:
             QMessageBox.warning(self, "Eşleşme yok", f"{label} için eşleşme tanımlı değil (⚙ Eşleşmeler).")
             return False
         if binding.source == SOURCE_A2L:
-            return self._write_a2l(binding, value, label, safety)
+            return self._write_a2l(binding, value, label, safety, merge)
         return self._write_can(binding, value, label, merge, safety)
+
+    @staticmethod
+    def _input_kind(label: str, merge: bool, safety: bool) -> str:
+        if safety or not merge:
+            return "Motor komutu"
+        return "Switch (_sw)" if label.endswith("anahtarı") else "Değer girişi"
 
     def _write_can(self, binding: Binding, value: float, label: str, merge: bool = True,
                    safety: bool = False, extra: dict | None = None) -> bool:
@@ -45,6 +52,9 @@ class DashboardMixin:
         if not self.connection.is_connected:
             QMessageBox.warning(self, "CAN bağlantısı yok",
                                 f"{label} göndermeden önce CAN hattına bağlanın.")
+            self._record_input("Ana Sayfa", self._input_kind(label, merge, safety), "CAN",
+                               f"{binding.message}.{binding.signal}", value, ok=False,
+                               detail=f"{label}: CAN bağlı değil")
             return False
         vals = {binding.signal: value}
         if extra:
@@ -74,10 +84,14 @@ class DashboardMixin:
                     "(⚙ Eşleşmeler) düzeltin.") if safety else ""
             QMessageBox.critical(self, f"{label} gönderilemedi", f"{exc}{hint}")
             self._log_event("HATA", f"{label} gönderilemedi: {exc}")
+            self._record_input("Ana Sayfa", self._input_kind(label, merge, safety), "CAN",
+                               f"{binding.message}.{binding.signal}", value, ok=False, detail=f"{label}: {exc}")
             return False
         self._drain_tx_queue()
         self._log_event("EYLEYICI", f"{label} [CAN {binding.message}.{binding.signal}] = {value:g} "
                                     f"({self.current_user}/{self.current_role.value})")
+        self._record_input("Ana Sayfa", self._input_kind(label, merge, safety), "CAN",
+                           f"{binding.message}.{binding.signal}", value, detail=label)
         if safety:
             self._repeat_safety_frame(label, can_id, data, extended, SAFETY_REPEAT_COUNT)
         return True
@@ -116,10 +130,12 @@ class DashboardMixin:
                     return m
         return None
 
-    def _write_a2l(self, binding: Binding, value: float, label: str, safety: bool = False) -> bool:
+    def _write_a2l(self, binding: Binding, value: float, label: str, safety: bool = False, merge: bool = True) -> bool:
         if self.ccp_client is None:
             QMessageBox.warning(self, "CCP bağlı değil",
                                 f"{label} A2L üzerinden yazılmadan önce CCP bağlantısı kurun.")
+            self._record_input("Ana Sayfa", self._input_kind(label, merge, safety), "A2L", binding.a2l_name, value,
+                               ok=False, detail=f"{label}: CCP bağlı değil")
             return False
         info = self._a2l_info(binding.a2l_name)
         try:
@@ -156,29 +172,24 @@ class DashboardMixin:
                     "(⚙ Eşleşmeler) düzeltin.") if safety else ""
             QMessageBox.critical(self, f"{label} yazılamadı", f"{exc}{hint}")
             self._log_event("HATA", f"{label} A2L yazılamadı: {exc}")
+            self._record_input("Ana Sayfa", self._input_kind(label, merge, safety), "A2L", binding.a2l_name, value,
+                               ok=False, detail=f"{label}: {exc}", unit=getattr(info, "unit", "") or "")
             return False
         self._log_event("EYLEYICI", f"{label} [A2L {binding.a2l_name}] = {value:g} "
                                     f"({self.current_user}/{self.current_role.value})")
+        self._record_input("Ana Sayfa", self._input_kind(label, merge, safety), "A2L", binding.a2l_name, value,
+                           detail=label, unit=getattr(info, "unit", "") or "")
         return True
 
     def _send_motor_command(self, command_name: str, cmd, safety: bool = False) -> bool:
+        """Basılınca eşlenen sinyale/değişkene sabit ``COMMAND_VALUE`` (1) yazar: tek sinyallik, tek seferlik darbe.
+        Değer ve Switch (_sw) yoktur; mesajın diğer sinyallerinin eski değerleri taşınmaz."""
         if not cmd.binding.is_set:
             self._log_event("HATA", f"{command_name} GÖNDERİLEMEDİ: eşleme tanımlı değil")
             return False
-        # Komutlar darbedir: mesajın diğer sinyallerinin eski değerleri taşınmaz. _sw tanımlıysa (eyleyiciler
-        # gibi) değer YAZILDIKTAN SONRA sw = 1 yazılır; aynı CAN mesajındaysa ikisi TEK karede gider.
-        sw = cmd.sw if getattr(cmd, "sw", None) is not None and cmd.sw.is_set else None
-        if sw is not None and cmd.binding.source == SOURCE_CAN and sw.source == SOURCE_CAN \
-                and cmd.binding.message == sw.message:
-            ok = self._write_can(cmd.binding, cmd.value, command_name, merge=False, safety=safety,
-                                 extra={sw.signal: 1.0})
-        else:
-            ok = self._write_binding(cmd.binding, cmd.value, command_name, merge=False, safety=safety)
-            if ok and sw is not None:
-                ok = self._write_binding(sw, 1.0, f"{command_name} anahtarı", merge=False, safety=safety)
+        ok = self._write_binding(cmd.binding, COMMAND_VALUE, command_name, merge=False, safety=safety)
         if ok:
-            extra_txt = f", {sw.text}=1" if sw is not None else ""
-            self._log_event("MOTOR", f"{command_name} gönderildi ({cmd.binding.text}={cmd.value:g}{extra_txt})")
+            self._log_event("MOTOR", f"{command_name} gönderildi ({cmd.binding.text}={COMMAND_VALUE:g})")
         else:
             self._log_event("HATA", f"{command_name} GÖNDERİLEMEDİ ({cmd.binding.text})")
         return ok
@@ -287,6 +298,10 @@ class DashboardMixin:
             self.session_tab.set_record_info(f"Parametre kaydı BAŞLATILAMADI: {exc}")
             self.session_tab.refresh_log()
             return
+        self.input_log.start_file(os.path.splitext(path)[0] + "_girisler.csv")    # girişler oturum boyunca diske
+        self._ccp_last_bytes = {}                                                  # ilk okuma başlangıç değeri olarak yazılsın
+        self.frame_recorder.start()
+        self.connection.frame_tap = self.frame_recorder.submit                     # her CAN karesi geliş zamanında
         self.event_log.add("OTURUM", f"Parametre kaydı başladı: {path}")
         self.session_tab.set_record_info(f"● Parametre kaydı: {path}")
         self.session_tab.refresh_log()
@@ -295,6 +310,13 @@ class DashboardMixin:
         rec = self.session_recorder
         path, rows, err = rec.path, rec.rows, rec.error
         rec.stop()
+        self.input_log.stop_file()
+        self.connection.frame_tap = None
+        self.frame_recorder.stop()
+        if path and self.frame_recorder.frames:
+            self.event_log.add("OTURUM", f"CAN kare kaydı: {self.frame_recorder.frames} kare çözümlenip yazıldı")
+        if self.frame_recorder.dropped:
+            self.event_log.add("HATA", f"CAN kaydı: {self.frame_recorder.dropped} kare kuyruk dolduğu için YAZILAMADI")
         if path:
             self._last_record_csv = path
             self.event_log.add("OTURUM", f"Parametre kaydı bitti: {rows} örnek, {path}")
@@ -306,6 +328,47 @@ class DashboardMixin:
         if xlsx:
             self.session_tab.set_record_info(f"Kayıt: {path or '-'}\nExcel: {xlsx}")
         self.session_tab.refresh_log()
+
+    def _on_hub_sample(self, sid: str, value):
+        """Sinyal deposundan gelen örnek: yalnızca kullanıcı girişleri kayda yazılır (diğerleri kaynakta yazılır)."""
+        if sid.startswith("input:"):
+            self.session_recorder.record(sid, value)
+
+    def _rebuild_record_index(self):
+        """A2L yüklenince: CCP okuma anahtarı (adres, uzantı, boyut) -> A2L nesneleri. CCP iş parçacığı değeri
+        çözümleyip adıyla yazabilsin diye (yeni sözlük atomik olarak yerine konur)."""
+        index: dict = {}
+        summary = self.a2l_tab.db.summary
+        for obj in (summary.readable() if summary is not None else []):
+            if obj.address is None or not obj.datatype:
+                continue
+            try:
+                size = ccp_codec.datatype_size(obj.datatype)
+            except ccp_codec.UnknownDatatypeError:
+                continue
+            index.setdefault((obj.address, obj.address_extension or 0, size), []).append(obj)
+        self._record_index = index
+
+    def _on_ccp_sample(self, key: tuple, data: bytes, t: float):
+        """CCP iş parçacığından, HER başarılı okumada: değer DEĞİŞMİŞSE okuma zamanıyla kayda yazar. Değişmeyen
+        değer çözümlenmez bile (hızlı yol)."""
+        rec = self.session_recorder
+        if not rec.is_active:
+            return
+        infos = self._record_index.get(key)
+        if not infos:
+            return
+        data = bytes(data)
+        if self._ccp_last_bytes.get(key) == data:
+            return
+        self._ccp_last_bytes[key] = data
+        for info in infos:
+            try:
+                raw = ccp_codec.decode_value(info.datatype, data, info.byte_order)
+                phys = ccp_codec.raw_to_physical(info.compu_method, raw)
+            except Exception:  # noqa: BLE001
+                continue
+            rec.record_change(f"a2l:{info.name}", phys, t)
 
     def _sync_workspace_a2l(self):
         summary = self.a2l_tab.db.summary
@@ -382,8 +445,6 @@ class DashboardMixin:
             except ValueError as exc:
                 fail(str(exc))
                 continue
-            if isinstance(phys_value, (int, float)):
-                self.session_recorder.record(f"a2l:{name}", phys_value)
             if graph_wanted and isinstance(phys_value, (int, float)):
                 dt.add_measurement_sample(name, float(phys_value))
             for role, key in targets:

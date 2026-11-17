@@ -21,8 +21,9 @@ from app.dashboard_config import (
 )
 from app.eventlog import EventLog
 from app.history import CalibrationHistory
+from app.input_log import InputLog
 from app.logger import CanLogger
-from app.session_recorder import SessionRecorder
+from app.session_recorder import FrameRecorder, SessionRecorder
 from app.paths import data_path
 from app.profiles import ProfileStore
 from app.scheduler import PeriodicManager
@@ -36,7 +37,7 @@ from app.ui.tanilama_tab import TanilamaTab
 from app.ui.settings_dialog import SettingsDialog
 from app.ui.user_tab import UserTab
 from app.user_roles import (
-    Role, can_override_actuator,
+    Role, can_override_actuator, can_write_calibration,
 )
 
 # Eski içe aktarma yolu (app.ui.main_window) çalışmaya devam etsin diye yeniden dışa aktarılır.
@@ -82,6 +83,7 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         # uygulama kapansa/yeniden başlasa bile eski değerine geri
         # alınabilmesi gerektiği için (bkz. app/history.py).
         self.calibration_history = CalibrationHistory(file_path=data_path("calibration_history.json"))
+        self.input_log = InputLog()          # tüm sayfalardaki girişlerin yapılandırılmış kaydı (Excel'e gider)
         self.profile_store = ProfileStore(path=data_path("profiles.json"))
         self.dashboard_config_store = DashboardConfigStore(path=data_path("dashboard_config.json"))
         self.current_user = "bilinmeyen"
@@ -211,7 +213,15 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self.session_tab.event_log = self.event_log
         # Oturum boyunca izlenen parametreleri diske (CSV) yazan kayıt.
         self.session_recorder = SessionRecorder()
-        self.workspace_tab.hub.tap = self.session_recorder.record
+        # Kayıt KAYNAKTA, verinin kendi geliş zamanında yapılır (bkz. app/session_recorder.py): CAN kareleri alım
+        # iş parçacığından (FrameRecorder), CCP değerleri CCP iş parçacığından. Hub yalnızca kullanıcı girişlerini
+        # (input:) yazar; gösterge/grafik beslemeleri (arayüz zamanlayıcısıyla) KAYDA GİRMEZ.
+        self.frame_recorder = FrameRecorder(self.session_recorder, lambda: self.transmit_tab.dbc)
+        self.workspace_tab.hub.tap = self._on_hub_sample
+        self.ccp_session.on_read = self._on_ccp_sample
+        self._record_index: dict = {}                # (adres, uzantı, boyut) -> [A2L nesneleri]
+        self._ccp_last_bytes: dict = {}
+        self.a2l_tab.a2l_loaded.connect(self._rebuild_record_index)
         self.session_tab.session_started.connect(self._on_session_record_start)
         self.session_tab.session_stopped.connect(self._on_session_record_stop)
         self.session_tab.excel_requested.connect(self._on_excel_export_requested)
@@ -232,6 +242,7 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
 
         self._wire_signals()
         self._install_shortcuts_and_accessibility()
+        self.watch_tab.set_write_allowed(can_write_calibration(self.current_role))
         for sig in (self.transmit_tab.dbc_loaded, self.a2l_tab.a2l_loaded, self.dashboard_tab.config_saved,
                     self.user_tab.role_applied):
             sig.connect(self._schedule_minimum_size_refresh)
@@ -635,6 +646,8 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self._on_disconnect()
         self.ccp_session.stop(graceful=False)       # iş parçacığı her durumda bitsin
         self.can_logger.stop()
+        self.connection.frame_tap = None
+        self.frame_recorder.stop()
         self.session_recorder.stop()
         # Pencere kapandıktan sonra hiçbir zamanlayıcı çalışmasın (kapanmış pencerenin sayfaları
         # arka planda okuma/çizim yapmaya devam etmesin).

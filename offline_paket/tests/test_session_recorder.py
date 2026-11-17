@@ -25,16 +25,33 @@ def test_records_and_survives_without_stop_flush(tmp_path):
     assert len(_rows(path)) == 2
 
 
-def test_dedup_and_unique_file(tmp_path):
+def test_every_arrival_is_recorded_and_files_are_unique(tmp_path):
+    """Veri kaybetmemek için ZAMAN tabanlı tekilleştirme YOK: aynı değer 10 ms arayla iki kez gelmişse iki satır."""
     rec = SessionRecorder()
     p1 = rec.start(str(tmp_path), "x")
     t = rec._t0
     rec.record("s", 1.0, t_unix=t + 1.000)
-    rec.record("s", 1.0, t_unix=t + 1.010)   # aynı değer, ikinci kaynaktan: tekrar yazılmaz
+    rec.record("s", 1.0, t_unix=t + 1.010)
     rec.record("s", 2.0, t_unix=t + 1.020)
     rec.stop()
-    assert len(_rows(p1)) == 3
-    assert rec.rows == 2
+    assert len(_rows(p1)) == 4 and rec.rows == 3
+    p2 = rec.start(str(tmp_path), "x")       # aynı saniyede ikinci kayıt ilkini ezmez
+    rec.stop()
+    assert p2 != p1
+
+
+def test_record_change_writes_only_when_the_value_changes(tmp_path):
+    rec = SessionRecorder()
+    path = rec.start(str(tmp_path), "c")
+    t = rec._t0
+    assert rec.record_change("a2l:X", 5.0, t + 0.1) is True          # ilk örnek
+    for i in range(20):                                              # her okumada aynı değer: yazılmaz
+        assert rec.record_change("a2l:X", 5.0, t + 0.2 + i * 0.1) is False
+    assert rec.record_change("a2l:X", 6.0, t + 3.0) is True
+    assert rec.record_change("a2l:X", 5.0, t + 4.0) is True          # geri dönüş de değişimdir
+    assert rec.record_change("a2l:X", "bozuk", t + 5.0) is False
+    rec.stop()
+    assert [r[2] for r in _rows(path)[1:]] == ["5", "6", "5"]
 
 
 def test_hub_tap_records_even_inactive_signals(tmp_path):
@@ -42,11 +59,11 @@ def test_hub_tap_records_even_inactive_signals(tmp_path):
     path = rec.start(str(tmp_path), "t")
     hub = SignalHub()
     hub.tap = rec.record
-    hub.push("gauge:RPM", 100)               # hiçbir panelde etkin değil
+    hub.push("input:throttle", 100)          # hiçbir panelde etkin değil
     hub.push("math:x", 5)                    # türetilmiş: yazılmaz
     rec.stop()
     rows = _rows(path)
-    assert [r[1] for r in rows[1:]] == ["gauge:RPM"]
+    assert [r[1] for r in rows[1:]] == ["input:throttle"]
 
 
 def test_recorded_csv_can_be_imported_back(tmp_path):
@@ -87,11 +104,11 @@ def test_main_window_session_writes_csv(qapp, tmp_path, monkeypatch):
     st.name_edit.setText("Deneme")
     st._on_start()
     assert w.session_recorder.is_active
-    w.workspace_tab.push("gauge:RPM", 4321.0)
+    w.workspace_tab.push("input:throttle", 4321.0)
     path = w.session_recorder.path
     st._on_stop()
     assert not w.session_recorder.is_active
     rows = _rows(path)
-    assert rows[1][1:3] == ["gauge:RPM", "4321"]
+    assert rows[1][1:3] == ["input:throttle", "4321"]
     assert "Deneme" in path and "oturum_kayitlari" in path
     w.close()
