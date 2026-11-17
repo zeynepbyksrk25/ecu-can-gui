@@ -1,4 +1,4 @@
-"""Motor Kontrol (Start / Gaz Kolu): CAN ya da A2L DEĞER kutusu, kilitle açılır; switch (_sw) YOK (yalnızca
+"""Motor Kontrol (Start / Gaz Kolu): CAN ya da A2L DEĞER kutusu, direkt komut (kilit yok); switch (_sw) YOK (yalnızca
 Eyleyicilerde var). Ayrıca Ana Sayfa'nın renk/son olaylar bileşenleri."""
 import os
 
@@ -75,30 +75,36 @@ def test_motor_kontrol_rows_are_actuator_rows_separate_from_eyleyiciler(win):
     assert set(dt.sim_inputs._ctrl) == {d.key for d in FLIGHT_DEFS}
 
 
-def test_control_unlock_needs_value_mapping_only_and_is_role_gated(win, monkeypatch):
-    dt, calls = _tab(win, Role.OPERATOR)
-    cfg = DashboardConfig()
-    cfg.actuators["start"] = SignalMap(value=Binding(SOURCE_CAN, "CMD", "start_req"))      # _sw YOK
-    dt.set_config(cfg)
-    dt._on_actuator_lock("start", True)
-    assert not dt._act_open["start"] and calls == []                                       # Operatör: açılmaz
-    dt.set_role(Role.ENGINEER)
-    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: QMessageBox.Yes))   # onay
-    dt._on_actuator_lock("start", True)
-    assert dt._act_open["start"] and calls == []                                           # değer yazılmadı, sw yok
-
-
-def test_control_writes_typed_value_and_zero_on_lock(win, monkeypatch):
+def test_control_has_no_lock_and_enter_sends_directly(win):
     dt, calls = _tab(win)
     cfg = DashboardConfig()
     cfg.actuators["start"] = SignalMap(value=Binding(SOURCE_CAN, "CMD", "start_req"))
     dt.set_config(cfg)
-    dt._on_actuator_lock("start", True)
+    assert dt._act_rows["start"]["lock"] is None and dt._act_rows["throttle"]["lock"] is None   # kilit yok
+    assert dt._act_rows["start"]["control"].isEnabled()                                          # her zaman etkin
     dt._act_rows["start"]["control"].setText("1")
-    dt._on_actuator_submit("start")                                                        # Enter: değer gider
-    assert calls[-1] == ("CMD.start_req", 1.0)
-    dt._on_actuator_lock("start", False)                                                   # kilitle -> değer 0'a çekilir
-    assert calls[-1] == ("CMD.start_req", 0.0) and not dt._act_open["start"]
+    dt._on_actuator_submit("start")                                                              # Enter: direkt gider
+    assert calls == [("CMD.start_req", 1.0)]
+    dt._act_rows["start"]["control"].setText("0")
+    dt._on_actuator_submit("start")
+    assert calls[-1] == ("CMD.start_req", 0.0)
+
+
+def test_control_direct_command_is_role_gated_and_needs_mapping(win, monkeypatch):
+    dt, calls = _tab(win, Role.OPERATOR)
+    cfg = DashboardConfig()
+    cfg.actuators["start"] = SignalMap(value=Binding(SOURCE_CAN, "CMD", "start_req"))
+    dt.set_config(cfg)
+    shown = []
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: shown.append(a[1])))
+    monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a, **k: shown.append(a[1])))
+    dt._act_rows["start"]["control"].setText("1")
+    dt._on_actuator_submit("start")
+    assert calls == [] and shown == ["Yetki yok"]                                               # Operatör: gitmez
+    dt.set_role(Role.ENGINEER)
+    dt._act_rows["throttle"]["control"].setText("40")
+    dt._on_actuator_submit("throttle")                                                           # eşleşme yok
+    assert calls == [] and shown[-1] == "Eşleşme yok"
 
 
 def test_control_ignores_any_sw_even_if_present_in_the_config(win):
@@ -109,18 +115,14 @@ def test_control_ignores_any_sw_even_if_present_in_the_config(win):
                                           sw=Binding(SOURCE_CAN, "OVERRIDE", "valf_cmd_sw"))
     dt.set_config(cfg)
     dt._act_rows["throttle"]["control"].setText("40")
-    dt._on_actuator_lock("throttle", True)
-    assert calls == [("thr_cmd", 40.0)]                                                   # yalnızca değer; _sw=1 YOK
-    calls.clear()
-    dt._on_actuator_lock("throttle", False)
-    assert calls == [("thr_cmd", 0.0)]                                                     # bırakma: değer 0, _sw=0 YOK
+    dt._on_actuator_submit("throttle")
+    assert calls == [("thr_cmd", 40.0)]                                                         # yalnızca değer
 
 
-def test_control_not_mapped_shows_message_and_stays_locked(win):
+def test_control_lock_requests_are_ignored(win):
     dt, calls = _tab(win)
-    dt.set_config(DashboardConfig())
     dt._on_actuator_lock("start", True)
-    assert not dt._act_open["start"] and calls == [] and win._info_boxes
+    assert not dt._act_open["start"] and calls == []
 
 
 def test_eyleyici_still_requires_sw(win):

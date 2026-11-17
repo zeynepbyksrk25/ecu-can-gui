@@ -31,7 +31,7 @@ SENSOR_LABELS = {
 
 # Eyleyiciler (manuel override).
 EYLEYICI_KEYS = ["pompa_start", "pompa_fuel", "valf", "glow_plug", "starter"]
-# Motor Kontrol (Çalıştırma, Gaz Kolu): CAN (DBC) ya da A2L, kilitle (rol + onay) açılan DEĞER kutusu. ANAHTAR (_sw)
+# Motor Kontrol (Çalıştırma, Gaz Kolu): CAN (DBC) ya da A2L, kilitsiz DEĞER kutusu (değer + Enter ile direkt komut, rol gerekir). ANAHTAR (_sw)
 # YOKTUR: switch (_sw) yalnızca Eyleyicilerdedir (kilitlenince değer 0'a çekilir). Ateşleme ve Birincil Yakıt
 # kaldırıldı (zaten Eyleyicilerde var).
 CONTROL_KEYS = ["start", "throttle"]
