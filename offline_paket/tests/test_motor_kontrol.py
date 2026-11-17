@@ -1,12 +1,12 @@
-"""Motor Kontrol (Start/Spark/Gaz Kolu/Birincil Yakıt) ve Motor Komutları artık Eyleyiciler gibi çalışır:
-değer + (isteğe bağlı) _sw, CAN ya da A2L, kilitle açılır; ayrıca Ana Sayfa'nın renk/son olaylar bileşenleri."""
+"""Motor Kontrol (Start / Gaz Kolu): CAN ya da A2L DEĞER kutusu, kilitle açılır; switch (_sw) YOK (yalnızca
+Eyleyicilerde var). Ayrıca Ana Sayfa'nın renk/son olaylar bileşenleri."""
 import os
 
 import pytest
 from PySide6.QtWidgets import QMessageBox
 
 from app.dashboard_config import (
-    CONTROL_KEYS, EYLEYICI_KEYS, SOURCE_A2L, SOURCE_CAN, Binding, DashboardConfig, MotorCommand, SignalMap,
+    CONTROL_KEYS, EYLEYICI_KEYS, SOURCE_A2L, SOURCE_CAN, Binding, DashboardConfig, SignalMap,
     config_from_dict,
 )
 from app.user_roles import Role
@@ -15,17 +15,22 @@ DATA = os.path.join(os.path.dirname(__file__), "data")
 
 
 # ---------------------------------------------------------------- yapılandırma
-def test_control_keys_follow_actuator_model_and_roundtrip():
+def test_control_keys_are_start_and_throttle_and_switches_are_dropped_except_for_actuators():
     from dataclasses import asdict
     cfg = DashboardConfig()
+    assert CONTROL_KEYS == ["start", "throttle"]                              # Spark ve Birincil Yakıt kaldırıldı
     assert set(CONTROL_KEYS) <= set(cfg.actuators) and not set(CONTROL_KEYS) & set(EYLEYICI_KEYS)
+    assert "spark" not in cfg.actuators and "primary_fuel" not in cfg.actuators
     cfg.actuators["start"] = SignalMap(value=Binding(SOURCE_A2L, a2l_name="eng_start"),
                                        sw=Binding(SOURCE_CAN, "CMD", "start_sw"))
-    cfg.motor_stop = MotorCommand(Binding(SOURCE_CAN, "CMD", "stop_req"), 1.0, sw=Binding(SOURCE_A2L, a2l_name="stop_sw"))
+    cfg.actuators["valf"] = SignalMap(value=Binding(SOURCE_CAN, "OVERRIDE", "valf_cmd"),
+                                      sw=Binding(SOURCE_CAN, "OVERRIDE", "valf_cmd_sw"))
+    cfg.sensors["RPM"] = SignalMap(value=Binding(SOURCE_A2L, a2l_name="N_RPM"), sw=Binding(SOURCE_A2L, a2l_name="rpm_sw"))
     back = config_from_dict(asdict(cfg))
     assert back.actuators["start"].value == Binding(SOURCE_A2L, a2l_name="eng_start")
-    assert back.actuators["start"].sw == Binding(SOURCE_CAN, "CMD", "start_sw")
-    assert back.motor_stop.sw == Binding(SOURCE_A2L, a2l_name="stop_sw")
+    assert not back.actuators["start"].sw.is_set                               # Motor Kontrol: switch temizlenir
+    assert not back.sensors["RPM"].sw.is_set and back.sensors["RPM"].value.is_set      # sensör: switch temizlenir
+    assert back.actuators["valf"].sw == Binding(SOURCE_CAN, "OVERRIDE", "valf_cmd_sw")  # Eyleyici: switch KALIR
 
 
 def test_old_config_without_sw_on_motor_commands_still_loads():
@@ -61,7 +66,10 @@ def _tab(win, role=Role.ENGINEER):
 def test_motor_kontrol_rows_are_actuator_rows_separate_from_eyleyiciler(win):
     dt = win.dashboard_tab
     assert set(CONTROL_KEYS) <= set(dt._act_rows) and set(EYLEYICI_KEYS) <= set(dt._act_rows)
-    assert dt._act_rows["start"]["kind"] == "toggle" and dt._act_rows["throttle"]["kind"] == "valve"
+    assert set(CONTROL_KEYS) == {"start", "throttle"} and "spark" not in dt._act_rows
+    assert dt._act_rows["start"]["kind"] == "valve" and dt._act_rows["throttle"]["kind"] == "valve"
+    from app.ui.dash_widgets import ToggleSwitch
+    assert not dt.findChildren(ToggleSwitch), "Ana Sayfa'da ON/OFF anahtarı (switch) kalmamalı"
     assert not hasattr(dt.sim_inputs, "control_card")                       # eski doğrudan gönderim kalktı
     from app.sim_interface import FLIGHT_DEFS
     assert set(dt.sim_inputs._ctrl) == {d.key for d in FLIGHT_DEFS}
@@ -80,32 +88,32 @@ def test_control_unlock_needs_value_mapping_only_and_is_role_gated(win, monkeypa
     assert dt._act_open["start"] and calls == []                                           # değer yazılmadı, sw yok
 
 
-def test_control_without_sw_writes_value_and_zero_on_lock(win, monkeypatch):
+def test_control_writes_typed_value_and_zero_on_lock(win, monkeypatch):
     dt, calls = _tab(win)
     cfg = DashboardConfig()
-    cfg.actuators["spark"] = SignalMap(value=Binding(SOURCE_CAN, "CMD", "start_req"))
+    cfg.actuators["start"] = SignalMap(value=Binding(SOURCE_CAN, "CMD", "start_req"))
     dt.set_config(cfg)
-    dt._on_actuator_lock("spark", True)
-    dt._act_rows["spark"]["control"].setChecked(True)                                      # ON
+    dt._on_actuator_lock("start", True)
+    dt._act_rows["start"]["control"].setText("1")
+    dt._on_actuator_submit("start")                                                        # Enter: değer gider
     assert calls[-1] == ("CMD.start_req", 1.0)
-    dt._on_actuator_lock("spark", False)                                                   # kilitle -> değer 0'a çekilir
-    assert calls[-1] == ("CMD.start_req", 0.0)
-    assert not dt._act_rows["spark"]["control"].isChecked() and not dt._act_open["spark"]
+    dt._on_actuator_lock("start", False)                                                   # kilitle -> değer 0'a çekilir
+    assert calls[-1] == ("CMD.start_req", 0.0) and not dt._act_open["start"]
 
 
-def test_control_with_sw_follows_actuator_order_and_sources_can_differ(win):
+def test_control_ignores_any_sw_even_if_present_in_the_config(win):
+    """Switch yalnızca Eyleyicilerde çalışır: Motor Kontrol satırında eski bir _sw eşlemesi olsa bile yazılmaz."""
     dt, calls = _tab(win)
     cfg = DashboardConfig()
     cfg.actuators["throttle"] = SignalMap(value=Binding(SOURCE_A2L, a2l_name="thr_cmd"),
                                           sw=Binding(SOURCE_CAN, "OVERRIDE", "valf_cmd_sw"))
     dt.set_config(cfg)
-    box = dt._act_rows["throttle"]["control"]
-    box.setText("40")
+    dt._act_rows["throttle"]["control"].setText("40")
     dt._on_actuator_lock("throttle", True)
-    assert calls == [("thr_cmd", 40.0), ("OVERRIDE.valf_cmd_sw", 1.0)]                    # önce değer, sonra _sw=1
+    assert calls == [("thr_cmd", 40.0)]                                                   # yalnızca değer; _sw=1 YOK
     calls.clear()
     dt._on_actuator_lock("throttle", False)
-    assert calls == [("OVERRIDE.valf_cmd_sw", 0.0)]                                        # _sw=0
+    assert calls == [("thr_cmd", 0.0)]                                                     # bırakma: değer 0, _sw=0 YOK
 
 
 def test_control_not_mapped_shows_message_and_stays_locked(win):
@@ -139,15 +147,15 @@ def test_legacy_input_map_control_bindings_migrate_to_actuator_model(win):
 def test_dialog_roundtrips_control_and_command_sw_with_a2l_or_can(win):
     from app.ui.mapping_dialog import MappingDialog
     d = MappingDialog(win.dashboard_tab.config, win.dashboard_tab.sim_inputs, win.transmit_tab.dbc, None, win)
+    assert set(d.control_ed["throttle"]) == {"value"}                                      # Motor Kontrol'de switch yok
     d.control_ed["start"]["value"].set_binding(Binding(SOURCE_A2L, a2l_name="eng_start"))
     d.control_ed["throttle"]["value"].set_binding(Binding(SOURCE_CAN, "OVERRIDE", "pump_dc"))
-    d.control_ed["throttle"]["sw"].set_binding(Binding(SOURCE_CAN, "OVERRIDE", "pump_dc_sw"))
     d.motor_ed["motor_start"][0].set_binding(Binding(SOURCE_CAN, "OVERRIDE", "valf_cmd"))
     d.motor_ed["motor_start"][1].setValue(1.0)
     d.motor_sw_ed["motor_start"].set_binding(Binding(SOURCE_CAN, "OVERRIDE", "valf_cmd_sw"))
     cfg = d.result_config()
     assert cfg.actuators["start"].value == Binding(SOURCE_A2L, a2l_name="eng_start")
-    assert cfg.actuators["throttle"].sw == Binding(SOURCE_CAN, "OVERRIDE", "pump_dc_sw")
+    assert cfg.actuators["throttle"].value == Binding(SOURCE_CAN, "OVERRIDE", "pump_dc") and not cfg.actuators["throttle"].sw.is_set
     assert cfg.motor_start.sw == Binding(SOURCE_CAN, "OVERRIDE", "valf_cmd_sw")
     d.close()
 

@@ -39,12 +39,12 @@ def dlg(qapp):
     w.close()
 
 
-def test_dialog_has_value_sw_and_fault_columns_for_sensors_and_value_sw_for_actuators(dlg):
+def test_switch_column_exists_only_for_actuators(dlg):
     w, d = dlg
-    assert set(d.sensor_ed["RPM"]) == {"value", "sw", "fault"}
-    assert set(d.actuator_ed["pompa_fuel"]) == {"value", "sw"}
-    assert set(d.control_ed) == {"start", "spark", "throttle", "primary_fuel"}      # Motor Kontrol: Eyleyici modeli
-    assert set(d.control_ed["start"]) == {"value", "sw"}
+    assert set(d.sensor_ed["RPM"]) == {"value", "fault"}                             # sensörde switch yok
+    assert set(d.actuator_ed["pompa_fuel"]) == {"value", "sw"}                        # switch YALNIZCA Eyleyicilerde
+    assert set(d.control_ed) == {"start", "throttle"}                                # Spark / Birincil Yakıt kaldırıldı
+    assert set(d.control_ed["start"]) == {"value"}                                   # Motor Kontrol'de switch yok
     assert set(d.motor_sw_ed) == {"motor_start", "motor_stop", "estop"}               # komutlarda isteğe bağlı _sw
     assert [d.tabs.tabText(i) for i in range(d.tabs.count())] == ["Sinyaller", "Uçuş Koşulları"]
 

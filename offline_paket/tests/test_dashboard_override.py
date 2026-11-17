@@ -108,14 +108,13 @@ def test_failed_write_keeps_lock_closed(tab):
     assert not tab._act_rows["valf"]["lock"].is_open
 
 
-def test_sensor_unlock_writes_current_value_then_sw(tab):
+def test_sensors_have_no_manual_switch_or_lock(tab):
+    """Switch (_sw) yalnızca Eyleyicilerde vardır: Motor Parametreleri (sensör) kartlarında kilit/manuel değer yok."""
+    assert not hasattr(tab, "_on_sensor_lock") and not hasattr(tab, "_sensor_open")
+    for key, gc in tab._gauge_cards.items():
+        assert not gc.lock.isVisibleTo(tab), f"{key} gösterge kartında kilit görünüyor"
     tab.set_gauge_value("RPM", 4520.0)
-    tab._on_sensor_lock("RPM", True)
-    assert tab.calls == [("rpm", 4520.0), ("rpm_sw", 1.0)]
-    assert tab._gauge_cards["RPM"].lock.is_open
-    tab.calls.clear()
-    tab._on_sensor_lock("RPM", False)
-    assert tab.calls == [("rpm_sw", 0.0)]
+    assert tab.calls == []                                           # gösterge değeri hiçbir şey YAZMAZ
 
 
 def test_home_tab_cannot_be_closed_or_moved(qapp):

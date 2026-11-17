@@ -260,17 +260,17 @@ class MappingDialog(QDialog):
 
         # ---- Sensörler (tam genişlik)
         card, grid, _h = _card("Sensörler", "gauge")
-        for c, t in enumerate(("", "Değer", "Anahtar (_sw)", "Arıza biti (isteğe bağlı, ≠0 = arıza)")):
+        for c, t in enumerate(("", "Değer", "Arıza biti (isteğe bağlı, ≠0 = arıza)")):
             grid.addWidget(_col_head(t), 0, c)
         for r, key in enumerate(SENSOR_KEYS, start=1):
             smap = self._cfg.sensors.get(key, SignalMap())
             grid.addWidget(_row_label(SENSOR_LABELS[key]), r, 0)
-            ed = {"value": self._editor(smap.value), "sw": self._editor(smap.sw), "fault": self._editor(smap.fault)}
-            for c, name in enumerate(("value", "sw", "fault"), start=1):
+            ed = {"value": self._editor(smap.value), "fault": self._editor(smap.fault)}
+            for c, name in enumerate(("value", "fault"), start=1):
                 grid.addWidget(ed[name], r, c)
             self.sensor_ed[key] = ed
         grid.setColumnMinimumWidth(0, 150)
-        for c in (1, 2, 3):
+        for c in (1, 2):
             grid.setColumnStretch(c, 1)
         v.addWidget(card)
 
@@ -292,20 +292,18 @@ class MappingDialog(QDialog):
         grid.setColumnStretch(2, 1)
         row.addWidget(card, 1)
 
-        # Motor Kontrol: Eyleyicilerle aynı model (CAN ya da A2L); _sw burada İSTEĞE BAĞLI
+        # Motor Kontrol: CAN ya da A2L DEĞER eşlemesi. Switch (_sw) YOKTUR (yalnızca Eyleyicilerde var).
         card, grid, _h = _card("Motor Kontrol", "sliders")
-        for c, t in enumerate(("", "Değer", "Anahtar (_sw, isteğe bağlı)")):
+        for c, t in enumerate(("", "Değer")):
             grid.addWidget(_col_head(t), 0, c)
         for r, key in enumerate(CONTROL_KEYS, start=1):
             smap = self._cfg.actuators.get(key, SignalMap())
             grid.addWidget(_row_label(ACTUATOR_LABELS[key]), r, 0)
-            ed = {"value": self._editor(smap.value), "sw": self._editor(smap.sw)}
+            ed = {"value": self._editor(smap.value)}
             grid.addWidget(ed["value"], r, 1)
-            grid.addWidget(ed["sw"], r, 2)
             self.control_ed[key] = ed
         grid.setColumnMinimumWidth(0, 140)
         grid.setColumnStretch(1, 1)
-        grid.setColumnStretch(2, 1)
         row.addWidget(card, 1)
         v.addLayout(row)
 
@@ -385,11 +383,11 @@ class MappingDialog(QDialog):
 
     # ------------------------------------------------------------ otomatik
     def _auto_sw(self):
-        """Değeri girilmiş ama anahtarı boş olanlar için aynı kaynakta ``<ad>_sw`` bulur (sensör, eyleyici,
-        Motor Kontrol ve Motor Komutları). Yalnızca ANAHTAR aranır: komutun kendisi (özellikle Acil
+        """Değeri girilmiş ama anahtarı boş olanlar için aynı kaynakta ``<ad>_sw`` bulur (YALNIZCA Eyleyiciler
+        ve Motor Komutları; sensör ve Motor Kontrol'de switch yoktur). Yalnızca ANAHTAR aranır: komutun kendisi (özellikle Acil
         Durdurma) isimden tahmin edilip otomatik bağlanmaz; onu siz seçersiniz."""
         pairs = [{"value": be, "sw": self.motor_sw_ed[key]} for key, (be, _val) in self.motor_ed.items()]
-        for store in (self.sensor_ed.values(), self.actuator_ed.values(), self.control_ed.values(), pairs):
+        for store in (self.actuator_ed.values(), pairs):             # switch yalnızca Eyleyicilerde (+ motor komutları)
             for ed in store:
                 if ed["sw"].text() or not ed["value"].text():
                     continue
@@ -415,10 +413,11 @@ class MappingDialog(QDialog):
         cfg = DashboardConfig()
         cfg.graph_signals = list(self._cfg.graph_signals)
         for key, ed in self.sensor_ed.items():
-            cfg.sensors[key] = SignalMap(value=ed["value"].binding(), sw=ed["sw"].binding(),
-                                         fault=ed["fault"].binding())
-        for key, ed in list(self.actuator_ed.items()) + list(self.control_ed.items()):
+            cfg.sensors[key] = SignalMap(value=ed["value"].binding(), fault=ed["fault"].binding())
+        for key, ed in self.actuator_ed.items():
             cfg.actuators[key] = SignalMap(value=ed["value"].binding(), sw=ed["sw"].binding())
+        for key, ed in self.control_ed.items():
+            cfg.actuators[key] = SignalMap(value=ed["value"].binding())
         for key, (be, val) in self.motor_ed.items():
             setattr(cfg, key, MotorCommand(binding=be.binding(), value=float(val.value()),
                                            sw=self.motor_sw_ed[key].binding()))

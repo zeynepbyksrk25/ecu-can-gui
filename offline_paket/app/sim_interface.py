@@ -34,9 +34,6 @@ class InputDef:
 
 INPUT_DEFS: list[InputDef] = [
     InputDef("start", "Start", "", 0, 1, "switch", "control", aliases=("start", "engstart", "enginestart"), title="Çalıştırma (Start)"),
-    InputDef("spark", "Spark", "", 0, 1, "switch", "control", aliases=("spark", "ignition"), title="Ateşleme (Spark)"),
-    InputDef("primary_fuel", "Primary Fuel", "", 0, 1, "switch", "control",
-             aliases=("primaryfuel", "primfuel", "fuelprimary"), title="Birincil Yakıt"),
     InputDef("throttle", "Throttle", "%", 0, 120, "slider", "control", aliases=("throttle", "pla", "thr"), title="Gaz Kolu (PLA)"),
     InputDef("altitude", "Altitude", "kft", 0, 30, "slider", "aircraft", aliases=("altitude", "alt", "acaltitude"), title="Rakım"),
     InputDef("alfa", "Alfa", "°", -90, 90, "slider", "aircraft",
@@ -53,7 +50,7 @@ INPUT_DEFS: list[InputDef] = [
 ]
 INPUT_BY_KEY = {d.key: d for d in INPUT_DEFS}
 # Uçuş Koşulları (uçaktan gelen değerler): yalnızca CAN, anında gönderilir. Motor Kontrol girişleri
-# (start/spark/throttle/primary_fuel) artık Eyleyiciler gibi çalışır (bkz. dashboard_config.CONTROL_KEYS).
+# (start/throttle) Eyleyiciler gibi kilitle açılan değer kutusudur (bkz. dashboard_config.CONTROL_KEYS).
 FLIGHT_DEFS = [d for d in INPUT_DEFS if d.group == "aircraft"]
 
 

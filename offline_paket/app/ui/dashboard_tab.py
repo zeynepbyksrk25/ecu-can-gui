@@ -17,7 +17,7 @@ import time
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
-    QFrame, QGridLayout, QHBoxLayout, QInputDialog, QLabel, QListWidget, QListWidgetItem, QMessageBox,
+    QFrame, QGridLayout, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMessageBox,
     QPushButton, QSizePolicy, QVBoxLayout, QWidget,
 )
 from PySide6.QtCore import QRegularExpression
@@ -62,13 +62,11 @@ ACTUATOR_SHORT = {
     "glow_plug": "Buji Isıtıcı (Glow Plug)",
     "starter": "Başlatma Motoru",
     "start": "Çalıştırma (Start)",
-    "spark": "Ateşleme (Spark)",
     "throttle": "Gaz Kolu (PLA)",
-    "primary_fuel": "Birincil Yakıt",
 }
 ACTUATOR_ICON = {"pompa_start": "pump", "pompa_fuel": "pump", "valf": "valve",
                  "glow_plug": "glow", "starter": "starter",
-                 "start": "power", "spark": "spark", "throttle": "throttle", "primary_fuel": "fuel"}
+                 "start": "power", "throttle": "throttle"}
 
 DASH_QSS = dark_qss("dashBody")
 
@@ -100,8 +98,6 @@ class DashboardTab(QWidget):
         self._reasons: dict[str, str] = {}             # gösterge -> değer yoksa neden
         self._faults: dict[str, str] = {}              # gösterge -> arıza nedeni
         self._limits: dict[str, tuple] = {}            # gösterge -> (min, max) (A2L/DBC)
-        self._sensor_open: dict[str, bool] = {k: False for k in GAUGE_KEYS}
-        self._sensor_manual: dict[str, float] = {}
         self._act_open: dict[str, bool] = {k: False for k in ACTUATOR_KEYS}
         self._act_rows: dict[str, dict] = {}
         self._gauge_cards: dict[str, GaugeCard] = {}
@@ -301,8 +297,7 @@ class DashboardTab(QWidget):
         for i, key in enumerate(GAUGE_KEYS):
             lo, hi, unit = GAUGE_RANGES[key]
             gc = GaugeCard(key, GAUGE_DISPLAY_LABELS.get(key, key), lo, hi, unit)
-            gc.lock_requested.connect(self._on_sensor_lock)
-            gc.value_requested.connect(self._on_sensor_value_request)
+            gc.lock.setVisible(False)       # sensörlerde manuel değer / switch yok: yalnızca Eyleyicilerde
             self._gauge_cards[key] = gc
             grid.addWidget(gc, i // 4, i % 4)
         for c in range(4):
@@ -351,8 +346,6 @@ class DashboardTab(QWidget):
         for key, gc in self._gauge_cards.items():
             if key in self._faults:
                 gc.set_tag("ARIZA", "fault")
-            elif self._sensor_open.get(key):
-                gc.set_tag("MANUEL", "manual")
             else:
                 gc.set_tag("")
         self._refresh_gauge_states()
@@ -432,50 +425,6 @@ class DashboardTab(QWidget):
         else:
             self._limits[key] = (lo, hi)
 
-    # ---- sensör manuel değer (anahtar kapısı)
-    def _on_sensor_lock(self, key: str, want_open: bool):
-        smap = self.config.sensor_map(key)
-        label = GAUGE_DISPLAY_LABELS.get(key, key)
-        gc = self._gauge_cards[key]
-        if want_open:
-            if not smap.sw.is_set or not smap.value.is_set:
-                QMessageBox.information(
-                    self, "Eşleşme yok",
-                    f"{label} için değer ve anahtar (_sw) eşleşmesi tanımlı değil.\n"
-                    "⚙ Eşleşmeler penceresinden tanımlayın.")
-                return
-            if not self._confirm_override(label):
-                return
-            cur = self._values.get(key)
-            start = cur[0] if cur is not None else self._sensor_manual.get(key, 0.0)
-            if not self._write(smap.value, start, f"{label} değeri"):
-                return
-            if not self._write(smap.sw, 1.0, f"{label} anahtarı"):
-                return
-            self._sensor_open[key] = True
-            self._sensor_manual[key] = start
-            gc.lock.set_open(True)
-        else:
-            if not self._write(smap.sw, 0.0, f"{label} anahtarı"):
-                return
-            self._sensor_open[key] = False
-            gc.lock.set_open(False)
-        self.refresh_sensor_health()
-
-    def _on_sensor_value_request(self, key: str):
-        if not self._sensor_open.get(key):
-            return
-        smap = self.config.sensor_map(key)
-        label = GAUGE_DISPLAY_LABELS.get(key, key)
-        lo, hi, unit = GAUGE_RANGES[key]
-        span = hi - lo
-        cur = self._sensor_manual.get(key, lo)
-        v, ok = QInputDialog.getDouble(self, f"{label} manuel değer",
-                                       f"{label} için gönderilecek değer ({unit}):",
-                                       cur, lo - span, hi + span, 3)
-        if ok and self._write(smap.value, v, f"{label} değeri"):
-            self._sensor_manual[key] = v
-
     # ======================================================================
     # Eyleyiciler
     # ======================================================================
@@ -525,7 +474,7 @@ class DashboardTab(QWidget):
         return card
 
     def _build_actuator_row(self, key: str) -> QFrame:
-        kind = ACTUATOR_KINDS[key]
+        kind = ACTUATOR_KINDS[key]          # "valve": değer kutusu (ON/OFF anahtarı yok)
         row = QFrame()
         row.setObjectName("rowFrame")
         row.setMinimumHeight(36)
@@ -545,28 +494,18 @@ class DashboardTab(QWidget):
         cl.setContentsMargins(0, 0, 0, 0)
         cl.setSpacing(8)
         cl.addStretch(1)
-        if kind == "toggle":
-            onoff = QLabel("OFF")
-            onoff.setObjectName("onoff")
-            onoff.setProperty("on", False)
-            sw = ToggleSwitch(on_color=theme.OK)
-            sw.toggled.connect(lambda checked, k=key: self._on_actuator_toggle(k, checked))
-            cl.addWidget(onoff)
-            cl.addWidget(sw)
-            entry.update(control=sw, onoff=onoff)
-        else:
-            # Serbest değer kutusu: boş başlar, aralık/birim sınırı yok; Enter ile gönderilir.
-            box = QLineEdit()
-            box.setObjectName("actValue")
-            box.setPlaceholderText("değer")
-            box.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            box.setFixedWidth(ACT_CMD_W)
-            # yalnızca sayı: isteğe bağlı eksi, ondalık ayırıcı nokta VEYA virgül (okurken noktaya çevrilir)
-            box.setValidator(QRegularExpressionValidator(QRegularExpression(r"^-?\d*[.,]?\d*$"), box))
-            box.returnPressed.connect(lambda k=key: self._on_actuator_submit(k))
-            box.textEdited.connect(lambda _t, b=box: self._mark_actuator_box(b, False))
-            cl.addWidget(box)
-            entry.update(control=box)
+        # Serbest değer kutusu: boş başlar, aralık/birim sınırı yok; Enter ile gönderilir.
+        box = QLineEdit()
+        box.setObjectName("actValue")
+        box.setPlaceholderText("değer")
+        box.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        box.setFixedWidth(ACT_CMD_W)
+        # yalnızca sayı: isteğe bağlı eksi, ondalık ayırıcı nokta VEYA virgül (okurken noktaya çevrilir)
+        box.setValidator(QRegularExpressionValidator(QRegularExpression(r"^-?\d*[.,]?\d*$"), box))
+        box.returnPressed.connect(lambda k=key: self._on_actuator_submit(k))
+        box.textEdited.connect(lambda _t, b=box: self._mark_actuator_box(b, False))
+        cl.addWidget(box)
+        entry.update(control=box)
         hl.addWidget(cell)
         lock = LockButton(ACT_LOCK_W)
         lock.lock_requested.connect(lambda want, k=key: self._on_actuator_lock(k, want))
@@ -655,11 +594,11 @@ class DashboardTab(QWidget):
         amap = self.config.actuator_map(key)
         label = ACTUATOR_SHORT[key]
         e = self._act_rows[key]
-        # Motor Kontrol satırlarında _sw İSTEĞE BAĞLIDIR; Eyleyicilerde zorunludur.
-        sw_required = key not in CONTROL_KEYS
+        # Switch (_sw) YALNIZCA Eyleyicilerde vardır ve zorunludur; Motor Kontrol satırlarında yoktur.
+        uses_sw = key in EYLEYICI_KEYS
         if want_open:
-            if not amap.value.is_set or (sw_required and not amap.sw.is_set):
-                need = "değer ve anahtar (_sw)" if sw_required else "değer"
+            if not amap.value.is_set or (uses_sw and not amap.sw.is_set):
+                need = "değer ve anahtar (_sw)" if uses_sw else "değer"
                 QMessageBox.information(
                     self, "Eşleşme yok",
                     f"{label} için {need} eşleşmesi tanımlı değil.\n"
@@ -672,7 +611,7 @@ class DashboardTab(QWidget):
             v = self._actuator_text_value(key)
             if v is not None and not self._write(amap.value, v, f"{label} değeri"):
                 return
-            if amap.sw.is_set and not self._write(amap.sw, 1.0, f"{label} anahtarı"):
+            if uses_sw and amap.sw.is_set and not self._write(amap.sw, 1.0, f"{label} anahtarı"):
                 return
             self._act_open[key] = True
             e["lock"].set_open(True)
@@ -684,40 +623,13 @@ class DashboardTab(QWidget):
         self._style_actuator_row(key)
 
     def _release_actuator(self, key: str, amap, label: str) -> bool:
-        """Kilitlerken: _sw = 0. _sw eşlenmemiş Motor Kontrol satırında (anahtarı yok) bırakmak için DEĞER
-        0'a çekilir (periyodik CAN gönderimi eski değerle sürmesin); anahtar/ değer yazılamazsa False."""
-        if amap.sw.is_set:
+        """Kilitlerken: Eyleyicilerde _sw = 0. Switch'i olmayan Motor Kontrol satırlarında bırakmak için DEĞER 0'a
+        çekilir (periyodik CAN gönderimi eski değerle sürmesin). Yazılamazsa False."""
+        if key in EYLEYICI_KEYS and amap.sw.is_set:
             return self._write(amap.sw, 0.0, f"{label} anahtarı")
         if not amap.value.is_set:
             return True
-        ok = self._write(amap.value, 0.0, f"{label} değeri (bırakılıyor)")
-        if ok:
-            e = self._act_rows[key]
-            ctl = e["control"]
-            if e["kind"] == "toggle":
-                ctl.blockSignals(True)
-                ctl.setChecked(False)
-                ctl.blockSignals(False)
-                e["onoff"].setText("OFF")
-                e["onoff"].setProperty("on", False)
-                e["onoff"].style().unpolish(e["onoff"])
-                e["onoff"].style().polish(e["onoff"])
-        return ok
-
-    def _on_actuator_toggle(self, key: str, checked: bool):
-        e = self._act_rows[key]
-        e["onoff"].setText("ON" if checked else "OFF")
-        e["onoff"].setProperty("on", checked)
-        e["onoff"].style().unpolish(e["onoff"])
-        e["onoff"].style().polish(e["onoff"])
-        if not self._act_open[key]:
-            return
-        label = ACTUATOR_SHORT[key]
-        if not self._write(self.config.actuator_map(key).value, 1.0 if checked else 0.0, f"{label} komutu"):
-            e["control"].blockSignals(True)
-            e["control"].setChecked(not checked)
-            e["control"].blockSignals(False)
-            e["onoff"].setText("ON" if not checked else "OFF")
+        return self._write(amap.value, 0.0, f"{label} değeri (bırakılıyor)")
 
     def release_all_actuators(self, write: bool = True) -> list:
         """Bağlantı kapanırken: kilidi AÇIK her eyleyicinin anahtarını (_sw) kapatmayı dener
