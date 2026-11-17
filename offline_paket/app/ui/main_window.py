@@ -36,7 +36,7 @@ from app.ui.tanilama_tab import TanilamaTab
 from app.ui.settings_dialog import SettingsDialog
 from app.ui.user_tab import UserTab
 from app.user_roles import (
-    Role, can_override_actuator,
+    Role, can_override_actuator, can_write_calibration,
 )
 
 # Eski içe aktarma yolu (app.ui.main_window) çalışmaya devam etsin diye yeniden dışa aktarılır.
@@ -178,6 +178,7 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self._migrate_control_bindings()
         self._rebuild_dash_can_map()
         self.watch_tab.set_storage_path(data_path("watchlist.json"))
+        self.watch_tab.set_write_allowed(can_write_calibration(self.current_role))
 
         # İzleme sekmesi, Gönderim sekmesindeki DBC ile AYNI nesneyi kullanır;
         # böylece DBC yüklenince ikisi de aynı anda görür.

@@ -199,3 +199,71 @@ def test_watch_rows_show_ecu_yok_quickly_and_recover_after_power_cycle(live_wind
     assert wait_for(lambda: tab._entries[0].error is None and
                     tab.table.item(0, wt.COL_VALUE).text() == "12.5", pump=pump)
     assert "çevrimiçi" in tab.live_label.text()
+
+
+# ---------------------------------------------------------------- değer girişi (ölçüm + rol)
+def _a2l_tab_with_objects(qapp):
+    from app.a2l import A2LDatabase
+    db = A2LDatabase()
+    summary = db.load(os.path.join(DATA, "sample.a2l"))
+    t = wt.WatchTab()
+    t.a2l_db = db
+    meas = next(m for m in summary.measurements if m.name == "clbc_Fuel_pump_dc_perc")
+    char = next(c for c in summary.characteristics if c.name == "clbc_Fuel_pump_gain")
+    t.add_a2l_objects([("measurement", meas), ("characteristic", char)])
+    return t
+
+
+def test_a2l_measurement_rows_accept_typed_values_like_calibration_parameters(qapp):
+    """Eskiden A2L'den eklenen ölçümler zorla salt-okunurdu: hiçbirine değer girilemiyordu."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    t = _a2l_tab_with_objects(qapp)
+    t.resize(1200, 400)
+    t.show()
+    got = []
+    t.write_requested.connect(lambda rows: got.append(list(rows)))
+    for row in (0, 1):                                              # 0: ölçüm, 1: karakteristik
+        item = t.table.item(row, wt.COL_VALUE)
+        assert item.flags() & Qt.ItemIsEditable, f"satır {row} düzenlenemiyor"
+        idx = t.table.model().index(row, wt.COL_VALUE)
+        t.table.setCurrentIndex(idx)
+        t.table.edit(idx)
+        editor = t.table.viewport().focusWidget()
+        QTest.keyClicks(editor, "42.5")
+        QTest.keyClick(editor, Qt.Key_Return)
+        QTest.qWait(50)                                              # düzenleyici kapansın, sonra sıradaki satır
+    assert got == [[0], [1]]                                        # gerçek klavye girişi iki satırı da yazdırdı
+    assert t.pending_text(0) == "42.5" and t.pending_text(1) == "42.5"
+    assert "ölçüm değişkeni" in t.table.item(0, wt.COL_NAME).toolTip()
+
+
+def test_measurement_rows_stay_writable_after_the_list_is_saved_and_reloaded(qapp, tmp_path):
+    from PySide6.QtCore import Qt
+    t = _a2l_tab_with_objects(qapp)
+    t.set_storage_path(str(tmp_path / "w.json"))
+    t._save()
+    t2 = wt.WatchTab()
+    t2.a2l_db = t.a2l_db
+    t2.set_storage_path(str(tmp_path / "w.json"))
+    t2.refresh_objects()
+    assert t2.table.item(0, wt.COL_VALUE).flags() & Qt.ItemIsEditable
+
+
+def test_operator_role_locks_value_cells_and_says_why(qapp):
+    from PySide6.QtCore import Qt
+    t = _a2l_tab_with_objects(qapp)
+    t.set_write_allowed(False)
+    assert not t.role_hint.isHidden() and "Mühendis" in t.role_hint.text()
+    assert not t.table.item(1, wt.COL_VALUE).flags() & Qt.ItemIsEditable
+    t.set_write_allowed(True)
+    assert t.role_hint.isHidden() and t.table.item(1, wt.COL_VALUE).flags() & Qt.ItemIsEditable
+
+
+def test_main_window_follows_role_for_the_watch_list(live_window):
+    from PySide6.QtCore import Qt
+    w, _ecu, _obj, _pump = live_window
+    w._on_role_applied("test", Role.OPERATOR.value)
+    assert not w.watch_tab.table.item(0, wt.COL_VALUE).flags() & Qt.ItemIsEditable
+    w._on_role_applied("test", Role.ENGINEER.value)
+    assert w.watch_tab.table.item(0, wt.COL_VALUE).flags() & Qt.ItemIsEditable

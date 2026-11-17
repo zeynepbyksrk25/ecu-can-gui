@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
 
 from app.profiles import ConfigProfile
 from app.user_roles import (
-    Role, can_manage_profiles, can_override_actuator,
+    Role, can_manage_profiles, can_override_actuator, can_write_calibration,
 )
 
 
@@ -20,6 +20,7 @@ class ProfilesMixin:
             self._update_role_label()
         self.control_panel_tab.set_allowed(can_override_actuator(self.current_role))
         self.dashboard_tab.sim_inputs.set_allowed(can_override_actuator(self.current_role))
+        self.watch_tab.set_write_allowed(can_write_calibration(self.current_role))
         self._log_event("KULLANICI", f"Rol uygulandı: {user_name} ({role_value})")
 
     def _on_profile_save(self, name: str):

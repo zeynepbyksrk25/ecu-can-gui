@@ -344,6 +344,7 @@ class WatchTab(QWidget):
         self._name_pref = 240          # kullanıcının istediği İsim sütunu genişliği
         self._storage_path: str | None = None
         self._connected = False
+        self._write_allowed = True     # rol yazmaya izin veriyor mu (MainWindow bildirir)
 
         self._mono = QFontDatabase.systemFont(QFontDatabase.FixedFont)
 
@@ -384,8 +385,17 @@ class WatchTab(QWidget):
         row1.addStretch()
         row1.addWidget(self.live_label)
 
+        self.role_hint = QLabel("🔒 Değer yazmak için Mühendis veya Yönetici rolü gerekir "
+                                "(sağ üstteki ⚙ Ayarlar penceresinden rol seçin). Şu an yalnızca izleyebilirsiniz.")
+        self.role_hint.setWordWrap(True)
+        self.role_hint.setStyleSheet(theme.paint(
+            "background:@@WARN_BG@@; color:@@WARN_DEEP@@; border:1px solid @@WARN_LINE@@; border-radius:6px; "
+            "padding:5px 8px; font-weight:600;"))
+        self.role_hint.setVisible(False)
+
         outer = QVBoxLayout()
         outer.addLayout(row1)
+        outer.addWidget(self.role_hint)
         outer.addWidget(self.hint_label)
         return outer
 
@@ -475,6 +485,8 @@ class WatchTab(QWidget):
                 name_tip += f" · adres uzantısı 0x{e.address_extension:X}"
             if e.read_only:
                 name_tip += " · salt okunur"
+            elif e.kind == "measurement":
+                name_tip += " · ölçüm değişkeni: yazılan değeri ECU kendi hesabıyla geri ezebilir"
             name.setToolTip(name_tip)
 
             self._set_text(self._cell(row, COL_UNIT), e.unit)
@@ -492,7 +504,7 @@ class WatchTab(QWidget):
         e = self._entries[row]
         item = self._cell(row, COL_VALUE)
         flags = Qt.ItemIsEnabled | Qt.ItemIsSelectable
-        if not e.read_only and e.resolved:
+        if not e.read_only and e.resolved and self._write_allowed:
             flags |= Qt.ItemIsEditable
         item.setFlags(flags)
         item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
@@ -572,7 +584,11 @@ class WatchTab(QWidget):
             description=getattr(obj, "description", "") or "",
             address_extension=obj.address_extension or 0,
             byte_order=obj.byte_order, compu_method=obj.compu_method,
-            read_only=True if kind == "measurement" else bool(obj.read_only),
+            # Ölçüm (MEASUREMENT) satırları da YAZILABİLİR: bu ECU'da override değişkenleri (clbc_* vb.) A2L'de
+            # ölçüm olarak tanımlıdır ve CCP ile RAM'e yazılır. Eskiden ölçümler zorla salt-okunur yapılıyor,
+            # eklenen hiçbir ölçüme değer girilemiyordu. Güvenlik: rol denetimi, A2L min/max ve yazma sonrası
+            # geri okuma doğrulaması aynen sürer; salt-okunur yalnızca A2L'de READ_ONLY işaretli karakteristiktir.
+            read_only=False if kind == "measurement" else bool(obj.read_only),
         )
 
     def _on_add_a2l(self):
@@ -651,6 +667,13 @@ class WatchTab(QWidget):
         self.live_label.setStyleSheet(f"color: {color}; font-weight: bold;")
 
     # ---- MainWindow'un kullandığı erişimciler -----------------------------
+    def set_write_allowed(self, allowed: bool):
+        """Rol yazmaya izin vermiyorsa Değer hücreleri düzenlenemez ve nedeni açıkça yazılır."""
+        self._write_allowed = bool(allowed)
+        self.role_hint.setVisible(not self._write_allowed)
+        for row in range(len(self._entries)):
+            self._render_value_cell_guarded(row)
+
     def entries(self) -> list[WatchEntry]:
         return list(self._entries)
 
