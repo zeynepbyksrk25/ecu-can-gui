@@ -79,6 +79,7 @@ class DashboardTab(QWidget):
     motor_start_requested = Signal()
     motor_stop_requested = Signal()
     estop_requested = Signal()
+    estop_released = Signal()      # kilitli Acil Durdurma 2. basışla açıldı → sistem yeniden başlatılır
     config_saved = Signal(object)        # DashboardConfig
     tick = Signal(list)                  # o an okunması gereken A2L ölçüm adları
     gauge_sample = Signal(str, float)    # gösterge anahtarı, değer (Çalışma Alanı için)
@@ -173,6 +174,7 @@ class DashboardTab(QWidget):
         self.stop_button = QPushButton("Motoru Durdur")
         self.estop_button = QPushButton("Acil Durdurma")
         self.estop_button.setProperty("danger", True)
+        self.estop_button.setCheckable(True)    # kilitli (koyu kırmızı) / serbest (açık kırmızı)
         self.start_button.clicked.connect(self.motor_start_requested.emit)
         self.stop_button.clicked.connect(self.motor_stop_requested.emit)
         self.estop_button.clicked.connect(self._on_estop_clicked)
@@ -200,10 +202,21 @@ class DashboardTab(QWidget):
             parts.append(self.estop_hint)
         self.estop_button.setToolTip("\n\n".join(parts))
 
-    def _on_estop_clicked(self):
+    def _on_estop_clicked(self, checked: bool = True):
         # ONAY SORULMAZ: acil komutta fazladan bir tık gecikmedir. Eşleme yoksa MainWindow hatayı açıkça
         # bildirir ve günlüğe yazar.
-        self.estop_requested.emit()
+        # 1. basış (checked): Acil Durdurma gönderilir, düğme koyu kırmızıda KİLİTLİ kalır.
+        # 2. basış (unchecked): kilit açılır (açık kırmızı) ve sistem yeniden başlatılır.
+        self.start_button.setEnabled(self.config.motor_start.binding.is_set and not checked)
+        if checked:
+            self.estop_requested.emit()
+        else:
+            self.estop_released.emit()
+
+    def reset_estop_latch(self):
+        """Komut gönderilemediyse düğme kilitli görünmesin."""
+        self.estop_button.setChecked(False)
+        self.start_button.setEnabled(self.config.motor_start.binding.is_set)
 
     # ======================================================================
     # Son olaylar (komut gönderildi, hata, bağlantı...): sol sütunun kalan yüksekliğini doldurur
@@ -721,6 +734,10 @@ class DashboardTab(QWidget):
                 specs.append({"key": sid, "label": GAUGE_DISPLAY_LABELS.get(k, k), "unit": unit})
             elif sid.startswith("m:"):
                 specs.append({"key": sid, "label": signal_label(sid), "unit": self._measurement_units.get(sid[2:], "")})
+        sig = [(s["key"], s["label"], s["unit"]) for s in specs]
+        if sig == getattr(self, "_trend_sig", None):
+            return          # değişmediyse eksenleri/ViewBox'ları yeniden kurma (Kaydet sonrası sağ taraf bozuluyordu)
+        self._trend_sig = sig
         self.trend.set_series(specs)
 
     def add_measurement_sample(self, name: str, value: float):
@@ -739,7 +756,7 @@ class DashboardTab(QWidget):
         miss = cfg.unbound_gauges()
         self.map_warn_label.setText(f"⚠ {len(miss)} sensör bağlı değil" if miss else "")
         self.map_warn_button.setVisible(bool(miss))
-        self.start_button.setEnabled(cfg.motor_start.binding.is_set)
+        self.start_button.setEnabled(cfg.motor_start.binding.is_set and not self.estop_button.isChecked())
         self.stop_button.setEnabled(cfg.motor_stop.binding.is_set)
         # Acil Durdurma HER ZAMAN tıklanabilir kalır: eşleme yoksa basınca açık bir hata verir (gri/sessiz değil).
         self.estop_button.setEnabled(True)

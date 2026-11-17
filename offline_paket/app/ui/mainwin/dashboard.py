@@ -212,9 +212,16 @@ class DashboardMixin:
                 "Acil Durdurma için DBC sinyali veya A2L değişkeni TANIMLI DEĞİL; komut ECU'ya gitmedi.\n\n"
                 "Motoru manuel / fiziksel olarak hemen durdurun. Sonra ⚙ Eşleşmeler penceresinden "
                 "Acil Durdurma eşlemesini tanımlayın.")
+            self.dashboard_tab.reset_estop_latch()
             return
         # Güvenlik komutu: A2L/DBC sınırı ya da READ_ONLY yüzünden reddedilmez (bkz. _write_binding).
-        self._send_motor_command("ACİL DURDURMA", cmd, safety=True)
+        if not self._send_motor_command("ACİL DURDURMA", cmd, safety=True):
+            self.dashboard_tab.reset_estop_latch()      # gitmediyse kilitli görünmesin
+
+    def _on_estop_released(self):
+        """Acil Durdurma kilidi 2. basışla açıldı: sistem çalışmaya başlasın (Motor Start gönderilir)."""
+        self._log_event("MOTOR", "Acil Durdurma kilidi açıldı: sistem yeniden başlatılıyor")
+        self._on_motor_start()
 
     def _migrate_control_bindings(self):
         """Eski sürümde Motor Kontrol girişleri (Start/Spark/Gaz Kolu/Birincil Yakıt) ``sim_interface.json``
