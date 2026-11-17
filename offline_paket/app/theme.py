@@ -467,15 +467,21 @@ QFrame#actionStatusRow QPushButton[primary="true"] {{
 }}
 
 QFrame#actionStatusRow QPushButton[danger="true"] {{
-    background: #C22A1D;
-    border: 1px solid #8E1D14;
-    color: #FFFFFF;
+    background: #F4A19A;
+    border: 1px solid #C22A1D;
+    color: #6F160F;
     font-weight: 700;
 }}
 
 QFrame#actionStatusRow QPushButton[danger="true"]:hover {{
-    background: #A8241A;
-    border-color: #6F160F;
+    background: #EE8A81;
+    border-color: #A8241A;
+    color: #5A0F0A;
+}}
+
+QFrame#actionStatusRow QPushButton[danger="true"]:checked {{
+    background: #7A130B;
+    border: 1px solid #4A0B06;
     color: #FFFFFF;
 }}
 

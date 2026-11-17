@@ -231,6 +231,7 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self.dashboard_tab.motor_start_requested.connect(self._on_motor_start)
         self.dashboard_tab.motor_stop_requested.connect(self._on_motor_stop)
         self.dashboard_tab.estop_requested.connect(self._on_estop)
+        self.dashboard_tab.estop_released.connect(self._on_estop_released)
         self.dashboard_tab.config_saved.connect(self._on_dashboard_config_saved)
         self.dashboard_tab.tick.connect(self._on_dashboard_tick)
         self.dashboard_tab.writer = self._write_binding
@@ -352,8 +353,10 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         if central is None:
             return
         hint = central.minimumSizeHint()
-        self.setMinimumSize(max(1100, hint.width()), max(600, hint.height() + 26))
-        self.resize(max(self.width(), self.minimumWidth()), max(self.height(), self.minimumHeight()))
+        want_w, want_h = max(1100, hint.width()), max(600, hint.height() + 26)
+        self.setMinimumSize(want_w, want_h)
+        if self.width() < want_w or self.height() < want_h:
+            self.resize(max(self.width(), want_w), max(self.height(), want_h))
 
     def _schedule_minimum_size_refresh(self, *_):
         """İçerik değişiminden SONRA (yerleşim güncellenince) asgari boyutu yeniler; art arda çağrılar birleşir."""

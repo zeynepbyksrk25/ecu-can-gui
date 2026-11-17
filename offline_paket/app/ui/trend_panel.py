@@ -17,7 +17,7 @@ import pyqtgraph as pg
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QFileDialog, QFrame, QHBoxLayout, QInputDialog, QLabel, QMenu, QMessageBox,
-    QPushButton, QVBoxLayout,
+    QPushButton, QSizePolicy, QVBoxLayout,
 )
 
 from app import theme
@@ -184,10 +184,15 @@ class TrendPanel(QFrame):
         self.btn_detach.clicked.connect(lambda: self.detacher.detach())
         from app.ui.detach import PanelDetacher
         self.detacher = PanelDetacher(self, "Trend", self.btn_detach)
+        # İkinci satır: araç düğmeleri (tek satıra sığmayınca metinler iç içe giriyordu)
+        tools = QHBoxLayout()
+        tools.setSpacing(4)
+        tools.addStretch(1)
         for w in (self.btn_pick, self.btn_zoom_in, self.btn_zoom_out, self.btn_live, self.btn_cursor,
                   self.btn_compare, self.btn_export, self.btn_detach):
-            head.addWidget(w)
+            tools.addWidget(w)
         root.addLayout(head)
+        root.addLayout(tools)
 
         # ---- gösterge satırı (renkli etiketler) + imleç özeti
         self.legend_row = QHBoxLayout()
@@ -251,6 +256,7 @@ class TrendPanel(QFrame):
         b.setProperty("compact", True)
         b.setIcon(self._qicon(icon_name, DK_MUT))
         b.setCursor(Qt.PointingHandCursor)
+        b.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         return b
 
     def window_s(self) -> float:
@@ -399,6 +405,7 @@ class TrendPanel(QFrame):
             lab = QLabel(f'<span style="color:{ser.color}; font-size:14px;">●</span>&nbsp;{ser.label}{u}')
             lab.setTextFormat(Qt.RichText)
             lab.setObjectName("legendItem")
+            lab.setMinimumWidth(0)      # uzun gösterge paneli genişletmesin (asgari genişliği şişirmesin)
             self.legend_row.insertWidget(pos, lab)
             pos += 1
 

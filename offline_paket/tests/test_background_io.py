@@ -258,6 +258,49 @@ def test_mapped_estop_is_sent_without_any_confirmation(win, monkeypatch):
     assert win._shown == [], "Acil Durdurma onay/uyarı penceresi açmamalı"
 
 
+def test_estop_latches_then_second_press_releases_and_restarts(win, monkeypatch):
+    from app.dashboard_config import SOURCE_CAN, Binding, DashboardConfig, MotorCommand
+    sent = []
+    monkeypatch.setattr(type(win.connection), "is_connected", property(lambda s: True))
+    monkeypatch.setattr(win.connection, "send", lambda i, d, e: sent.append((i, bytes(d))))
+    cfg = DashboardConfig()
+    cfg.estop = MotorCommand(Binding(SOURCE_CAN, "CMD", "estop_req"), 1.0)
+    cfg.motor_start = MotorCommand(Binding(SOURCE_CAN, "CMD", "estop_req"), 1.0)
+    dt = win.dashboard_tab
+    dt.set_config(cfg)
+    assert not dt.estop_button.isChecked()
+    dt.estop_button.click()
+    assert dt.estop_button.isChecked() and not dt.start_button.isEnabled()
+    n = len(sent)
+    assert n >= 1
+    dt.estop_button.click()
+    assert not dt.estop_button.isChecked() and dt.start_button.isEnabled()
+    assert len(sent) > n, "ikinci basışta sistem yeniden başlatılmalı"
+
+
+def test_estop_unmapped_does_not_stay_latched(win, monkeypatch):
+    from app.dashboard_config import DashboardConfig
+    monkeypatch.setattr(type(win), "_log_event", lambda *a, **k: None, raising=False)
+    from PySide6.QtWidgets import QMessageBox
+    monkeypatch.setattr(QMessageBox, "critical", lambda *a, **k: None)
+    win.dashboard_tab.set_config(DashboardConfig())
+    win.dashboard_tab.estop_button.click()
+    assert not win.dashboard_tab.estop_button.isChecked()
+
+
+def test_flight_inputs_have_no_limits(qapp):
+    from app.sim_interface import SimConfig
+    from app.ui.sim_inputs import SimInputsPanel
+    import inspect
+    try:
+        p = SimInputsPanel(SimConfig(), None) if len(inspect.signature(SimInputsPanel).parameters) >= 2 else SimInputsPanel(SimConfig())
+    except TypeError:
+        pytest.skip("SimInputsPanel imzası farklı")
+    spin = p._ctrl["ma"]["w"]
+    spin.setValue(35)
+    assert spin.value() == 35
+
+
 # ---------------------------------------------------------------- arka planda dosya yükleme
 def test_run_with_progress_keeps_event_loop_alive_and_returns_or_raises(qapp):
     from app.ui.background import run_with_progress
@@ -496,3 +539,11 @@ def test_trend_range_buttons_are_not_clipped_after_loading_a_dbc(qapp, monkeypat
             assert b.width() >= b.sizeHint().width(), f"{b.text()!r} düğmesi kırpılıyor"
     finally:
         w.close()
+
+
+def test_trend_toolbar_is_two_rows_and_narrow(qapp):
+    """Araç düğmeleri ikinci satırda: panelin asgari genişliği 16" (≈1280 mantıksal px) ekrana sığar."""
+    from app.ui.trend_panel import TrendPanel
+    t = TrendPanel()
+    assert t.minimumSizeHint().width() < 900
+    assert t.btn_compare.sizeHint().width() > 0

@@ -118,7 +118,7 @@ class SimInputsPanel(QWidget):
 
     def _spin(self, d) -> QDoubleSpinBox:
         spin = no_wheel(QDoubleSpinBox())
-        spin.setRange(d.minimum, d.maximum)
+        spin.setRange(-1e9, 1e9)     # girdi sınırı YOK (kullanıcı isteği); d.minimum/maximum yalnızca varsayılan içindir
         spin.setDecimals(DECIMALS.get(d.key, 2))
         spin.setSingleStep(1.0 if d.kind == "slider" else 0.1)
         spin.setAlignment(Qt.AlignRight)
@@ -162,7 +162,7 @@ class SimInputsPanel(QWidget):
         d = INPUT_BY_KEY[key]
         s = self._src.get(self.config.input_map.get(key, ""))
         if s is not None and s.initial is not None:
-            return max(d.minimum, min(d.maximum, float(s.initial)))
+            return float(s.initial)
         if key in _FALLBACK_DEFAULTS:  # DBC başlangıç değeri yoksa: deniz seviyesi (ISA)
             return _FALLBACK_DEFAULTS[key]
         return 0.0 if d.minimum <= 0 <= d.maximum else float(d.minimum)
