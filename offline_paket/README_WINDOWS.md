@@ -173,6 +173,9 @@ uygulamada donanımla doğrulanmamıştır**. Bu yüzden:
 - **Acil Durdurma ONAY SORMAZ:** tek tıkla ya da **`Ctrl+Shift+E`** ile (hangi sayfa açık olursa olsun, odak bir
   giriş kutusunda bile) gönderilir. `Ctrl+1` … `Ctrl+6` sayfalar arasında geçer. Ana düğmelerin ve durum
   göstergelerinin ekran okuyucu adları vardır.
+- **Parametre Listesi'nde değer yazma:** Değer hücresine yazıp **Enter** ile RAM'e yazılır. Bunun için rolün
+  **Mühendis veya Yönetici** olması gerekir (sağ üstteki ⚙ Ayarlar > rol). **Operatör** rolünde Değer hücreleri
+  kilitlidir ve ipucu satırı nedenini söyler; değerler yine canlı izlenir.
 - **Tablo yedeğinden geri yükleme:** Harita Editörü > **Yedekten Yükle…** seçili tablonun, ECU'ya yazılmadan
   önce otomatik alınmış yedeklerinden birini tabloya getirir (aynı nesne, adres ve boyut doğrulanır). ECU'ya
   YAZILMAZ; "ECU'ya Yaz" ile ayrıca yazarsınız ve tek adımda Geri Al ile vazgeçilebilir.

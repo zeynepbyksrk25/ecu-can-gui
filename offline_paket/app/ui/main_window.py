@@ -36,7 +36,7 @@ from app.ui.tanilama_tab import TanilamaTab
 from app.ui.settings_dialog import SettingsDialog
 from app.ui.user_tab import UserTab
 from app.user_roles import (
-    Role, can_override_actuator,
+    Role, can_override_actuator, can_write_calibration,
 )
 
 # Eski içe aktarma yolu (app.ui.main_window) çalışmaya devam etsin diye yeniden dışa aktarılır.
@@ -232,6 +232,7 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
 
         self._wire_signals()
         self._install_shortcuts_and_accessibility()
+        self.watch_tab.set_write_allowed(can_write_calibration(self.current_role))
         for sig in (self.transmit_tab.dbc_loaded, self.a2l_tab.a2l_loaded, self.dashboard_tab.config_saved,
                     self.user_tab.role_applied):
             sig.connect(self._schedule_minimum_size_refresh)
