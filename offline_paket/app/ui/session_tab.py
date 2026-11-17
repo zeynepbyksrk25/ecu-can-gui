@@ -19,6 +19,7 @@ from app.ui.event_log_table import EventLogTable
 class SessionTab(QWidget):
     session_started = Signal(str, str)     # test ismi, operatör
     session_stopped = Signal()
+    excel_requested = Signal()             # elle Excel'e aktar (MainWindow dosyayı yazar)
 
     def __init__(self):
         super().__init__()
@@ -52,6 +53,10 @@ class SessionTab(QWidget):
         self.stop_button.setEnabled(False)
         self.pdf_button = QPushButton("PDF Rapor Oluştur")
         self.pdf_button.clicked.connect(self._on_export_pdf)
+        self.excel_button = QPushButton("Excel'e Aktar")
+        self.excel_button.setToolTip("Olay günlüğü, kalibrasyon yazımları ve son parametre kaydını Excel (.xlsx) "
+                                     "dosyası olarak BİLGİSAYARA kaydeder (ECU'ya hiçbir şey yazılmaz).")
+        self.excel_button.clicked.connect(self.excel_requested.emit)
 
         grid = QGridLayout()
         grid.setHorizontalSpacing(12)
@@ -67,6 +72,7 @@ class SessionTab(QWidget):
         buttons.addWidget(self.start_button)
         buttons.addWidget(self.stop_button)
         buttons.addWidget(self.pdf_button)
+        buttons.addWidget(self.excel_button)
         grid.addLayout(buttons, 1, 2)
         grid.setColumnStretch(0, 3)
         grid.setColumnStretch(1, 2)

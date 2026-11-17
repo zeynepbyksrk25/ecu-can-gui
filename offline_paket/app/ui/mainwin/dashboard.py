@@ -296,10 +296,15 @@ class DashboardMixin:
         path, rows, err = rec.path, rec.rows, rec.error
         rec.stop()
         if path:
+            self._last_record_csv = path
             self.event_log.add("OTURUM", f"Parametre kaydı bitti: {rows} örnek, {path}")
             self.session_tab.set_record_info(f"Parametre kaydı kaydedildi ({rows} örnek): {path}")
         if err:
             self.event_log.add("HATA", f"Parametre kaydı diske yazılamadı, kayıt durdu: {err}")
+        # Excel (.xlsx): oturum özeti, parametre kaydı, olay günlüğü ve kalibrasyon yazımları tek dosyada.
+        xlsx = self._export_session_excel(path)
+        if xlsx:
+            self.session_tab.set_record_info(f"Kayıt: {path or '-'}\nExcel: {xlsx}")
         self.session_tab.refresh_log()
 
     def _sync_workspace_a2l(self):

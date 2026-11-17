@@ -14,7 +14,7 @@ adımları [`offline_paket/README_WINDOWS.md`](offline_paket/README_WINDOWS.md) 
 | **Kalibrasyon** | A2L tarayıcı, CCP bağlantısı, Parametre Listesi, Harita Editörü (yedekten yükleme dahil), geçmiş |
 | **Analiz** | Çalışma Alanı (çoklu sinyal grafiği, matematik sinyalleri), Performans |
 | **Kontrol Paneli** | Uçak girişleri / sensör override değerleri, senaryolar |
-| **Tanılama ve Oturum** | CCP testi, DIAG_SERVICE, olay günlüğü, oturum kaydı, PDF rapor |
+| **Tanılama ve Oturum** | CCP testi, DIAG_SERVICE, olay günlüğü, oturum kaydı, PDF rapor, **Excel (.xlsx) kayıt dosyası** |
 
 Sayfa geçişi: `Ctrl+1` … `Ctrl+6`.
 
@@ -49,6 +49,7 @@ offline_paket/
     control_panel.py       DBC tabanlı katalog, TxScheduler (Kontrol Paneli periyodik gönderimi)
     ccp/                   CCP protokolü, istemci, oturum iş parçacığı, simülatör, harita IO, tablo yedeği
     a2l.py, dbc.py         A2L ve DBC okuyucular (düz Python özetleri döner)
+    xlsx_export.py         bağımlılıksız akışlı .xlsx yazıcı; log_export.py: oturum/CAN kaydı → Excel
     ui/main_window.py      pencere çatısı; iş mantığı ui/mainwin/ altındaki parçalarda
     ui/mainwin/            bağlantı, kalibrasyon/CCP, Ana Sayfa, Kontrol Paneli, profiller
     theme.py               TÜM renk token'ları (arayüzde renk sabiti yazmayın)

@@ -369,9 +369,13 @@ class ConnectionMixin:
             self._log_event("HATA", f"CAN kaydı başlatılamadı: {exc}")
             return
         self._logged_count = 0
+        self._can_log_path = path
         self.log_tab.set_active(True, path)
         self.log_tab.set_count(0)
 
     def _on_log_stop(self):
         self.can_logger.stop()
         self.log_tab.set_active(False)
+        path, self._can_log_path = self._can_log_path, None
+        if path and self.log_tab.excel_on_stop():
+            self._export_can_excel(path)
