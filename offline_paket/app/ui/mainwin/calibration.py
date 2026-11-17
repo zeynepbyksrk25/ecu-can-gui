@@ -236,12 +236,14 @@ class CalibrationMixin:
                     False, "Yetki yok: FLAŞ yazmak için Yönetici rolü gerekir "
                            "(sağ üstteki ⚙ Ayarlar penceresinden rol seçin)."
                 )
+                self._record_denied_write("Kalibrasyon > CCP", "FLAŞ yazımı", "Yetki yok: FLAŞ için Yönetici rolü gerekir")
                 return
         elif not can_write_calibration(self.current_role):
             self.ccp_tab.set_write_result(
                 False, "Yetki yok: kalibrasyon yazmak için Mühendis veya Yönetici rolü gerekir "
                        "(sağ üstteki ⚙ Ayarlar penceresinden rol seçin)."
             )
+            self._record_denied_write("Kalibrasyon > CCP", "RAM yazımı", "Yetki yok: Mühendis veya Yönetici rolü gerekir")
             return
         selected = self.ccp_tab.selected_object()
         if selected is None or selected[0] != "characteristic":
@@ -297,6 +299,8 @@ class CalibrationMixin:
             kind = "FLAŞ" if persistent else "RAM"
             self.ccp_tab.set_write_result(False, f"Yazma hatası ({kind}): {exc}")
             self._log_event("HATA", f"{obj.name} {kind} yazma hatası: {exc}")
+            self._record_input("Kalibrasyon > CCP", f"{kind} yazımı", "A2L", obj.name, phys_value, ok=False,
+                               detail=str(exc), unit=obj.unit or "")
             return
 
         kind_label = "FLAŞ, kalıcı" if persistent else "RAM, geçici"
@@ -309,7 +313,13 @@ class CalibrationMixin:
             self.current_user, self.current_role.value, obj.name, old_phys, phys_value, obj.unit or "",
             persistent=persistent,
         )
+        self._record_input("Kalibrasyon > CCP", "FLAŞ yazımı" if persistent else "RAM yazımı", "A2L", obj.name,
+                           phys_value, old_value=old_phys, unit=obj.unit or "")
         self.history_tab.refresh()
+
+    def _record_denied_write(self, page: str, kind: str, detail: str, target: str = "", value=None):
+        """Reddedilen (yetki/bağlantı) yazma girişimi de kayda geçer: ne denendiği sonradan görülebilsin."""
+        self._record_input(page, kind, "A2L", target or "(seçili nesne)", value, ok=False, detail=detail)
 
     # ---- Harita Editörü (CURVE/MAP/ARRAY okuma-yazma; çoklu tablo) ----------
     def _open_in_map_editor(self, characteristic):
@@ -423,11 +433,18 @@ class CalibrationMixin:
             if isinstance(old_grid, Exception):
                 doc.set_write_result(False, f"Yazma hatası: {old_grid}")
                 self._log_event("HATA", f"{characteristic.name} tablo yazma hatası: {old_grid}")
+                self._record_input("Kalibrasyon > Harita Editörü", "Tablo yazımı (RAM)", "A2L", characteristic.name,
+                                   f"{len(grid)}×{len(grid[0]) if grid else 0} tablo", ok=False, detail=str(old_grid),
+                                   unit=characteristic.unit or "")
                 failed += 1
                 continue
             backup = self._save_table_backup(characteristic, old_grid)
             rows, cols = len(grid), len(grid[0]) if grid else 0
             changed = self._count_changed_cells(old_grid, grid)
+            self._record_input("Kalibrasyon > Harita Editörü", "Tablo yazımı (RAM)", "A2L", characteristic.name,
+                               f"{rows}×{cols} tablo", old_value=f"{rows}×{cols} tablo",
+                               detail=f"{changed} hücre değişti" + (f"; önceki içerik yedeği: {backup}" if backup else ""),
+                               unit=characteristic.unit or "")
             doc.set_write_result(True, f"Yazıldı (RAM, geçici): {characteristic.name} — {changed} hücre değişti")
             self._log_event(
                 "KALIBRASYON",
@@ -464,6 +481,8 @@ class CalibrationMixin:
             return
         if not can_write_calibration(self.current_role):
             doc.set_write_result(False, "Yetki yok: harita yazmak için Mühendis veya Yönetici rolü gerekir.")
+            self._record_denied_write("Kalibrasyon > Harita Editörü", "Tablo yazımı (RAM)",
+                                      "Yetki yok: Mühendis veya Yönetici rolü gerekir", doc.characteristic.name)
             return
         self._write_map_doc(doc)
 
@@ -481,6 +500,8 @@ class CalibrationMixin:
         if not can_write_calibration(self.current_role):
             for d in docs:
                 d.set_write_result(False, "Yetki yok: harita yazmak için Mühendis veya Yönetici rolü gerekir.")
+                self._record_denied_write("Kalibrasyon > Harita Editörü", "Tablo yazımı (RAM)",
+                                          "Yetki yok: Mühendis veya Yönetici rolü gerekir", d.characteristic.name)
             return
         modified = [d for d in docs if d.is_modified()]
         skipped = len(docs) - len(modified)
@@ -526,11 +547,21 @@ class CalibrationMixin:
         """Parametre Listesi: Değer hücresine Enter ile onaylanan değerleri RAM'e yazar (anında).
         Yazılamayanlarda bekleyen metin atılır (hücre canlı değere döner); yazılanlar ECU'dan geri
         okunarak doğrulanır (bkz. WatchTab.commit_written / set_row_value)."""
+        def record_denied(detail: str):
+            for row in rows:
+                if 0 <= row < len(self.watch_tab.entries()):
+                    e = self.watch_tab.entries()[row]
+                    text = self.watch_tab.pending_text(row)
+                    self._record_input("Kalibrasyon > Parametre Listesi", "RAM yazımı", "A2L", e.name,
+                                       text, ok=False, detail=detail, unit=e.unit or "")
+
         if self.ccp_client is None:
+            record_denied("CCP bağlı değil")
             self.watch_tab.discard_pending(rows)
             self.watch_tab.set_write_result(False, "CCP bağlı değil; değer yazılamadı (bağlantı kurulunca tekrar deneyin).")
             return
         if not can_write_calibration(self.current_role):
+            record_denied("Yetki yok: Mühendis veya Yönetici rolü gerekir")
             self.watch_tab.discard_pending(rows)
             self.watch_tab.set_write_result(
                 False, "Yetki yok: kalibrasyon yazmak için Mühendis veya Yönetici rolü gerekir "
@@ -579,11 +610,15 @@ class CalibrationMixin:
             if isinstance(exc, ccp_protocol.CCPTimeoutError):
                 problems.append(f"{e.name}: {str(exc) or 'ECU cevap vermedi'}")
                 self._log_event("HATA", f"{e.name} RAM yazma: ECU cevap vermedi")
+                self._record_input("Kalibrasyon > Parametre Listesi", "RAM yazımı", "A2L", e.name, phys, ok=False,
+                                   detail=str(exc) or "ECU cevap vermedi", unit=e.unit or "")
                 failed_rows.append(row)
                 continue
             if exc is not None:
                 problems.append(f"{e.name}: {exc}")
                 self._log_event("HATA", f"{e.name} RAM yazma hatası: {exc}")
+                self._record_input("Kalibrasyon > Parametre Listesi", "RAM yazımı", "A2L", e.name, phys, ok=False,
+                                   detail=str(exc), unit=e.unit or "")
                 failed_rows.append(row)
                 continue
             self.watch_tab.commit_written(row, phys)
@@ -592,6 +627,8 @@ class CalibrationMixin:
                 self.current_user, self.current_role.value, e.name, old_phys, phys, e.unit or "",
                 persistent=False,
             )
+            self._record_input("Kalibrasyon > Parametre Listesi", "RAM yazımı", "A2L", e.name, phys,
+                               old_value=old_phys, unit=e.unit or "")
             done += 1
         self.watch_tab.discard_pending(failed_rows)
         self.history_tab.refresh()
@@ -729,5 +766,8 @@ class CalibrationMixin:
             entry.new_value, entry.old_value, obj.unit or "",
             persistent=entry.persistent,
         )
+        self._record_input("Kalibrasyon > Geçmiş", "Geri alma (FLAŞ)" if entry.persistent else "Geri alma (RAM)", "A2L",
+                           obj.name, entry.old_value, old_value=entry.new_value, unit=obj.unit or "",
+                           detail="Geçmişten eski değere geri yazıldı")
         self.history_tab.refresh()
         self._log_event("KALIBRASYON", f"{obj.name} eski değerine geri yazıldı: {entry.old_value}")

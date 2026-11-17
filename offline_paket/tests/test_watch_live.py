@@ -267,3 +267,25 @@ def test_main_window_follows_role_for_the_watch_list(live_window):
     assert not w.watch_tab.table.item(0, wt.COL_VALUE).flags() & Qt.ItemIsEditable
     w._on_role_applied("test", Role.ENGINEER.value)
     assert w.watch_tab.table.item(0, wt.COL_VALUE).flags() & Qt.ItemIsEditable
+
+
+def test_typed_value_on_a_measurement_row_reaches_the_ecu_and_is_recorded(live_window):
+    """Uçtan uca: ölçüm (clbc_*) satırına değer girilir, ECU belleğine yazılır, giriş kaydına düşer."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    w, ecu, obj, pump = live_window
+    w.watch_tab._entries[0].read_only = True                 # fixture'ın zorladığı bayrağı geri al: gerçek yol
+    w.watch_tab.refresh_objects()                            # A2L'den yeniden çözümle (gerçek varsayılanlar)
+    w.watch_tab.set_write_allowed(True)
+    tab = w.watch_tab
+    assert wait_for(lambda: tab.table.item(0, wt.COL_VALUE).text() == "12.5", pump=pump)
+    idx = tab.table.model().index(0, wt.COL_VALUE)
+    assert tab.table.item(0, wt.COL_VALUE).flags() & Qt.ItemIsEditable
+    tab.table.setCurrentIndex(idx)
+    tab.table.edit(idx)
+    editor = tab.table.viewport().focusWidget()
+    QTest.keyClicks(editor, "33.5")
+    QTest.keyClick(editor, Qt.Key_Return)
+    assert wait_for(lambda: struct.unpack("<f", bytes(ecu.read_memory_bytes(obj.address, 4)))[0] == 33.5, pump=pump)
+    rec = [e for e in w.input_log.entries if e.page == "Kalibrasyon > Parametre Listesi"]
+    assert rec and rec[-1].target == "clbc_Fuel_pump_dc_perc" and rec[-1].new_value == 33.5 and rec[-1].ok

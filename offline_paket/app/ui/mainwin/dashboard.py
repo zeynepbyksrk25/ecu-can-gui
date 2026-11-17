@@ -1,5 +1,6 @@
 """Ana Sayfa: eşleşme (Binding) yazımı, motor komutları ve Acil Durdurma, gösterge/grafik beslemesi,
 oturum parametre kaydı ve Çalışma Alanı okuması."""
+import os
 
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
@@ -36,8 +37,14 @@ class DashboardMixin:
             QMessageBox.warning(self, "Eşleşme yok", f"{label} için eşleşme tanımlı değil (⚙ Eşleşmeler).")
             return False
         if binding.source == SOURCE_A2L:
-            return self._write_a2l(binding, value, label, safety)
+            return self._write_a2l(binding, value, label, safety, merge)
         return self._write_can(binding, value, label, merge, safety)
+
+    @staticmethod
+    def _input_kind(label: str, merge: bool, safety: bool) -> str:
+        if safety or not merge:
+            return "Motor komutu"
+        return "Switch (_sw)" if label.endswith("anahtarı") else "Değer girişi"
 
     def _write_can(self, binding: Binding, value: float, label: str, merge: bool = True,
                    safety: bool = False, extra: dict | None = None) -> bool:
@@ -45,6 +52,9 @@ class DashboardMixin:
         if not self.connection.is_connected:
             QMessageBox.warning(self, "CAN bağlantısı yok",
                                 f"{label} göndermeden önce CAN hattına bağlanın.")
+            self._record_input("Ana Sayfa", self._input_kind(label, merge, safety), "CAN",
+                               f"{binding.message}.{binding.signal}", value, ok=False,
+                               detail=f"{label}: CAN bağlı değil")
             return False
         vals = {binding.signal: value}
         if extra:
@@ -74,10 +84,14 @@ class DashboardMixin:
                     "(⚙ Eşleşmeler) düzeltin.") if safety else ""
             QMessageBox.critical(self, f"{label} gönderilemedi", f"{exc}{hint}")
             self._log_event("HATA", f"{label} gönderilemedi: {exc}")
+            self._record_input("Ana Sayfa", self._input_kind(label, merge, safety), "CAN",
+                               f"{binding.message}.{binding.signal}", value, ok=False, detail=f"{label}: {exc}")
             return False
         self._drain_tx_queue()
         self._log_event("EYLEYICI", f"{label} [CAN {binding.message}.{binding.signal}] = {value:g} "
                                     f"({self.current_user}/{self.current_role.value})")
+        self._record_input("Ana Sayfa", self._input_kind(label, merge, safety), "CAN",
+                           f"{binding.message}.{binding.signal}", value, detail=label)
         if safety:
             self._repeat_safety_frame(label, can_id, data, extended, SAFETY_REPEAT_COUNT)
         return True
@@ -116,10 +130,12 @@ class DashboardMixin:
                     return m
         return None
 
-    def _write_a2l(self, binding: Binding, value: float, label: str, safety: bool = False) -> bool:
+    def _write_a2l(self, binding: Binding, value: float, label: str, safety: bool = False, merge: bool = True) -> bool:
         if self.ccp_client is None:
             QMessageBox.warning(self, "CCP bağlı değil",
                                 f"{label} A2L üzerinden yazılmadan önce CCP bağlantısı kurun.")
+            self._record_input("Ana Sayfa", self._input_kind(label, merge, safety), "A2L", binding.a2l_name, value,
+                               ok=False, detail=f"{label}: CCP bağlı değil")
             return False
         info = self._a2l_info(binding.a2l_name)
         try:
@@ -156,9 +172,13 @@ class DashboardMixin:
                     "(⚙ Eşleşmeler) düzeltin.") if safety else ""
             QMessageBox.critical(self, f"{label} yazılamadı", f"{exc}{hint}")
             self._log_event("HATA", f"{label} A2L yazılamadı: {exc}")
+            self._record_input("Ana Sayfa", self._input_kind(label, merge, safety), "A2L", binding.a2l_name, value,
+                               ok=False, detail=f"{label}: {exc}", unit=getattr(info, "unit", "") or "")
             return False
         self._log_event("EYLEYICI", f"{label} [A2L {binding.a2l_name}] = {value:g} "
                                     f"({self.current_user}/{self.current_role.value})")
+        self._record_input("Ana Sayfa", self._input_kind(label, merge, safety), "A2L", binding.a2l_name, value,
+                           detail=label, unit=getattr(info, "unit", "") or "")
         return True
 
     def _send_motor_command(self, command_name: str, cmd, safety: bool = False) -> bool:
@@ -287,6 +307,7 @@ class DashboardMixin:
             self.session_tab.set_record_info(f"Parametre kaydı BAŞLATILAMADI: {exc}")
             self.session_tab.refresh_log()
             return
+        self.input_log.start_file(os.path.splitext(path)[0] + "_girisler.csv")    # girişler oturum boyunca diske
         self.event_log.add("OTURUM", f"Parametre kaydı başladı: {path}")
         self.session_tab.set_record_info(f"● Parametre kaydı: {path}")
         self.session_tab.refresh_log()
@@ -295,6 +316,7 @@ class DashboardMixin:
         rec = self.session_recorder
         path, rows, err = rec.path, rec.rows, rec.error
         rec.stop()
+        self.input_log.stop_file()
         if path:
             self._last_record_csv = path
             self.event_log.add("OTURUM", f"Parametre kaydı bitti: {rows} örnek, {path}")

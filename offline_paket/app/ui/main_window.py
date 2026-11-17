@@ -21,6 +21,7 @@ from app.dashboard_config import (
 )
 from app.eventlog import EventLog
 from app.history import CalibrationHistory
+from app.input_log import InputLog
 from app.logger import CanLogger
 from app.session_recorder import SessionRecorder
 from app.paths import data_path
@@ -82,6 +83,7 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         # uygulama kapansa/yeniden başlasa bile eski değerine geri
         # alınabilmesi gerektiği için (bkz. app/history.py).
         self.calibration_history = CalibrationHistory(file_path=data_path("calibration_history.json"))
+        self.input_log = InputLog()          # tüm sayfalardaki girişlerin yapılandırılmış kaydı (Excel'e gider)
         self.profile_store = ProfileStore(path=data_path("profiles.json"))
         self.dashboard_config_store = DashboardConfigStore(path=data_path("dashboard_config.json"))
         self.current_user = "bilinmeyen"

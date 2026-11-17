@@ -29,11 +29,11 @@ class ExportMixin:
         return SessionInfo(name=st._session_name, operator=st._operator, started=st._started_at,
                            ended=st._ended_at, record_csv=record_csv)
 
-    def _write_workbook(self, path: str, info: SessionInfo, events: list, history: list) -> bool:
+    def _write_workbook(self, path: str, info: SessionInfo, events: list, history: list, inputs: list) -> bool:
         """Çalışma kitabını arka planda yazar. Başarısızlıkta olay günlüğüne HATA yazar, False döner."""
         try:
             stats = run_with_progress(self, "Excel dosyası hazırlanıyor…",
-                                      lambda: write_session_workbook(path, info, events, history))
+                                      lambda: write_session_workbook(path, info, events, history, inputs))
         except Exception as exc:  # noqa: BLE001 - disk dolu, dosya Excel'de açık (Windows kilidi) vb.
             log.exception("Excel dosyası yazılamadı: %s", path)
             self._log_event("HATA", f"Excel dosyası yazılamadı ({path}): {exc}. Veri CSV dosyasında duruyor.")
@@ -43,17 +43,29 @@ class ExportMixin:
                                   f"({stats['rows']} parametre örneği, {stats['signals']} sinyal)")
         return True
 
+    # ---- giriş kaydı (tüm sayfalar)
+    def _record_input(self, page: str, kind: str, source: str, target: str, new_value, *, ok: bool = True,
+                      detail: str = "", unit: str = "", **kw):
+        """Bir kullanıcı girişini yapılandırılmış kayda ekler (kullanıcı/rol otomatik). Kayıt hatası asıl işlemi
+        ASLA bozmaz."""
+        try:
+            self.input_log.add(page, kind, source, target, new_value, ok=ok, detail=detail, unit=unit,
+                               user=self.current_user, role=self.current_role.value, **kw)
+        except Exception:  # noqa: BLE001
+            log.exception("giriş kaydı eklenemedi")
+
     # ---- oturum bitince (otomatik)
     def _export_session_excel(self, record_csv: str | None) -> str:
         st = self.session_tab
         info = self._session_info(record_csv)
         events = filter_by_time(list(self.event_log.entries), st._started_at, None)
         history = filter_by_time(list(self.calibration_history.entries), st._started_at, None)
+        inputs = self.input_log.since(st._started_at)
         if record_csv:
             path = os.path.splitext(record_csv)[0] + ".xlsx"
         else:
             path = os.path.join(data_path("oturum_kayitlari"), f"oturum_{time.strftime('%Y%m%d_%H%M%S')}.xlsx")
-        return path if self._write_workbook(path, info, events, history) else ""
+        return path if self._write_workbook(path, info, events, history, inputs) else ""
 
     # ---- elle: tüm olay günlüğü + kalibrasyon yazımları + son parametre kaydı
     def _on_excel_export_requested(self):
@@ -64,8 +76,10 @@ class ExportMixin:
         if not path.lower().endswith(".xlsx"):
             path += ".xlsx"
         info = self._session_info(self._last_record_csv)
-        info.notes.append("Elle dışa aktarma: tüm olay günlüğü ve tüm kalibrasyon yazımları (oturumla sınırlı değil).")
-        if self._write_workbook(path, info, list(self.event_log.entries), list(self.calibration_history.entries)):
+        info.notes.append("Elle dışa aktarma: TÜM sayfalardaki girişler, olay günlüğü ve kalibrasyon yazımları "
+                          "(oturumla sınırlı değil).")
+        if self._write_workbook(path, info, list(self.event_log.entries), list(self.calibration_history.entries),
+                                self.input_log.since(None)):
             self.session_tab.set_record_info(f"Excel dosyası kaydedildi: {path}")
             QMessageBox.information(self, "Excel dosyası kaydedildi", f"Bilgisayara kaydedildi:\n{path}")
 
