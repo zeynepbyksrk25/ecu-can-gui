@@ -539,8 +539,6 @@ class CalibrationMixin:
             except Exception as exc:
                 self.watch_tab.set_row_error(row, f"Okuma hatası: {exc}")
                 continue
-            if e.kind != "manual" and isinstance(reading.phys, (int, float)):
-                self.session_recorder.record(f"a2l:{e.name}", reading.phys)
             self.watch_tab.set_row_value(row, reading.raw_bytes, reading.phys)    # Parametre Listesi HAM BAYT bekler
 
     def _on_watch_write(self, rows: list):

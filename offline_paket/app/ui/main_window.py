@@ -23,7 +23,7 @@ from app.eventlog import EventLog
 from app.history import CalibrationHistory
 from app.input_log import InputLog
 from app.logger import CanLogger
-from app.session_recorder import SessionRecorder
+from app.session_recorder import FrameRecorder, SessionRecorder
 from app.paths import data_path
 from app.profiles import ProfileStore
 from app.scheduler import PeriodicManager
@@ -214,7 +214,15 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self.session_tab.event_log = self.event_log
         # Oturum boyunca izlenen parametreleri diske (CSV) yazan kayıt.
         self.session_recorder = SessionRecorder()
-        self.workspace_tab.hub.tap = self.session_recorder.record
+        # Kayıt KAYNAKTA, verinin kendi geliş zamanında yapılır (bkz. app/session_recorder.py): CAN kareleri alım
+        # iş parçacığından (FrameRecorder), CCP değerleri CCP iş parçacığından. Hub yalnızca kullanıcı girişlerini
+        # (input:) yazar; gösterge/grafik beslemeleri (arayüz zamanlayıcısıyla) KAYDA GİRMEZ.
+        self.frame_recorder = FrameRecorder(self.session_recorder, lambda: self.transmit_tab.dbc)
+        self.workspace_tab.hub.tap = self._on_hub_sample
+        self.ccp_session.on_read = self._on_ccp_sample
+        self._record_index: dict = {}                # (adres, uzantı, boyut) -> [A2L nesneleri]
+        self._ccp_last_bytes: dict = {}
+        self.a2l_tab.a2l_loaded.connect(self._rebuild_record_index)
         self.session_tab.session_started.connect(self._on_session_record_start)
         self.session_tab.session_stopped.connect(self._on_session_record_stop)
         self.session_tab.excel_requested.connect(self._on_excel_export_requested)
@@ -638,6 +646,8 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self._on_disconnect()
         self.ccp_session.stop(graceful=False)       # iş parçacığı her durumda bitsin
         self.can_logger.stop()
+        self.connection.frame_tap = None
+        self.frame_recorder.stop()
         self.session_recorder.stop()
         # Pencere kapandıktan sonra hiçbir zamanlayıcı çalışmasın (kapanmış pencerenin sayfaları
         # arka planda okuma/çizim yapmaya devam etmesin).

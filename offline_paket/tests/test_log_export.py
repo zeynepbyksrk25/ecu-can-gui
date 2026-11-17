@@ -191,7 +191,7 @@ def test_ending_a_session_saves_an_excel_file_next_to_the_csv_without_touching_t
     st.operator_edit.setText("Zeynep")
     st._on_start()
     for i in range(30):
-        win.workspace_tab.push("gauge:RPM", 3000 + i)
+        win.workspace_tab.push("input:throttle", 3000 + i)
     win._log_event("KALIBRASYON", "elle bir olay")
     csv_path = win.session_recorder.path
     st._on_stop()
@@ -209,7 +209,7 @@ def test_excel_failure_keeps_the_csv_and_reports_an_error(win, monkeypatch):
     import app.ui.mainwin.exports as ex
     st = win.session_tab
     st._on_start()
-    win.workspace_tab.push("gauge:RPM", 1.0)
+    win.workspace_tab.push("input:throttle", 1.0)
     csv_path = win.session_recorder.path
     monkeypatch.setattr(ex, "write_session_workbook", lambda *a, **k: (_ for _ in ()).throw(OSError("disk dolu")))
     st._on_stop()

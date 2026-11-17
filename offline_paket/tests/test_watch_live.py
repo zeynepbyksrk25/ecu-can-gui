@@ -289,3 +289,34 @@ def test_typed_value_on_a_measurement_row_reaches_the_ecu_and_is_recorded(live_w
     assert wait_for(lambda: struct.unpack("<f", bytes(ecu.read_memory_bytes(obj.address, 4)))[0] == 33.5, pump=pump)
     rec = [e for e in w.input_log.entries if e.page == "Kalibrasyon > Parametre Listesi"]
     assert rec and rec[-1].target == "clbc_Fuel_pump_dc_perc" and rec[-1].new_value == 33.5 and rec[-1].ok
+
+
+def test_ccp_values_are_recorded_when_they_change_with_the_read_time_not_per_ui_poll(live_window):
+    """Oturum kaydı: değer ECU'da değiştiğinde, okuma anıyla yazılır; arayüz her yoklayışında tekrar yazılmaz."""
+    import csv
+    w, ecu, obj, pump = live_window
+    tab = w.watch_tab
+    assert wait_for(lambda: tab.table.item(0, wt.COL_VALUE).text() == "12.5", pump=pump)
+    w.session_tab._on_start()
+    assert wait_for(lambda: w.session_recorder.rows >= 1, pump=pump)          # başlangıç değeri
+    end = time.time() + 0.8                                                   # değer SABİT: onlarca okuma/yoklama
+    while time.time() < end:
+        pump()
+        w._on_watch_read()                                                    # arayüz yoklaması da kayıt üretmemeli
+        time.sleep(0.01)
+    assert w.session_recorder.rows == 1
+    t1 = time.time()
+    ecu.write_memory_bytes(obj.address, struct.pack("<f", 20.0))
+    assert wait_for(lambda: w.session_recorder.rows >= 2, pump=pump)
+    ecu.write_memory_bytes(obj.address, struct.pack("<f", 30.0))
+    assert wait_for(lambda: w.session_recorder.rows >= 3, pump=pump)
+    time.sleep(0.2)
+    assert w.session_recorder.rows == 3
+    path = w.session_recorder.path
+    w.session_tab._on_stop()
+    with open(path, newline="", encoding="utf-8") as f:
+        rows = list(csv.reader(f))[1:]
+    assert [(r[1], float(r[2])) for r in rows] == [("a2l:clbc_Fuel_pump_dc_perc", 12.5),
+                                                    ("a2l:clbc_Fuel_pump_dc_perc", 20.0),
+                                                    ("a2l:clbc_Fuel_pump_dc_perc", 30.0)]
+    assert t1 <= float(rows[1][3]) <= t1 + 1.5                                # ECU'da değiştiği ana yakın okuma zamanı

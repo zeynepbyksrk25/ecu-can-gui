@@ -308,6 +308,9 @@ class DashboardMixin:
             self.session_tab.refresh_log()
             return
         self.input_log.start_file(os.path.splitext(path)[0] + "_girisler.csv")    # girişler oturum boyunca diske
+        self._ccp_last_bytes = {}                                                  # ilk okuma başlangıç değeri olarak yazılsın
+        self.frame_recorder.start()
+        self.connection.frame_tap = self.frame_recorder.submit                     # her CAN karesi geliş zamanında
         self.event_log.add("OTURUM", f"Parametre kaydı başladı: {path}")
         self.session_tab.set_record_info(f"● Parametre kaydı: {path}")
         self.session_tab.refresh_log()
@@ -317,6 +320,12 @@ class DashboardMixin:
         path, rows, err = rec.path, rec.rows, rec.error
         rec.stop()
         self.input_log.stop_file()
+        self.connection.frame_tap = None
+        self.frame_recorder.stop()
+        if path and self.frame_recorder.frames:
+            self.event_log.add("OTURUM", f"CAN kare kaydı: {self.frame_recorder.frames} kare çözümlenip yazıldı")
+        if self.frame_recorder.dropped:
+            self.event_log.add("HATA", f"CAN kaydı: {self.frame_recorder.dropped} kare kuyruk dolduğu için YAZILAMADI")
         if path:
             self._last_record_csv = path
             self.event_log.add("OTURUM", f"Parametre kaydı bitti: {rows} örnek, {path}")
@@ -328,6 +337,47 @@ class DashboardMixin:
         if xlsx:
             self.session_tab.set_record_info(f"Kayıt: {path or '-'}\nExcel: {xlsx}")
         self.session_tab.refresh_log()
+
+    def _on_hub_sample(self, sid: str, value):
+        """Sinyal deposundan gelen örnek: yalnızca kullanıcı girişleri kayda yazılır (diğerleri kaynakta yazılır)."""
+        if sid.startswith("input:"):
+            self.session_recorder.record(sid, value)
+
+    def _rebuild_record_index(self):
+        """A2L yüklenince: CCP okuma anahtarı (adres, uzantı, boyut) -> A2L nesneleri. CCP iş parçacığı değeri
+        çözümleyip adıyla yazabilsin diye (yeni sözlük atomik olarak yerine konur)."""
+        index: dict = {}
+        summary = self.a2l_tab.db.summary
+        for obj in (summary.readable() if summary is not None else []):
+            if obj.address is None or not obj.datatype:
+                continue
+            try:
+                size = ccp_codec.datatype_size(obj.datatype)
+            except ccp_codec.UnknownDatatypeError:
+                continue
+            index.setdefault((obj.address, obj.address_extension or 0, size), []).append(obj)
+        self._record_index = index
+
+    def _on_ccp_sample(self, key: tuple, data: bytes, t: float):
+        """CCP iş parçacığından, HER başarılı okumada: değer DEĞİŞMİŞSE okuma zamanıyla kayda yazar. Değişmeyen
+        değer çözümlenmez bile (hızlı yol)."""
+        rec = self.session_recorder
+        if not rec.is_active:
+            return
+        infos = self._record_index.get(key)
+        if not infos:
+            return
+        data = bytes(data)
+        if self._ccp_last_bytes.get(key) == data:
+            return
+        self._ccp_last_bytes[key] = data
+        for info in infos:
+            try:
+                raw = ccp_codec.decode_value(info.datatype, data, info.byte_order)
+                phys = ccp_codec.raw_to_physical(info.compu_method, raw)
+            except Exception:  # noqa: BLE001
+                continue
+            rec.record_change(f"a2l:{info.name}", phys, t)
 
     def _sync_workspace_a2l(self):
         summary = self.a2l_tab.db.summary
@@ -404,8 +454,6 @@ class DashboardMixin:
             except ValueError as exc:
                 fail(str(exc))
                 continue
-            if isinstance(phys_value, (int, float)):
-                self.session_recorder.record(f"a2l:{name}", phys_value)
             if graph_wanted and isinstance(phys_value, (int, float)):
                 dt.add_measurement_sample(name, float(phys_value))
             for role, key in targets:
