@@ -232,6 +232,9 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
 
         self._wire_signals()
         self._install_shortcuts_and_accessibility()
+        for sig in (self.transmit_tab.dbc_loaded, self.a2l_tab.a2l_loaded, self.dashboard_tab.config_saved,
+                    self.user_tab.role_applied):
+            sig.connect(self._schedule_minimum_size_refresh)
 
         self.rx_timer = QTimer(self)
         self.rx_timer.setInterval(RX_POLL_INTERVAL_MS)
@@ -316,9 +319,7 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self.statusBar().setSizeGripEnabled(False)
         # Ana Sayfa kaydırılmadığı için pencere, sayfanın sığacağı en küçük boyuttan
         # küçültülemez (16" laptop: 1280x720 etkin çözünürlükte bile sığar).
-        hint = central.minimumSizeHint()
-        self.setMinimumSize(max(1100, hint.width()), max(600, hint.height() + 26))
-        self.resize(max(self.width(), self.minimumWidth()), max(self.height(), self.minimumHeight()))
+        self._refresh_minimum_size()
         self.header_clock_label = QLabel("")
         self.header_clock_label.setObjectName("headerClock")
         self.statusBar().addPermanentWidget(self.header_clock_label)
@@ -329,6 +330,30 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self._clock_timer.timeout.connect(self._update_clock)
         self._clock_timer.start()
         self._update_clock()
+
+    def _refresh_minimum_size(self):
+        """Pencerenin asgari boyutunu İÇERİĞE göre yeniden hesaplar ve gerekirse pencereyi büyütür.
+
+        Neden tekrar tekrar: DBC/A2L yüklenince ya da eşleşmeler değişince kartlar genişleyebilir (ör. "CAN
+        periyodik" etiketi, uyarı simgeleri). Asgari boyut yalnızca açılışta hesaplanırsa pencere eski asgari
+        boyutunda kalır, sayfa kendi asgari boyutunun altına sıkışır ve düğme metinleri kırpılır."""
+        central = self.centralWidget()
+        if central is None:
+            return
+        hint = central.minimumSizeHint()
+        self.setMinimumSize(max(1100, hint.width()), max(600, hint.height() + 26))
+        self.resize(max(self.width(), self.minimumWidth()), max(self.height(), self.minimumHeight()))
+
+    def _schedule_minimum_size_refresh(self, *_):
+        """İçerik değişiminden SONRA (yerleşim güncellenince) asgari boyutu yeniler; art arda çağrılar birleşir."""
+        if not getattr(self, "_min_refresh_pending", False):
+            self._min_refresh_pending = True
+
+            def run():
+                self._min_refresh_pending = False
+                self._refresh_minimum_size()
+
+            QTimer.singleShot(0, run)
 
     def _apply_shadow(self, widget: QWidget, blur: float = 18, dy: float = 3, alpha: int = 45):
         effect = QGraphicsDropShadowEffect(widget)
