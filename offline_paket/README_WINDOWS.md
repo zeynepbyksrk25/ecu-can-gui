@@ -101,7 +101,7 @@ girilir (bkz. aşağıdaki bölüm).
 
 **Ana Sayfa → Uçuş Koşulları (sol panel):** Altitude (0–30 kft), Alfa/Beta (±90°) ve sabit değerler (Ma, Toplam Giriş Basıncı, Ortam Basıncı, Ortam Sıcaklığı). Değerler Enter/bırakma ile anında CAN'dan gönderilir; "Hepsini gönder" tümünü yollar. Girişler DBC sinyallerine bağlanır: panel ilk DBC yüklemesinde isimle otomatik eşler, olmayanlar ⚙ Eşleşmeler > Uçuş Koşulları'ndan seçilir. Gönderim için Mühendis/Yönetici rolü ve CAN bağlantısı gerekir. Kontrol Paneli ile aynı değer tablosunu paylaşır.
 
-**Ana Sayfa → Motor Kontrol** (Çalıştırma/Start, Gaz Kolu/PLA): her satırın **Değer** eşleşmesi **CAN (DBC) ya da A2L** seçilir (⚙ Eşleşmeler > Sinyaller > Motor Kontrol); satır **kilitli** açılır (Mühendis/Yönetici + ilk kullanımda onay), kutuya değer yazıp **Enter**'a basılır; kilitleyince değer 0'a çekilir. **Switch (`_sw`) YOKTUR ve ON/OFF anahtarı yoktur.** Ateşleme (Spark) ve Birincil Yakıt kaldırıldı (zaten Eyleyicilerde var).
+**Ana Sayfa → Motor Kontrol** (Çalıştırma/Start, Gaz Kolu/PLA): her satırın **Değer** eşleşmesi **CAN (DBC) ya da A2L** seçilir (⚙ Eşleşmeler > Sinyaller > Motor Kontrol); **kilit yoktur**: kutuya değer yazıp **Enter**'a basınca komut doğrudan gönderilir (Mühendis/Yönetici rolü gerekir, onay sorulmaz). **Switch (`_sw`) YOKTUR ve ON/OFF anahtarı yoktur.** Ateşleme (Spark) ve Birincil Yakıt kaldırıldı (zaten Eyleyicilerde var).
 
 **Switch (`_sw`) yalnızca Eyleyicilerdedir.** Sensörlerde (Motor Parametreleri) ve Motor Kontrol'de switch eşlemesi ve manuel değer/kilit yoktur; eski `dashboard_config.json` içindeki bu `_sw`'ler yüklenirken temizlenir.
 
@@ -160,7 +160,7 @@ uygulamada donanımla doğrulanmamıştır**. Bu yüzden:
 
 - Üstte yatay sekme çubuğu; **Ana Sayfa sekmesi sabittir** (kapatılamaz/taşınamaz) ve
   16" laptopta (en az ~1280x720 etkin çözünürlük) **kaydırma olmadan** tek ekrana sığar.
-- Sol: **Uçuş Koşulları**, **Motor Kontrol** (kilitli değer kutusu, switch yok) ve **Eyleyiciler** (kilitli, değer + `_sw`, CAN/A2L) +
+- Sol: **Uçuş Koşulları**, **Motor Kontrol** (kilitsiz değer kutusu: değer + Enter ile direkt komut, switch yok) ve **Eyleyiciler** (kilitli, değer + `_sw`, CAN/A2L) +
   **Son olaylar** (komut gönderildi / hata / bağlantı, renkli). Sağ: **Motor Parametreleri** (8 gösterge) + **Canlı Trendler**.
 - **⚙ Eşleşmeler**: sensör, eyleyici, motor komutu ve giriş sinyalleri. Eyleyicilerde **Değer** ve
   **Anahtar (`_sw`)** eşleşmesi ayrı ayrı **CAN (DBC) ya da A2L** seçilir; sensörlerde yalnızca **Değer** (+ isteğe bağlı

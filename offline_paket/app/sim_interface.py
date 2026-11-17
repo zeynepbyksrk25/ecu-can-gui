@@ -50,7 +50,7 @@ INPUT_DEFS: list[InputDef] = [
 ]
 INPUT_BY_KEY = {d.key: d for d in INPUT_DEFS}
 # Uçuş Koşulları (uçaktan gelen değerler): yalnızca CAN, anında gönderilir. Motor Kontrol girişleri
-# (start/throttle) Eyleyiciler gibi kilitle açılan değer kutusudur (bkz. dashboard_config.CONTROL_KEYS).
+# (start/throttle) doğrudan komuttur (değer + Enter, kilit yok) (bkz. dashboard_config.CONTROL_KEYS).
 FLIGHT_DEFS = [d for d in INPUT_DEFS if d.group == "aircraft"]
 
 

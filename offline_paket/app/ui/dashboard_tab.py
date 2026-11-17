@@ -131,7 +131,7 @@ class DashboardTab(QWidget):
         self.role_banner.setVisible(False)
         left.addWidget(self.role_banner, 0)
         left.addWidget(self.sim_inputs, 0)
-        # Motor Kontrol ve Eyleyiciler AYNI mekanizmayla çalışır (kilit, rol + onay, değer + _sw, CAN/A2L)
+        # Motor Kontrol: kilitsiz direkt komut (değer + Enter); Eyleyiciler: kilit, rol + onay, değer + _sw
         left.addWidget(self._build_actuators_card("MOTOR KONTROL", "sliders", CONTROL_KEYS), 0)
         left.addWidget(self._build_actuators_card("EYLEYİCİLER", "actuator", EYLEYICI_KEYS), 0)
         # Kalan yükseklik boş bırakılmaz: son olaylar (komut gönderildi / hata) burada görünür
@@ -461,11 +461,12 @@ class DashboardTab(QWidget):
         self.act_head_cmd.setFixedWidth(ACT_CMD_W)
         self.act_head_cmd.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         cols.addWidget(self.act_head_cmd)
-        c2 = QLabel("MANUEL")
-        c2.setObjectName("colHead")
-        c2.setFixedWidth(ACT_MAN_W)
-        c2.setAlignment(Qt.AlignCenter)
-        cols.addWidget(c2)
+        if keys is not CONTROL_KEYS:                      # Motor Kontrol'de kilit/manuel sütunu yok: direkt komut
+            c2 = QLabel("MANUEL")
+            c2.setObjectName("colHead")
+            c2.setFixedWidth(ACT_MAN_W)
+            c2.setAlignment(Qt.AlignCenter)
+            cols.addWidget(c2)
         lay.addLayout(cols)
 
         for key in keys:
@@ -507,23 +508,28 @@ class DashboardTab(QWidget):
         cl.addWidget(box)
         entry.update(control=box)
         hl.addWidget(cell)
-        lock = LockButton(ACT_LOCK_W)
-        lock.lock_requested.connect(lambda want, k=key: self._on_actuator_lock(k, want))
-        mcell = QWidget()                                # MANUEL hücresi: kilit ortada
-        mcell.setFixedWidth(ACT_MAN_W)
-        ml = QHBoxLayout(mcell)
-        ml.setContentsMargins(0, 0, 0, 0)
-        ml.addWidget(lock, 0, Qt.AlignCenter)
-        hl.addWidget(mcell)
-        entry["lock"] = lock
-        entry["control"].setEnabled(False)
+        if key in CONTROL_KEYS:
+            # Motor Kontrol: kilit YOK. Değer yazılıp Enter'a basılınca komut doğrudan gönderilir.
+            entry["lock"] = None
+            box.setToolTip("Değeri yazıp Enter'a basın: komut doğrudan gönderilir")
+        else:
+            lock = LockButton(ACT_LOCK_W)
+            lock.lock_requested.connect(lambda want, k=key: self._on_actuator_lock(k, want))
+            mcell = QWidget()                            # MANUEL hücresi: kilit ortada
+            mcell.setFixedWidth(ACT_MAN_W)
+            ml = QHBoxLayout(mcell)
+            ml.setContentsMargins(0, 0, 0, 0)
+            ml.addWidget(lock, 0, Qt.AlignCenter)
+            hl.addWidget(mcell)
+            entry["lock"] = lock
+            entry["control"].setEnabled(False)
         self._act_rows[key] = entry
         self._style_actuator_row(key)
         return row
 
     def _style_actuator_row(self, key: str):
         e = self._act_rows[key]
-        opened = self._act_open[key]
+        opened = self._act_open[key] or key in CONTROL_KEYS      # Motor Kontrol her zaman etkin (kilitsiz)
         e["name"].setEnabled(opened)
         e["icon"].setEnabled(opened)
         e["control"].setEnabled(opened)
@@ -535,7 +541,7 @@ class DashboardTab(QWidget):
         self.role_banner.setVisible(locked)
         if locked:
             self.role_banner.setText(
-                f"🔒 {role.value} rolü: girişler ve manuel (kilit) kontrolleri kapalı. "
+                f"🔒 {role.value} rolü: girişler, motor komutları ve manuel (kilit) kontrolleri kapalı. "
                 "Açmak için Mühendis veya Yönetici rolü gerekir.")
 
     def _confirm_override(self, label: str) -> bool:
@@ -580,13 +586,27 @@ class DashboardTab(QWidget):
         box.style().polish(box)
 
     def _on_actuator_submit(self, key: str):
-        """Enter: kilit AÇIKSA ve kutuda sayı varsa değeri yazar."""
-        if not self._act_open[key]:
+        """Enter: Eyleyicilerde kilit AÇIKSA, Motor Kontrol'de her zaman (rol yeterliyse) kutudaki sayıyı yazar."""
+        direct = key in CONTROL_KEYS
+        if not direct and not self._act_open[key]:
             return
         v = self._actuator_text_value(key)
         if v is None:
             return
         box = self._act_rows[key]["control"]
+        if direct:
+            label = ACTUATOR_SHORT[key]
+            if not can_override_actuator(self._role):
+                QMessageBox.warning(
+                    self, "Yetki yok",
+                    f"{label} komutu için Mühendis veya Yönetici rolü gerekir "
+                    "(sağ üstteki ⚙ Ayarlar penceresinden rol seçin).")
+                return
+            if not self.config.actuator_map(key).value.is_set:
+                QMessageBox.information(
+                    self, "Eşleşme yok",
+                    f"{label} için değer eşleşmesi tanımlı değil.\n⚙ Eşleşmeler penceresinden tanımlayın.")
+                return
         ok = self._write(self.config.actuator_map(key).value, v, f"{ACTUATOR_SHORT[key]} komutu")
         self._mark_actuator_box(box, not ok)
 
@@ -594,14 +614,14 @@ class DashboardTab(QWidget):
         amap = self.config.actuator_map(key)
         label = ACTUATOR_SHORT[key]
         e = self._act_rows[key]
-        # Switch (_sw) YALNIZCA Eyleyicilerde vardır ve zorunludur; Motor Kontrol satırlarında yoktur.
-        uses_sw = key in EYLEYICI_KEYS
+        # Kilit YALNIZCA Eyleyicilerde vardır (Motor Kontrol direkt komuttur); anahtar (_sw) zorunludur.
+        if key not in EYLEYICI_KEYS:
+            return
         if want_open:
-            if not amap.value.is_set or (uses_sw and not amap.sw.is_set):
-                need = "değer ve anahtar (_sw)" if uses_sw else "değer"
+            if not amap.value.is_set or not amap.sw.is_set:
                 QMessageBox.information(
                     self, "Eşleşme yok",
-                    f"{label} için {need} eşleşmesi tanımlı değil.\n"
+                    f"{label} için değer ve anahtar (_sw) eşleşmesi tanımlı değil.\n"
                     "⚙ Eşleşmeler penceresinden tanımlayın.")
                 return
             if not self._confirm_override(label):
@@ -611,7 +631,7 @@ class DashboardTab(QWidget):
             v = self._actuator_text_value(key)
             if v is not None and not self._write(amap.value, v, f"{label} değeri"):
                 return
-            if uses_sw and amap.sw.is_set and not self._write(amap.sw, 1.0, f"{label} anahtarı"):
+            if not self._write(amap.sw, 1.0, f"{label} anahtarı"):
                 return
             self._act_open[key] = True
             e["lock"].set_open(True)
@@ -623,9 +643,8 @@ class DashboardTab(QWidget):
         self._style_actuator_row(key)
 
     def _release_actuator(self, key: str, amap, label: str) -> bool:
-        """Kilitlerken: Eyleyicilerde _sw = 0. Switch'i olmayan Motor Kontrol satırlarında bırakmak için DEĞER 0'a
-        çekilir (periyodik CAN gönderimi eski değerle sürmesin). Yazılamazsa False."""
-        if key in EYLEYICI_KEYS and amap.sw.is_set:
+        """Kilitlerken: Eyleyicilerde _sw = 0 (anahtar yoksa DEĞER 0'a çekilir). Yazılamazsa False."""
+        if amap.sw.is_set:
             return self._write(amap.sw, 0.0, f"{label} anahtarı")
         if not amap.value.is_set:
             return True
