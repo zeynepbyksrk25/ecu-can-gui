@@ -181,15 +181,16 @@ class DashboardMixin:
                            detail=label, unit=getattr(info, "unit", "") or "")
         return True
 
-    def _send_motor_command(self, command_name: str, cmd, safety: bool = False) -> bool:
+    def _send_motor_command(self, command_name: str, cmd, safety: bool = False,
+                            value: float = COMMAND_VALUE) -> bool:
         """Basılınca eşlenen sinyale/değişkene sabit ``COMMAND_VALUE`` (1) yazar: tek sinyallik, tek seferlik darbe.
         Değer ve Switch (_sw) yoktur; mesajın diğer sinyallerinin eski değerleri taşınmaz."""
         if not cmd.binding.is_set:
             self._log_event("HATA", f"{command_name} GÖNDERİLEMEDİ: eşleme tanımlı değil")
             return False
-        ok = self._write_binding(cmd.binding, COMMAND_VALUE, command_name, merge=False, safety=safety)
+        ok = self._write_binding(cmd.binding, value, command_name, merge=False, safety=safety)
         if ok:
-            self._log_event("MOTOR", f"{command_name} gönderildi ({cmd.binding.text}={COMMAND_VALUE:g})")
+            self._log_event("MOTOR", f"{command_name} gönderildi ({cmd.binding.text}={value:g})")
         else:
             self._log_event("HATA", f"{command_name} GÖNDERİLEMEDİ ({cmd.binding.text})")
         return ok
@@ -219,9 +220,24 @@ class DashboardMixin:
             self.dashboard_tab.reset_estop_latch()      # gitmediyse kilitli görünmesin
 
     def _on_estop_released(self):
-        """Acil Durdurma kilidi 2. basışla açıldı: sistem çalışmaya başlasın (Motor Start gönderilir)."""
-        self._log_event("MOTOR", "Acil Durdurma kilidi açıldı: sistem yeniden başlatılıyor")
-        self._on_motor_start()
+        """Kilitli Acil Durdurma 2. basışla açılmak isteniyor: onay ister, Acil Durdurma sinyalini 0'a çeker.
+        Motor Start GÖNDERİLMEZ (operatör ayrıca başlatır). Onay verilmezse ya da yazma başarısızsa kilit
+        kapalı (kilitli) kalır."""
+        dt = self.dashboard_tab
+        cmd = dt.config.estop
+        answer = QMessageBox.question(
+            self, "Acil Durdurma kilidi açılsın mı?",
+            "Acil Durdurma sinyali 0'a çekilecek ve kilit açılacak.\n"
+            "Motor kendiliğinden BAŞLAMAZ; gerekirse Motor Başlat'a ayrıca basın.\n\nDevam edilsin mi?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if answer != QMessageBox.Yes:
+            self._log_event("MOTOR", "Acil Durdurma kilidi açma iptal edildi (kilitli kalıyor)")
+            return
+        if self._send_motor_command("Acil Durdurma kilidi açma", cmd, safety=True, value=0.0):
+            self._log_event("MOTOR", "Acil Durdurma kilidi açıldı (sinyal=0)")
+            dt.reset_estop_latch()
+        else:
+            self._log_event("HATA", "Acil Durdurma kilidi AÇILAMADI: sinyal 0'a çekilemedi, kilitli kalıyor")
 
     def _migrate_control_bindings(self):
         """Eski sürümde Motor Kontrol girişleri (Start/Spark/Gaz Kolu/Birincil Yakıt) ``sim_interface.json``
