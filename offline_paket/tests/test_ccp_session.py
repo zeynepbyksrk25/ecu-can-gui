@@ -207,7 +207,7 @@ def test_dashboard_ticks_stay_fast_with_silent_ecu_and_recover(qapp, monkeypatch
     ecu.power_off()
     try:
         cfg = DashboardConfig()
-        names = {"RPM": "N_RPM", "Tt2": "Tt2_raw", "FP": "FP_bar"}
+        names = {"RPM": "N_RPM", "Ps3": "Tt2_raw", "FP": "FP_bar"}
         for k, n in names.items():
             cfg.sensors[k] = SignalMap(value=Binding(SOURCE_A2L, a2l_name=n))
         w.dashboard_tab.set_config(cfg)

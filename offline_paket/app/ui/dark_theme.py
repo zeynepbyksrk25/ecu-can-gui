@@ -66,6 +66,7 @@ DashboardTab QSlider::handle:horizontal { background: @@SURFACE@@; width: 14px; 
     border-radius: 7px; }
 DashboardTab QFrame#gaugeCard { background: @@SURFACE_SUBTLE@@; border: 1px solid @@BORDER@@; border-radius: 9px; }
 DashboardTab QFrame#gaugeCard[state="manual"] { border-color: @@WARN_LINE@@; }
+DashboardTab QFrame#gaugeCard[state="alarm"] { border: 1px solid @@DANGER@@; background: @@DANGER_BG2@@; }
 DashboardTab QFrame#gaugeCard[state="fault"] { border: 1px solid @@DANGER@@; background: @@DANGER_BG2@@; }
 DashboardTab QLabel#gaugeTitle { font-weight: 700; font-size: 14px; color: @@HEAD@@; }
 DashboardTab QLabel#gaugeStatus { color: @@WARN_INK@@; font-size: 12px; }

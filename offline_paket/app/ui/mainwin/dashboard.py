@@ -11,7 +11,7 @@ from app.ccp import codec as ccp_codec
 from app.ccp import protocol as ccp_protocol
 from app import control_panel as cpanel
 from app.dashboard_config import (
-    COMMAND_VALUE, CONTROL_KEYS, GAUGE_KEYS, SOURCE_A2L, SOURCE_CAN, Binding,
+    COMMAND_VALUE, CONTROL_KEYS, GAUGE_KEYS, SENSOR_KEYS, SOURCE_A2L, SOURCE_CAN, Binding,
 )
 from app.paths import data_path
 from app.ui.mainwin.common import (
@@ -267,7 +267,7 @@ class DashboardMixin:
         if cdb is None:
             return
         cfg = self.dashboard_tab.config
-        for key in GAUGE_KEYS:
+        for key in SENSOR_KEYS:           # Motor Modu da CAN'dan okunur
             smap = cfg.sensor_map(key)
             for role, b in (("value", smap.value), ("fault", smap.fault)):
                 if b.source != SOURCE_CAN or not b.is_set:

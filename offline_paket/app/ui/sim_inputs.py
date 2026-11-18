@@ -68,13 +68,16 @@ class SimInputsPanel(QWidget):
         self.flight_cycle = QLabel("")
         self.flight_cycle.setObjectName("mutedSmall")
         head.addWidget(self.flight_cycle)
-        self.send_all_button = QPushButton("Hepsini gönder")
+        self.send_all_button = QPushButton("Hepsini\ngönder")
         self.send_all_button.setProperty("compact", True)
         self.send_all_button.setProperty("tone", "go")
         self.send_all_button.clicked.connect(self._send_all)
         self.reset_button = QPushButton("Varsayılan")
         self.reset_button.setProperty("compact", True)
         self.reset_button.clicked.connect(self._reset)
+        for b in (self.reset_button, self.send_all_button):   # dar ve biraz uzun: başlık satırında taşmaz
+            b.setFixedSize(82, 42)
+            b.setStyleSheet("padding: 2px 4px; font-size: 11px; font-weight: 700;")
         head.addWidget(self.reset_button)
         head.addWidget(self.send_all_button)
         fl.addLayout(head)
@@ -85,8 +88,16 @@ class SimInputsPanel(QWidget):
         grid.setVerticalSpacing(0)
         for r, k in enumerate(FLIGHT_LEFT):
             grid.addWidget(self._flight_row(INPUT_BY_KEY[k]), r, 0)
-        for r, k in enumerate(FLIGHT_RIGHT):
-            grid.addWidget(self._flight_row(INPUT_BY_KEY[k]), r, 2)
+        # Sağ sütun (3 satır) sol sütunla (4 satır) hizalı: ilki sol sütunun ilkiyle başlar, sonuncusu sonuncuyla
+        # biter, aradaki boşluk eşit paylaşılır (sıkışık durmaz).
+        right = QVBoxLayout()
+        right.setSpacing(0)
+        right.setContentsMargins(0, 0, 0, 0)
+        for i, k in enumerate(FLIGHT_RIGHT):
+            if i:
+                right.addStretch(1)
+            right.addWidget(self._flight_row(INPUT_BY_KEY[k]))
+        grid.addLayout(right, 0, 2, len(FLIGHT_LEFT), 1)
         sep = QFrame()
         sep.setObjectName("vsep")
         sep.setFixedWidth(1)
@@ -154,7 +165,7 @@ class SimInputsPanel(QWidget):
         wrap = QFrame()
         wrap.setObjectName("rowFrame")
         wrap.setLayout(row)
-        wrap.setMinimumHeight(36)
+        wrap.setFixedHeight(36)
         return wrap
 
     # ------------------------------------------------------------ değerler
