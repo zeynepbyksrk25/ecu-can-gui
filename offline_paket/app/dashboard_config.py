@@ -21,12 +21,30 @@ from dataclasses import asdict, dataclass, field
 DEFAULT_PATH = "dashboard_config.json"
 
 # Motor Parametreleri panelindeki 8 gösterge (= 8 sensör).
-GAUGE_KEYS = ["RPM", "İtki", "PLA", "Tt5", "FP", "FT", "Ps2", "Tt2"]
-SENSOR_KEYS = GAUGE_KEYS
+GAUGE_KEYS = ["RPM", "İtki", "PLA", "Tt5", "FP", "FT", "Ps2", "Ps3"]
+# Motor Modu: göstergesi yoktur (başlıkta çip olarak görünür) ama sensör gibi CAN/A2L'den eşlenir.
+MODE_KEY = "motor_mode"
+SENSOR_KEYS = GAUGE_KEYS + [MODE_KEY]
+# A2L'deki EN_MODE_*_u8 sabitleri (motor_mode değeri -> ekranda yazan ad).
+MOTOR_MODE_NAMES = {0: "POWER ON", 1: "READY", 2: "START UP", 3: "IDLE", 4: "RUN", 5: "COOLING", 6: "STOP"}
+
+
+def motor_mode_name(value) -> str:
+    """motor_mode sayısını ad olarak döndürür: bilinmeyen -> 'BİLİNMİYOR (n)', değer yok -> '—'."""
+    try:
+        n = float(value)
+    except (TypeError, ValueError):
+        return "—"
+    if n != n or n != int(n):
+        return "—"
+    n = int(n)
+    return MOTOR_MODE_NAMES.get(n, f"BİLİNMİYOR ({n})")
+
 SENSOR_LABELS = {
     "RPM": "Devir (RPM)", "İtki": "İtki", "PLA": "Gaz Kolu (PLA)", "Tt5": "Egzoz Sıcaklığı (Tt5)",
     "FP": "Yakıt Basıncı (FP)", "FT": "Yakıt Sıcaklığı (FT)", "Ps2": "Giriş Basıncı (Ps2)",
-    "Tt2": "Giriş Sıcaklığı (Tt2)",
+    "Ps3": "Basınç (Ps3)",
+    "motor_mode": "Motor Modu",
 }
 
 # Eyleyiciler (manuel override).
@@ -206,7 +224,7 @@ def _float(v, default=1.0) -> float:
 _LEGACY_GAUGE_ATTR = {
     "RPM": "measurement_rpm", "İtki": "measurement_itki", "PLA": "measurement_pla",
     "Tt5": "measurement_tt5", "FP": "measurement_fp", "FT": "measurement_ft",
-    "Ps2": "measurement_ps2", "Tt2": "measurement_tt2",
+    "Ps2": "measurement_ps2", "Ps3": "measurement_ps3",
 }
 
 

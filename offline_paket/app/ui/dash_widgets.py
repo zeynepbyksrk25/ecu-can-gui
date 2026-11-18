@@ -34,7 +34,7 @@ ACCENTS = {"blue": theme.BLUE, "green": theme.OK, "orange": theme.ORANGE, "teal"
            "purple": theme.PURPLE, "slate": theme.MUTED}
 # Her gösterge kendi renginde: Canlı Trend'deki seri renkleriyle uyumlu (RPM teal, Tt5 turuncu, FP mor ...).
 GAUGE_ACCENT = {"RPM": theme.ACCENT, "İtki": theme.BLUE, "PLA": theme.OK, "Tt5": theme.ORANGE,
-                "FP": theme.PURPLE, "FT": theme.WARN, "Ps2": "#0E8C7C", "Tt2": "#D6336C"}
+                "FP": theme.PURPLE, "FT": theme.WARN, "Ps2": "#0E8C7C", "Ps3": "#D6336C"}
 DK_ORANGE = theme.ORANGE
 
 # ---- Çizgi simgeleri (20x20) ----------------------------------------------
@@ -73,7 +73,18 @@ ICONS = {
     "compare": "M3 7h12M12 4l3 3-3 3M17 13H5M8 10l-3 3 3 3",
     "detach": "M11 3h6v6M17 3l-8 8M8 5H4v11h11v-4",
     "fit": "M3 8V3h5M17 8V3h-5M3 12v5h5M17 12v5h-5",
+    # Gösterge rozetleri (Motor Parametreleri)
+    "g_rpm": "M8 10a2 2 0 1 0 4 0a2 2 0 1 0-4 0M10 8c0-3 1-5 3-5 1 2 0 4-3 5zM12 10c3 0 5 1 5 3-2 1-4 0-5-3zM10 12c0 3-1 5-3 5-1-2 0-4 3-5zM8 10c-3 0-5-1-5-3 2-1 4 0 5 3z",
+    "g_thrust": "M10 17V4M5.5 8.5L10 4l4.5 4.5M5 17h10",
+    "g_pla": "M4 16h12M7 16l5-11M12 5l3 1M10.6 5a1.4 1.4 0 1 0 2.8 0a1.4 1.4 0 1 0-2.8 0",
+    "g_tt5": "M8 3.5a2 2 0 0 1 4 0v7a4 4 0 1 1-4 0zM10 8v6M15 4c1 1.5 1 3 0 4",
+    "g_fp": "M10 2.5c3 3.5 5 6 5 8.5a5 5 0 0 1-10 0c0-2.5 2-5 5-8.5zM8 12.5a2.2 2.2 0 0 0 2 2",
+    "g_ft": "M6 3.5a1.8 1.8 0 0 1 3.6 0v6.5a3.4 3.4 0 1 1-3.6 0zM13.5 6c2 2.5 3 4 3 5.5a3 3 0 0 1-6 0",
+    "g_ps2": "M3 10a7 7 0 1 0 14 0a7 7 0 1 0-14 0M10 10l3-3M6 12.5h8",
+    "g_ps3": "M3 10a7 7 0 1 0 14 0a7 7 0 1 0-14 0M10 10l3-3M6 12.5h8M10 3v2",
 }
+GAUGE_ICON = {"RPM": "g_rpm", "İtki": "g_thrust", "PLA": "g_pla", "Tt5": "g_tt5", "FP": "g_fp", "FT": "g_ft",
+              "Ps2": "g_ps2", "Ps3": "g_ps3"}
 
 _pix_cache: dict = {}
 
@@ -219,6 +230,8 @@ def format_value(v, unit: str = "") -> str:
 
 
 def _format_scale_number(value: float) -> str:
+    if abs(value) >= 1000:
+        return f"{value / 1000:g}k"
     if float(value).is_integer():
         return str(int(value))
     return f"{value:g}"
@@ -227,13 +240,22 @@ def _format_scale_number(value: float) -> str:
 # ===========================================================================
 # Ana Sayfa koyu gösterge
 # ===========================================================================
-class DashGauge(QWidget):
-    """Koyu temalı yarım daire gösterge: değere kadar dolan yay, ibre, değer + birim.
-    Değer yoksa/bayatsa ibre başa yatar, değer "—" gösterilir. İsteğe bağlı ``label`` (Performans /
-    Çalışma Alanı) birimin altına bir başlık çizer; Ana Sayfa başlığı kartta gösterdiği için boş bırakır."""
+def _gauge_number(v) -> str:
+    """Gösterge değeri: 10.000 ve üstü binlik noktalı (127.300), diğerleri ``format_value``."""
+    if v is not None and math.isfinite(v) and abs(v) >= 10000:
+        return f"{int(round(v)):,}".replace(",", ".")
+    return format_value(v)
 
-    _DW, _DH = 200.0, 140.0
+
+class DashGauge(QWidget):
+    """Koyu temalı 240° gösterge: değere kadar dolan yay, ibre, değer + birim. İsteğe bağlı kırmızı sınır
+    (``set_red_limit``): sınırın üstü yayda soluk kırmızı bölge olarak görünür, değer sınırı geçince dolgu
+    kırmızıya döner. Sınır değeri yazılmaz. Değer yoksa/bayatsa ibre başa yatar, değer "—" gösterir. İsteğe
+    bağlı ``label`` (Performans / Çalışma Alanı) birimin altına bir başlık çizer."""
+
+    _DW, _DH = 200.0, 150.0
     _LABEL_H = 24.0
+    _A0, _SWEEP = 210.0, 240.0          # başlangıç açısı (matematik, derece) ve saat yönünde tarama
 
     def __init__(self, minimum: float, maximum: float, unit: str = "", parent=None, label: str = ""):
         super().__init__(parent)
@@ -242,6 +264,7 @@ class DashGauge(QWidget):
         self._value: float | None = None
         self._dim = False
         self._alert = False
+        self._red: float | None = None
         self._accent = DK_CYAN
         self.setMinimumSize(90, 62)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -264,6 +287,19 @@ class DashGauge(QWidget):
         if unit is not None:
             self._unit = unit
         self.update()
+
+    def set_red_limit(self, limit: float | None):
+        """Bu değerin ÜSTÜ kırmızı bölgedir (None: bölge yok)."""
+        self._red = None if limit is None else float(limit)
+        self.update()
+
+    @property
+    def red_limit(self):
+        return self._red
+
+    @property
+    def is_over_limit(self) -> bool:
+        return self._red is not None and self._value is not None and self._value > self._red
 
     def set_value(self, value, dim: bool = False):
         try:
@@ -288,13 +324,24 @@ class DashGauge(QWidget):
     def value(self):
         return self._value
 
+    def _frac_of(self, v: float) -> float:
+        return max(0.0, min(1.0, (v - self._min) / ((self._max - self._min) or 1.0)))
+
     def fraction(self) -> float:
         if self._value is None:
             return 0.0
-        return max(0.0, min(1.0, (self._value - self._min) / ((self._max - self._min) or 1.0)))
+        return self._frac_of(self._value)
 
     def sizeHint(self):  # noqa: N802
         return QSize(220, 150 + (int(self._LABEL_H) if self._label else 0))
+
+    def _pt(self, f: float, r: float, cx: float = 100.0, cy: float = 96.0) -> QPointF:
+        ang = math.radians(self._A0 - self._SWEEP * f)
+        return QPointF(cx + r * math.cos(ang), cy - r * math.sin(ang))
+
+    def _arc(self, p: QPainter, rect: QRectF, f0: float, f1: float):
+        if f1 > f0:
+            p.drawArc(rect, int(round((self._A0 - self._SWEEP * f0) * 16)), -int(round(self._SWEEP * (f1 - f0) * 16)))
 
     def paintEvent(self, event):  # noqa: N802
         p = QPainter(self)
@@ -306,39 +353,46 @@ class DashGauge(QWidget):
             return
         p.translate((self.width() - self._DW * s) / 2, (self.height() - dh * s) / 2)
         p.scale(s, s)
-        cx, cy, r, w = 100.0, 80.0, 68.0, 9.0
+        cx, cy, r, w = 100.0, 96.0, 70.0, 9.0
         rect = QRectF(cx - r, cy - r, 2 * r, 2 * r)
         p.setOpacity(0.8 if self._dim or self._value is None else 1.0)
-        # Yay: nötr iz + değere kadar dolan renkli kısım. Sensör eşikleri bilinmediği için
-        # uydurma yeşil/sarı/kırmızı bölgeler çizilmez; arıza durumunda dolgu kırmızıdır.
-        track = QColor(self._accent)
-        track.setAlpha(46)                     # vurgu renginin açık tonu: veri yokken de renkli görünür
-        pen = QPen(track, w + 2)
-        pen.setCapStyle(Qt.FlatCap)
-        p.setPen(pen)
-        p.drawArc(rect, 180 * 16, -180 * 16)
-        frac = self.fraction()
-        if self._value is not None and frac > 0:
-            pen = QPen(QColor(DK_RED if self._alert else self._accent), w + 2)
+        over = self.is_over_limit
+
+        def stroke(color: QColor):
+            pen = QPen(color, w)
             pen.setCapStyle(Qt.FlatCap)
             p.setPen(pen)
-            p.drawArc(rect, 180 * 16, -int(frac * 180 * 16))
-        p.setPen(QPen(QColor("#9AA8B5"), 1.2))
-        for i in range(11):
-            ang = math.radians(180 - 18 * i)
-            r1 = r - 9
-            r2 = r - (18 if i % 5 == 0 else 14)
-            p.drawLine(QPointF(cx + r1 * math.cos(ang), cy - r1 * math.sin(ang)),
-                       QPointF(cx + r2 * math.cos(ang), cy - r2 * math.sin(ang)))
-        ang = math.radians(180 - 180 * self.fraction())
-        tip = QPointF(cx + (r - 6) * math.cos(ang), cy - (r - 6) * math.sin(ang))
-        npen = QPen(QColor(DK_INK), 2.6)
+
+        track = QColor(self._accent)
+        track.setAlpha(46)                     # vurgu renginin açık tonu: veri yokken de renkli görünür
+        stroke(track)
+        self._arc(p, rect, 0.0, 1.0)
+        rf = None if self._red is None else self._frac_of(self._red)
+        if rf is not None and rf < 1.0:        # kırmızı bölge: sınırdan skalanın sonuna
+            zone = QColor(DK_RED)
+            zone.setAlpha(115)
+            stroke(zone)
+            self._arc(p, rect, rf, 1.0)
+        frac = self.fraction()
+        if self._value is not None and frac > 0:
+            stroke(QColor(DK_RED if (self._alert or over) else self._accent))
+            self._arc(p, rect, 0.0, frac)
+        p.setPen(QPen(QColor("#9AA8B5"), 1.3))
+        for i in range(21):
+            f = i / 20
+            p.drawLine(self._pt(f, r - 9), self._pt(f, r - (18 if i % 5 == 0 else 14)))
+        if rf is not None and rf < 1.0:        # sınır işareti (değer yazılmaz)
+            mk = QPen(QColor(DK_RED), 2.0)
+            p.setPen(mk)
+            p.drawLine(self._pt(rf, r - 12), self._pt(rf, r + 8))
+        tip = self._pt(frac, r - 14)
+        npen = QPen(QColor(DK_INK), 2.4)
         npen.setCapStyle(Qt.RoundCap)
         p.setPen(npen)
         p.drawLine(QPointF(cx, cy), tip)
-        p.setPen(Qt.NoPen)
-        p.setBrush(QColor(DK_INK))
-        p.drawEllipse(QPointF(cx, cy), 4.5, 4.5)
+        p.setPen(QPen(QColor(DK_INK), 2.0))
+        p.setBrush(QColor(DK_CARD))
+        p.drawEllipse(QPointF(cx, cy), 5.0, 5.0)
         p.setOpacity(1.0)
 
         def font(px, bold=False):
@@ -347,53 +401,71 @@ class DashGauge(QWidget):
             f.setBold(bold)
             return f
 
-        p.setFont(font(13, True))
+        p.setFont(font(11, True))
         p.setPen(QColor("#6B7C8A"))
-        p.drawText(QRectF(cx - r - 14, cy + 4, 44, 14), Qt.AlignLeft | Qt.AlignVCenter, _format_scale_number(self._min))
-        p.drawText(QRectF(cx + r - 30, cy + 4, 44, 14), Qt.AlignRight | Qt.AlignVCenter, _format_scale_number(self._max))
-        p.setFont(font(25, True))
-        p.setPen(QColor(DK_INK if self._value is not None and not self._dim else DK_DIM))
-        p.drawText(QRectF(0, cy + 14, self._DW, 32), Qt.AlignHCenter | Qt.AlignVCenter,
-                   format_value(self._value))
-        p.setFont(font(13))
+        lo, hi = self._pt(0.0, r + 1), self._pt(1.0, r + 1)
+        p.drawText(QRectF(lo.x() - 22, lo.y() + 3, 44, 14), Qt.AlignHCenter | Qt.AlignVCenter, _format_scale_number(self._min))
+        p.drawText(QRectF(hi.x() - 22, hi.y() + 3, 44, 14), Qt.AlignHCenter | Qt.AlignVCenter, _format_scale_number(self._max))
+        p.setFont(font(22, True))
+        bad = self._value is not None and (self._alert or over)
+        p.setPen(QColor(DK_RED if bad else (DK_INK if self._value is not None and not self._dim else DK_DIM)))
+        p.drawText(QRectF(0, 108, self._DW, 28), Qt.AlignHCenter | Qt.AlignVCenter, _gauge_number(self._value))
+        p.setFont(font(12))
         p.setPen(QColor(DK_MUT))
-        p.drawText(QRectF(0, cy + 46, self._DW, 16), Qt.AlignHCenter | Qt.AlignVCenter, self._unit)
+        p.drawText(QRectF(0, 134, self._DW, 14), Qt.AlignHCenter | Qt.AlignVCenter, self._unit)
         if self._label:
             p.setFont(font(15, True))
             p.setPen(QColor(theme.HEAD))
-            p.drawText(QRectF(0, cy + 64, self._DW, 20), Qt.AlignHCenter | Qt.AlignVCenter, self._label)
+            p.drawText(QRectF(0, 152, self._DW, 20), Qt.AlignHCenter | Qt.AlignVCenter, self._label)
 
 
 class GaugeCard(QFrame):
-    """Başlık + (etiket) + kilit düğmesi + gösterge. Kilit isteği ve tıklama dışarı bildirilir."""
+    """İkon rozeti + ad + durum etiketi + kilit düğmesi + gösterge. Kırmızı sınır aşılınca kart kırmızıya döner
+    ve ``limit_text`` etiketi çıkar; arıza (ARIZA) her zaman önceliklidir."""
 
     lock_requested = Signal(str, bool)   # anahtar, kilidi aç mı
     value_requested = Signal(str)        # göstergeye tıklandı (manuel değer girişi)
 
-    def __init__(self, key: str, label: str, minimum: float, maximum: float, unit: str, parent=None):
+    def __init__(self, key: str, label: str, minimum: float, maximum: float, unit: str, parent=None,
+                 red_limit: float | None = None, limit_text: str = "LİMİT"):
         super().__init__(parent)
         self.key = key
         self._accent = GAUGE_ACCENT.get(key, DK_CYAN)
+        self._limit_text = limit_text
+        self._fault = ("", "")
         self.setObjectName("gaugeCard")
         lay = QVBoxLayout(self)
         lay.setContentsMargins(8, 5, 8, 3)
         lay.setSpacing(0)
         head = QHBoxLayout()
-        head.setSpacing(6)
-        self.title = QLabel(f'<span style="color:{self._accent}; font-size:16px;">●</span>&nbsp;{label}')
-        self.title.setTextFormat(Qt.RichText)
+        head.setSpacing(7)
+        self.badge = QLabel()
+        self.badge.setFixedSize(26, 26)
+        self.badge.setAlignment(Qt.AlignCenter)
+        tint, edge = QColor(self._accent), QColor(self._accent)
+        tint.setAlpha(36)
+        edge.setAlpha(80)
+        self.badge.setStyleSheet(
+            f"background:rgba({tint.red()},{tint.green()},{tint.blue()},{tint.alpha()}); "
+            f"border:1px solid rgba({edge.red()},{edge.green()},{edge.blue()},{edge.alpha()}); border-radius:7px;")
+        icon = GAUGE_ICON.get(key)
+        if icon:
+            self.badge.setPixmap(icon_pixmap(icon, self._accent, 16))
+        self.title = QLabel(label)
         self.title.setObjectName("gaugeTitle")
         self.tag = QLabel("")
         self.tag.setVisible(False)
         self.lock = LockButton(22)
         self.lock.lock_requested.connect(lambda want: self.lock_requested.emit(self.key, want))
+        head.addWidget(self.badge)
         head.addWidget(self.title)
-        head.addWidget(self.tag)
         head.addStretch(1)
+        head.addWidget(self.tag)
         head.addWidget(self.lock)
         lay.addLayout(head)
         self.gauge = DashGauge(minimum, maximum, unit)
         self.gauge.set_accent(self._accent)
+        self.gauge.set_red_limit(red_limit)
         lay.addWidget(self.gauge, 1)
         self.status = QLabel("")
         self.status.setObjectName("gaugeStatus")
@@ -403,17 +475,32 @@ class GaugeCard(QFrame):
         self._state = ""
         self.setCursor(Qt.ArrowCursor)
 
+    def set_value(self, value, dim: bool = False):
+        """Gösterge değerini ayarlar ve kırmızı sınır durumunu karta yansıtır."""
+        self.gauge.set_value(value, dim=dim)
+        self._apply_tag()
+
     def set_tag(self, text: str, kind: str = ""):
-        """kind: '' | 'manual' | 'fault'"""
+        """Arıza etiketi: kind '' | 'manual' | 'fault'"""
+        self._fault = (text, kind)
+        self._apply_tag()
+
+    def _apply_tag(self):
+        text, kind = self._fault
+        over = self.gauge.is_over_limit and not (text and kind == "fault")
+        if over:
+            text, kind = self._limit_text, "fault"
         self.tag.setVisible(bool(text))
         self.tag.setText(text)
         if kind == "fault":
             css = f"background:{theme.DANGER_BG}; color:{theme.DANGER}; border:1px solid {theme.DANGER_LINE};"
+            if over:
+                css = f"background:{theme.DANGER}; color:{theme.SURFACE}; border:1px solid {theme.DANGER};"
         else:
             css = f"background:{theme.WARN_BG}; color:{theme.WARN_INK}; border:1px solid {theme.WARN_LINE};"
         self.tag.setStyleSheet(f"{css} border-radius:8px; padding:0 6px; font-size:11px; font-weight:700;")
-        self.gauge.set_alert(kind == "fault")
-        state = kind
+        self.gauge.set_alert(kind == "fault" and not over)
+        state = "alarm" if over else kind
         if state != self._state:
             self._state = state
             self.setProperty("state", state)

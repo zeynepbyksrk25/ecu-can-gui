@@ -5,11 +5,11 @@ from app.dashboard_config import (
 
 
 def test_legacy_measurement_fields_migrate_to_a2l_sensor_bindings():
-    cfg = config_from_dict({"measurement_rpm": "N_RPM", "measurement_tt2": " T_T2 ",
+    cfg = config_from_dict({"measurement_rpm": "N_RPM", "measurement_ps3": " T_T2 ",
                             "graph_signals": ["g:RPM", "m:X"]})
     assert cfg.sensors["RPM"].value == Binding(SOURCE_A2L, a2l_name="N_RPM")
-    assert cfg.sensors["Tt2"].value.a2l_name == "T_T2"
-    assert cfg.gauge_a2l_map() == {"RPM": "N_RPM", "Tt2": "T_T2"}
+    assert cfg.sensors["Ps3"].value.a2l_name == "T_T2"
+    assert cfg.gauge_a2l_map() == {"RPM": "N_RPM", "Ps3": "T_T2"}
     assert cfg.graph_signals == ["g:RPM", "m:X"]
     assert "Tt5" in cfg.unbound_gauges()
 

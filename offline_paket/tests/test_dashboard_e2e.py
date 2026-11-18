@@ -78,7 +78,7 @@ def test_a2l_little_endian_values_show_real_numbers(win, ccp):
     assert _tick_until(win, ["N_RPM", "FP_bar"], lambda: "RPM" in dt._values and "FP" in dt._values)
     assert dt._values["RPM"][0] == pytest.approx(4520.0)
     assert dt._values["FP"][0] == pytest.approx(6.8, rel=1e-5)
-    assert dt._gauge_cards["RPM"].gauge.fraction() == pytest.approx(4520 / 6000)   # ibre hareket eder
+    assert dt._gauge_cards["RPM"].gauge.fraction() == pytest.approx(4520 / 140000)   # ibre hareket eder (0-140.000 ölçek)
 
 
 def test_reasons_are_shown_when_value_cannot_be_read(win):
@@ -91,10 +91,10 @@ def test_reasons_are_shown_when_value_cannot_be_read(win):
 
 def test_missing_a2l_name_and_missing_address_reasons(win, ccp):
     dt = win.dashboard_tab
-    _cfg(win, RPM=Binding(SOURCE_A2L, a2l_name="YOK_DEGISKEN"), Tt2=Binding(SOURCE_A2L, a2l_name="NoAddr"))
+    _cfg(win, RPM=Binding(SOURCE_A2L, a2l_name="YOK_DEGISKEN"), Ps3=Binding(SOURCE_A2L, a2l_name="NoAddr"))
     win._on_dashboard_tick(["YOK_DEGISKEN", "NoAddr"])
     assert "yok" in dt._reasons["RPM"]
-    assert dt._reasons["Tt2"] == "ECU adresi yok"
+    assert dt._reasons["Ps3"] == "ECU adresi yok"
 
 
 def test_ecu_timeout_reason(win, ccp):
@@ -111,17 +111,17 @@ def test_can_sensor_values_and_fault_bit_from_dbc(win):
     dt = win.dashboard_tab
     cfg = DashboardConfig()
     cfg.sensors["RPM"] = SignalMap(value=Binding(SOURCE_CAN, "ENG_STATUS", "rpm"))
-    cfg.sensors["Tt2"] = SignalMap(value=Binding(SOURCE_CAN, "ENG_STATUS", "tt2_c"),
+    cfg.sensors["Ps3"] = SignalMap(value=Binding(SOURCE_CAN, "ENG_STATUS", "tt2_c"),
                                    fault=Binding(SOURCE_CAN, "ENG_STATUS", "tt2_fault"))
     dt.set_config(cfg)
     win._rebuild_dash_can_map()
     can_id, data, _ext = win.transmit_tab.dbc.encode("ENG_STATUS", {"rpm": 4520, "tt2_c": 38.0, "tt2_fault": 0})
     win._dash_on_can_frame(can_id, data)
-    assert dt._values["RPM"][0] == 4520 and dt._values["Tt2"][0] == pytest.approx(38.0, abs=0.1)
+    assert dt._values["RPM"][0] == 4520 and dt._values["Ps3"][0] == pytest.approx(38.0, abs=0.1)
     assert dt._faults == {}
     _id, data, _ext = win.transmit_tab.dbc.encode("ENG_STATUS", {"rpm": 4520, "tt2_c": 38.0, "tt2_fault": 1})
     win._dash_on_can_frame(can_id, data)
-    assert dt._faults == {"Tt2": "Sensör arızası"}
+    assert dt._faults == {"Ps3": "Sensör arızası"}
     assert "1 arıza" in [l.text() for l in dt._health_labels]
 
 

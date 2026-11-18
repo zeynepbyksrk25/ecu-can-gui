@@ -15,18 +15,19 @@ Bu widget gerçek CAN/CCP işlemini kendisi yapmaz: ``writer`` geri çağrısı
 
 import time
 
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QFrame, QGridLayout, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMessageBox,
-    QPushButton, QSizePolicy, QVBoxLayout, QWidget,
+    QPushButton, QSizePolicy, QSlider, QVBoxLayout, QWidget,
 )
 from PySide6.QtCore import QRegularExpression
-from PySide6.QtGui import QColor, QRegularExpressionValidator
+from PySide6.QtGui import QColor, QPainter, QPen, QRegularExpressionValidator
 from PySide6.QtWidgets import QLineEdit
 
 from app import theme
 from app.dashboard_config import (
-    ACTUATOR_KEYS, ACTUATOR_KINDS, CONTROL_KEYS, EYLEYICI_KEYS, GAUGE_KEYS, Binding, DashboardConfig,
+    ACTUATOR_KEYS, ACTUATOR_KINDS, CONTROL_KEYS, EYLEYICI_KEYS, GAUGE_KEYS, MODE_KEY, Binding, DashboardConfig,
+    motor_mode_name,
 )
 from app.ui.dash_widgets import (  # noqa: F401  (ToggleSwitch: eski import yolu)
     ACCENTS, DK_CYAN, DK_MUT, DashGauge, GaugeCard, IconLabel, LockButton, ToggleSwitch,
@@ -42,18 +43,23 @@ STALE_S = 3.0
 # Göstergelerin ölçekleri: (min, max, birim). Ekranda gösterilen DEĞER her zaman
 # gerçek değerdir; ölçek yalnızca ibre/yay çizimi içindir.
 GAUGE_RANGES = {
-    "RPM": (0.0, 6000.0, "rpm"),
-    "İtki": (0.0, 100.0, "%"),
-    "PLA": (0.0, 100.0, "%"),
-    "Tt5": (0.0, 800.0, "°C"),
-    "FP": (0.0, 10.0, "bar"),
-    "FT": (0.0, 500.0, "°C"),
-    "Ps2": (0.0, 5.0, "bar"),
-    "Tt2": (0.0, 120.0, "°C"),
+    "RPM": (0.0, 140000.0, "rpm", 118000.0),
+    "İtki": (0.0, 270.0, "N", 255.0),
+    "PLA": (0.0, 100.0, "%", None),
+    "Tt5": (-40.0, 1200.0, "°C", 900.0),
+    "FP": (0.0, 10.0, "bar", None),
+    "FT": (-30.0, 40.0, "°C", None),
+    "Ps2": (0.0, 2.5, "bar", 1.6),
+    "Ps3": (0.0, 5.0, "bar", None),
 }
+# Kırmızı sınır aşılınca kartta yazan etiket (varsayılan "LİMİT").
+# Motor Modu rengi (A2L EN_MODE_* sırası: 0 POWER ON ... 6 STOP)
+MODE_COLORS = {0: theme.SLATE, 1: theme.BLUE, 2: theme.WARN, 3: theme.ACCENT, 4: theme.OK, 5: "#2A8FBD", 6: theme.DANGER}
+GAUGE_LIMIT_TEXT = {"RPM": "OVERSPEED", "Tt5": "AŞIRI SICAK"}
 GAUGE_DISPLAY_LABELS = {key: key for key in GAUGE_KEYS}
 GAUGE_DISPLAY_LABELS["FP"] = "Fp"
 GAUGE_DISPLAY_LABELS["FT"] = "Ft"
+THROTTLE_SEND_MS = 100      # PLA sürgüsü sürüklenirken en fazla 10 Hz komut
 
 ACTUATOR_SHORT = {
     "pompa_start": "Yakıt Pompası Start",
@@ -73,6 +79,59 @@ DASH_QSS = dark_qss("dashBody")
 ACT_CMD_W = 112      # Eyleyiciler: KOMUT hücresi genişliği (başlık ve satırlar aynı)
 ACT_LOCK_W = 26      # kilit düğmesi
 ACT_MAN_W = 68       # Eyleyiciler: MANUEL hücresi genişliği (başlık metni sığsın; kilit ortalanır)
+
+
+class _ModeChip(QFrame):
+    """Yuvarlak uçlu (hap) Motor Modu çipi: zemin modun renginin açık tonu, kenar modun rengi."""
+
+    def __init__(self):
+        super().__init__()
+        self._col = QColor(theme.DIM)
+
+    def set_color(self, col: str):
+        self._col = QColor(col)
+        self.update()
+
+    def paintEvent(self, event):  # noqa: N802
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        fill = QColor(self._col)
+        fill.setAlpha(30)
+        p.setPen(QPen(self._col, 1))
+        p.setBrush(fill)
+        r = QRectF(0.5, 0.5, self.width() - 1, self.height() - 1)
+        p.drawRoundedRect(r, r.height() / 2, r.height() / 2)
+
+
+class _ThrottleSlider(QSlider):
+    """Gaz kolu sürgüsü: oluk + yeşil dolgu + tutamaç elle çizilir (QSS oluk/sayfa çizimi sürgü yüksekliğini
+    doldurduğu için kullanılmaz)."""
+
+    _HW, _HH, _GH = 26.0, 20.0, 8.0
+
+    def paintEvent(self, event):  # noqa: N802
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        on = self.isEnabled()
+        span = self.maximum() - self.minimum() or 1
+        frac = (self.value() - self.minimum()) / span
+        x0, x1 = self._HW / 2, self.width() - self._HW / 2
+        cy = self.height() / 2
+        x = x0 + (x1 - x0) * frac
+        groove = QRectF(x0 - 4, cy - self._GH / 2, (x1 - x0) + 8, self._GH)
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor("#D0DAE3"))
+        p.drawRoundedRect(groove, 4, 4)
+        fill = QRectF(groove.left(), groove.top(), x - groove.left(), self._GH)
+        p.setBrush(QColor(theme.OK if on else theme.LINE_STRONG))
+        p.drawRoundedRect(fill, 4, 4)
+        hr = QRectF(x - self._HW / 2, cy - self._HH / 2, self._HW, self._HH)
+        p.setPen(QPen(QColor(theme.SLATE if on else theme.LINE_STRONG), 1))
+        p.setBrush(QColor(theme.SURFACE if on else theme.SURFACE_ALT))
+        p.drawRoundedRect(hr, 6, 6)
+        p.setPen(QPen(QColor(theme.LINE_MID), 1))                 # tutamaç çizgileri (gaz kolu hissi)
+        for dx in (-3, 0, 3):
+            p.drawLine(QPointF(x + dx, cy - 5), QPointF(x + dx, cy + 5))
 
 
 class DashboardTab(QWidget):
@@ -152,8 +211,8 @@ class DashboardTab(QWidget):
         right_w = QWidget()
         right_w.setLayout(right)
 
-        body.addWidget(left_w, 0)
-        body.addWidget(right_w, 1)
+        body.addWidget(left_w, 3)             # sol sütun ≈ %30: sensörler (göstergeler) geniş kalır
+        body.addWidget(right_w, 7)
 
         self._rebuild_trend_series()
 
@@ -284,6 +343,7 @@ class DashboardTab(QWidget):
         head.addWidget(IconLabel("gauge", ACCENTS["teal"], 18))
         t = QLabel("MOTOR PARAMETRELERİ")
         t.setObjectName("cardTitle")
+        t.setMinimumWidth(t.fontMetrics().horizontalAdvance("MOTOR PARAMETRELERİ") + 30)   # başlık kırpılmasın
         head.addWidget(t)
         head.addSpacing(10)
         cap = QLabel("Sensör sağlığı")
@@ -293,6 +353,8 @@ class DashboardTab(QWidget):
         self._health_box.setSpacing(6)
         head.addLayout(self._health_box)
         self._health_labels: list = []
+        head.addSpacing(6)
+        self._build_mode_chip(head)
         head.addStretch(1)
         self.map_warn_label = QLabel("")
         self.map_warn_label.setObjectName("warnSmall")
@@ -308,8 +370,9 @@ class DashboardTab(QWidget):
         grid = QGridLayout()
         grid.setSpacing(8)
         for i, key in enumerate(GAUGE_KEYS):
-            lo, hi, unit = GAUGE_RANGES[key]
-            gc = GaugeCard(key, GAUGE_DISPLAY_LABELS.get(key, key), lo, hi, unit)
+            lo, hi, unit, red = GAUGE_RANGES[key]
+            gc = GaugeCard(key, GAUGE_DISPLAY_LABELS.get(key, key), lo, hi, unit,
+                           red_limit=red, limit_text=GAUGE_LIMIT_TEXT.get(key, "LİMİT"))
             gc.lock.setVisible(False)       # sensörlerde manuel değer / switch yok: yalnızca Eyleyicilerde
             self._gauge_cards[key] = gc
             grid.addWidget(gc, i // 4, i % 4)
@@ -320,6 +383,55 @@ class DashboardTab(QWidget):
         lay.addLayout(grid, 1)
         self.refresh_sensor_health()
         return card
+
+    def _build_mode_chip(self, head):
+        """Başlıkta "Motor Modu: AD" çipi (yalnız mod adı; sayı gösterilmez)."""
+        self.mode_chip = _ModeChip()
+        hl = QHBoxLayout(self.mode_chip)
+        hl.setContentsMargins(11, 3, 15, 3)
+        hl.setSpacing(8)
+        self.mode_dot = QLabel()
+        self.mode_dot.setFixedSize(10, 10)
+        cap = QLabel("Motor Modu:")
+        cap.setObjectName("mutedSmall")
+        self.mode_name = QLabel("—")
+        self.mode_name.setObjectName("modeName")
+        hl.addWidget(self.mode_dot)
+        hl.addWidget(cap)
+        hl.addWidget(self.mode_name)
+        head.addWidget(self.mode_chip)
+        self._mode: tuple | None = None            # (değer, monotonic)
+        self._paint_mode(None)
+
+    def _paint_mode(self, value):
+        """value None/bayat: gri "—"; aksi halde modun adı ve rengi."""
+        name = motor_mode_name(value) if value is not None else "—"
+        col = MODE_COLORS.get(int(value), theme.WARN) if value is not None and name != "—" else theme.DIM
+        self.mode_name.setText(name)
+        self.mode_chip.set_color(col)
+        self.mode_dot.setStyleSheet(f"background: {col}; border-radius: 5px; border: none;")
+        self.mode_name.setStyleSheet(f"font-size: 15px; font-weight: 800; letter-spacing: 1px; color: {theme.HEAD};"
+                                     " background: transparent; border: none;")
+
+    def set_motor_mode(self, value):
+        """motor_mode sayısı (0-6) gelince çipi günceller; sayı olmayan değer çipi "—" yapar."""
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            self._mode = (value, time.monotonic())
+        else:
+            self._mode = None
+        self._refresh_mode()
+
+    def _refresh_mode(self):
+        m = self._mode
+        fresh = m is not None and (time.monotonic() - m[1]) <= STALE_S
+        shown = m[0] if fresh else None
+        if shown != getattr(self, "_mode_shown", object()):
+            self._mode_shown = shown
+            self._paint_mode(shown)
+
+    @property
+    def motor_mode_text(self) -> str:
+        return self.mode_name.text()
 
     def refresh_sensor_health(self):
         """Arızalı sensörleri (neden ile birlikte) başlık şeridinde listeler."""
@@ -364,16 +476,17 @@ class DashboardTab(QWidget):
         self._refresh_gauge_states()
 
     def _refresh_gauge_states(self):
+        self._refresh_mode()
         now = time.monotonic()
         unbound = set(self.config.unbound_gauges())
         for key, gc in self._gauge_cards.items():
             val = self._values.get(key)
             fresh = val is not None and (now - val[1]) <= STALE_S
             if fresh:
-                gc.gauge.set_value(val[0])
+                gc.set_value(val[0])
                 gc.set_status("")
             else:
-                gc.gauge.set_value(None if val is None else val[0], dim=val is not None)
+                gc.set_value(None if val is None else val[0], dim=val is not None)
                 if key in unbound:
                     # hepsi eşlenmemişse başlıktaki tek uyarı yeterli (8 kez tekrarlanmaz)
                     gc.set_status("" if len(unbound) == len(self._gauge_cards) else "Eşleşme yok")
@@ -383,12 +496,15 @@ class DashboardTab(QWidget):
                     gc.set_status(self._reasons.get(key, "Veri bekleniyor"))
 
     def set_gauge_value(self, key: str, value):
+        if key == MODE_KEY:                       # gösterge değil: başlıktaki Motor Modu çipi
+            self.set_motor_mode(value)
+            return
         if isinstance(value, (int, float)):
             self._values[key] = (float(value), time.monotonic())
             self._reasons.pop(key, None)
             gc = self._gauge_cards.get(key)
             if gc is not None:
-                gc.gauge.set_value(value)
+                gc.set_value(value)
                 gc.set_status("")
             self.trend.append(f"g:{key}", value)
             self.gauge_sample.emit(key, float(value))
@@ -397,7 +513,7 @@ class DashboardTab(QWidget):
             self._values.pop(key, None)
             gc = self._gauge_cards.get(key)
             if gc is not None:
-                gc.gauge.set_value(None)
+                gc.set_value(None)
 
     def set_gauge_debug(self, key: str, text: str):
         gc = self._gauge_cards.get(key)
@@ -538,7 +654,115 @@ class DashboardTab(QWidget):
             entry["control"].setEnabled(False)
         self._act_rows[key] = entry
         self._style_actuator_row(key)
+        if key == "throttle":
+            return self._wrap_throttle_slider(row, box)
         return row
+
+    # ---- Gaz kolu (PLA) sürgüsü: değer kutusunun altında, kutuyla çift yönlü --------------------------
+    def _wrap_throttle_slider(self, row: QFrame, box: QLineEdit) -> QFrame:
+        row.setObjectName("")                              # alt çizgiyi kap çizer
+        row.setMaximumHeight(52)
+        wrap = QFrame()
+        wrap.setObjectName("rowFrame")
+        v = QVBoxLayout(wrap)
+        v.setContentsMargins(0, 0, 0, 4)
+        v.setSpacing(0)
+        v.addWidget(row)
+        line = QHBoxLayout()
+        line.setContentsMargins(28, 0, 0, 0)
+        line.setSpacing(10)
+        self.throttle_slider = _ThrottleSlider(Qt.Horizontal)
+        self.throttle_slider.setObjectName("throttleSlider")
+        self.throttle_slider.setRange(0, 100)
+        self.throttle_slider.setSingleStep(1)
+        self.throttle_slider.setPageStep(5)
+        self.throttle_slider.setMinimumHeight(26)
+        self.throttle_slider.setCursor(Qt.PointingHandCursor)
+        self.throttle_pct = QLabel("0 %")
+        self.throttle_pct.setObjectName("rowName")
+        self.throttle_pct.setFixedWidth(46)
+        self.throttle_pct.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        line.addWidget(self.throttle_slider, 1)
+        line.addWidget(self.throttle_pct)
+        v.addLayout(line)
+        self._throttle_dragging = False
+        self._throttle_failed = False
+        self._throttle_timer = QTimer(self)                # sürüklerken en fazla 10 Hz komut
+        self._throttle_timer.setSingleShot(True)
+        self._throttle_timer.setInterval(THROTTLE_SEND_MS)
+        self._throttle_timer.timeout.connect(self._on_throttle_tick)
+        self._throttle_pending = False
+        self.throttle_slider.valueChanged.connect(self._on_throttle_slider)
+        self.throttle_slider.sliderPressed.connect(self._on_throttle_pressed)
+        self.throttle_slider.sliderReleased.connect(self._on_throttle_released)
+        box.textEdited.connect(self._on_throttle_text)
+        self._update_throttle_slider()
+        return wrap
+
+    def _update_throttle_slider(self):
+        """Sürgü yalnız yetkili rolde ve PLA eşleşmesi varken etkindir (sürüklerken diyalog çıkmaması için)."""
+        sl = getattr(self, "throttle_slider", None)
+        if sl is None:
+            return
+        allowed = can_override_actuator(self._role)
+        mapped = self.config.actuator_map("throttle").value.is_set
+        sl.setEnabled(allowed and mapped)
+        sl.setToolTip("" if allowed and mapped else
+                      "Gaz kolu için Mühendis/Yönetici rolü ve ⚙ Eşleşmeler'de PLA değer eşleşmesi gerekir."
+                      if not mapped or not allowed else "")
+
+    def _on_throttle_text(self, _t: str = ""):
+        """Kutuya elle yazılan değer sürgüyü taşır (komut Enter ile gider)."""
+        v = self._actuator_text_value("throttle")
+        if v is None:
+            return
+        self.throttle_slider.blockSignals(True)
+        self.throttle_slider.setValue(int(max(0, min(100, round(v)))))
+        self.throttle_slider.blockSignals(False)
+        self.throttle_pct.setText(f"{int(max(0, min(100, round(v))))} %")
+
+    def _on_throttle_slider(self, value: int):
+        box = self._act_rows["throttle"]["control"]
+        box.setText(str(value))
+        self._mark_actuator_box(box, False)
+        self.throttle_pct.setText(f"{value} %")
+        self._queue_throttle()                             # sürükleme / ok tuşu / tekerlek
+
+    def _on_throttle_pressed(self):
+        self._throttle_dragging = True
+        self._throttle_failed = False
+
+    def _on_throttle_released(self):
+        self._throttle_dragging = False
+        self._throttle_timer.stop()
+        self._throttle_pending = False
+        self._send_throttle(force=True)                    # bırakınca SON değer kesin gider
+
+    def _queue_throttle(self):
+        if self._throttle_timer.isActive():
+            self._throttle_pending = True
+            return
+        self._send_throttle()
+        self._throttle_timer.start()
+
+    def _on_throttle_tick(self):
+        if self._throttle_pending:                         # aralıkta biriken son değer
+            self._throttle_pending = False
+            self._send_throttle()
+            self._throttle_timer.start()
+
+    def _send_throttle(self, force: bool = False):
+        if self._throttle_failed and not force:
+            return                                         # hata: sürükleme boyunca tekrar deneyip diyalog yağdırma
+        if not self.throttle_slider.isEnabled():
+            return
+        box = self._act_rows["throttle"]["control"]
+        v = self._actuator_text_value("throttle")
+        if v is None:
+            return
+        ok = self._write(self.config.actuator_map("throttle").value, v, f"{ACTUATOR_SHORT['throttle']} komutu")
+        self._throttle_failed = not ok
+        self._mark_actuator_box(box, not ok)
 
     def _style_actuator_row(self, key: str):
         e = self._act_rows[key]
@@ -550,6 +774,7 @@ class DashboardTab(QWidget):
 
     def set_role(self, role: Role):
         self._role = role
+        self._update_throttle_slider()
         locked = not can_override_actuator(role)
         self.role_banner.setVisible(locked)
         if locked:
@@ -752,6 +977,7 @@ class DashboardTab(QWidget):
 
     def set_config(self, cfg: DashboardConfig):
         self.config = cfg
+        self._update_throttle_slider()
         self._rebuild_trend_series()
         miss = cfg.unbound_gauges()
         self.map_warn_label.setText(f"⚠ {len(miss)} sensör bağlı değil" if miss else "")
@@ -768,6 +994,8 @@ class DashboardTab(QWidget):
         for key in GAUGE_KEYS:
             if key not in cfg.gauge_a2l_map() and key not in cfg.gauge_can_map():
                 self._values.pop(key, None)
+        if MODE_KEY not in cfg.gauge_a2l_map() and MODE_KEY not in cfg.gauge_can_map():
+            self._mode = None
         self._refresh_gauge_states()
 
     def open_mappings(self):
