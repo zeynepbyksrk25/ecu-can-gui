@@ -371,15 +371,20 @@ class DashboardTab(QWidget):
         grid.setSpacing(8)
         for i, key in enumerate(GAUGE_KEYS):
             lo, hi, unit, red = GAUGE_RANGES[key]
+            variant = "big" if key in ("RPM", "İtki") else "ring" if key == "PLA" else "small"
             gc = GaugeCard(key, GAUGE_DISPLAY_LABELS.get(key, key), lo, hi, unit,
-                           red_limit=red, limit_text=GAUGE_LIMIT_TEXT.get(key, "LİMİT"))
+                           red_limit=red, limit_text=GAUGE_LIMIT_TEXT.get(key, "LİMİT"), variant=variant)
             gc.lock.setVisible(False)       # sensörlerde manuel değer / switch yok: yalnızca Eyleyicilerde
             self._gauge_cards[key] = gc
-            grid.addWidget(gc, i // 4, i % 4)
-        for c in range(4):
+            if i < 3:       # üst satır: RPM (4) + İtki (4) + PLA (2) sütun; alt satır: 5 kart x 2 sütun
+                col, span = ((0, 4), (4, 4), (8, 2))[i]
+                grid.addWidget(gc, 0, col, 1, span)
+            else:
+                grid.addWidget(gc, 1, (i - 3) * 2, 1, 2)
+        for c in range(10):
             grid.setColumnStretch(c, 1)
-        for r in range(2):
-            grid.setRowStretch(r, 1)
+        grid.setRowStretch(0, 3)
+        grid.setRowStretch(1, 2)
         lay.addLayout(grid, 1)
         self.refresh_sensor_health()
         return card
