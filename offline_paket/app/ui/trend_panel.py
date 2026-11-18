@@ -621,6 +621,11 @@ class TrendPanel(QFrame):
             data[ser.label] = (t, v, ser.unit)
         return data, list(self._events)
 
+    def snapshot(self):
+        """PDF raporu için (veri, olaylar) kopyası; sonradan değişmez."""
+        data, events = self._export_data()
+        return {k: (t.copy(), v.copy(), u) for k, (t, v, u) in data.items()}, events
+
     def export(self, fmt: str, path: str | None = None):
         data, events = self._export_data()
         if not data:

@@ -68,7 +68,9 @@ def _p(text, style) -> Paragraph:
 
 def build_session_report(path: str, session_name: str, operator: str,
                           started_at: float | None, ended_at: float | None,
-                          event_log) -> None:
+                          event_log, trend_data=None) -> None:
+    """``trend_data``: isteğe bağlı ``(data, events)`` (bkz. ``TrendPanel.snapshot``); verilirse Canlı Trendler
+    grafikleri olay günlüğünden önce eklenir."""
     if not started_at:
         raise ValueError("Rapor için önce oturumu başlatın (Başlangıç zamanı yok).")
     register_fonts()
@@ -108,7 +110,21 @@ def build_session_report(path: str, session_name: str, operator: str,
         meta_t.setStyle(TableStyle([("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
                                     ("BACKGROUND", (0, 0), (0, -1), colors.whitesmoke),
                                     ("VALIGN", (0, 0), (-1, -1), "TOP")]))
-        el += [meta_t, Spacer(1, 0.8 * cm), Paragraph("Olay Günlüğü", h2_style), Spacer(1, 0.2 * cm)]
+        el += [meta_t, Spacer(1, 0.8 * cm)]
+        if trend_data is not None:
+            from app.report_charts import build_trend_charts
+            tdata, tevents = trend_data
+            el += [Paragraph("Canlı Trendler", h2_style), Spacer(1, 0.2 * cm)]
+            charts = build_trend_charts(tdata, tevents, started_at, end)
+            if charts:
+                for ch in charts:
+                    el += [ch, Spacer(1, 0.4 * cm)]
+                el.append(_p("Not: trend verisi bellekte en fazla son 1 saat tutulur; seçili olmayan sinyaller "
+                             "grafiğe girmez.", base))
+            else:
+                el.append(_p("Bu oturumda trend verisi yok.", base))
+            el.append(Spacer(1, 0.6 * cm))
+        el += [Paragraph("Olay Günlüğü", h2_style), Spacer(1, 0.2 * cm)]
 
         rows = [[_p(h, head_style) for h in ("Zaman", "Kullanıcı / Rol", "Kategori", "Mesaj")]]
         for e in entries:

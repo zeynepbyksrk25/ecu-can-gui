@@ -28,6 +28,8 @@ class SessionTab(QWidget):
         self._operator = ""
         self._started_at: float | None = None
         self._ended_at: float | None = None
+        self.trend_provider = None      # MainWindow: callable -> (veri, olaylar) (Canlı Trendler anlık görüntüsü)
+        self._trend_snapshot = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(14, 8, 14, 8)
@@ -116,6 +118,7 @@ class SessionTab(QWidget):
         if self.event_log is None:
             return
         self._ended_at = time.time()
+        self._trend_snapshot = self._take_trend()     # PDF sonradan üretilse de 1 saatlik tampon düşmesin
         self.event_log.add("OTURUM", f"Oturum bitti: '{self._session_name or '(adsız)'}'")
         self.refresh_log()
         self.start_button.setEnabled(True)
@@ -136,16 +139,25 @@ class SessionTab(QWidget):
             return
         self.log_table.set_entries(self.event_log.entries)
 
+    def _take_trend(self):
+        if self.trend_provider is None:
+            return None
+        try:
+            return self.trend_provider()
+        except Exception:  # noqa: BLE001 - grafik alınamazsa rapor yine de üretilsin
+            return None
+
     def _on_export_pdf(self):
         if self.event_log is None:
             return
         path, _ = QFileDialog.getSaveFileName(self.window(), "PDF rapor kaydet", "test_raporu.pdf", "PDF (*.pdf)")
         if not path:
             return
+        trend = self._trend_snapshot if self._ended_at else self._take_trend()
         try:
             build_session_report(
                 path, self._session_name, self._operator,
-                self._started_at, self._ended_at, self.event_log,
+                self._started_at, self._ended_at, self.event_log, trend_data=trend,
             )
         except Exception as exc:
             QMessageBox.critical(self.window(), "Rapor oluşturulamadı", str(exc))
