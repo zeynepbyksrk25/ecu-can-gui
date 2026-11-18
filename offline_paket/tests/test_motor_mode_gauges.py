@@ -51,7 +51,7 @@ def test_mode_chip_shows_name_only_and_goes_blank_when_stale(tab, monkeypatch):
 
 @pytest.mark.parametrize("key,lo,hi,red", [
     ("RPM", 0, 140000, 118000), ("İtki", 0, 270, 255), ("PLA", 0, 100, None), ("Tt5", -40, 1200, 900),
-    ("FP", 0, 10, None), ("FT", -30, 40, None), ("Ps2", 0, 2.5, 1.6), ("Ps3", 0, 5, None)])
+    ("FP", 0, 5, 4.5), ("FT", -30, 40, None), ("Ps2", 0, 2.5, 1.6), ("Ps3", 0, 5, None)])
 def test_ranges_and_red_limits(tab, key, lo, hi, red):
     g = tab._gauge_cards[key].gauge
     assert (g._min, g._max, g.red_limit) == (lo, hi, red)
@@ -161,3 +161,11 @@ def test_throttle_failure_stops_resending_during_drag(tab):
     tab.throttle_slider.setValue(20)
     tab._on_throttle_tick()
     assert len(tab.calls) == n                                    # hata sonrası sürükleme boyunca tekrar denemez
+
+
+def test_fp_red_above_4_5_bar(tab):
+    gc = tab._gauge_cards["FP"]
+    tab.set_gauge_value("FP", 4.5)
+    assert not gc.gauge.is_over_limit and gc.property("state") in ("", None)
+    tab.set_gauge_value("FP", 4.6)
+    assert gc.gauge.is_over_limit and gc.property("state") == "alarm" and gc.tag.text() == "LİMİT"
