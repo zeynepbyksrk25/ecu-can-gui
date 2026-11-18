@@ -211,6 +211,7 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self.a2l_tab.a2l_loaded.connect(self._sync_dashboard_measurements)
 
         self.session_tab.event_log = self.event_log
+        self.session_tab.trend_provider = self.dashboard_tab.trend.snapshot
         # Oturum boyunca izlenen parametreleri diske (CSV) yazan kayıt.
         self.session_recorder = SessionRecorder()
         # Kayıt KAYNAKTA, verinin kendi geliş zamanında yapılır (bkz. app/session_recorder.py): CAN kareleri alım
