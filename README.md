@@ -58,7 +58,9 @@ offline_paket/
 
 ## Güvenlik ilkeleri (değiştirirken korunmalı)
 
-- **Acil Durdurma onay sormaz**, her sayfadan ve kısayolla çalışır; A2L/DBC sınırı ya da READ_ONLY onu engellemez.
+- **Acil Durdurma 1. basışta onay sormaz**, her sayfadan ve kısayolla çalışır; A2L/DBC sınırı ya da READ_ONLY onu engellemez.
+  Düğme kilitli kalır; **2. basışta onay sorulur**, onaylanırsa Acil Durdurma sinyali **0'a çekilir** ve kilit açılır
+  (Motor Start otomatik gönderilmez). Onay verilmezse ya da 0 yazılamazsa kilitli kalır.
 - Uzun CCP işleri (harita/flaş/toplu yazma) **arka plan iş parçacığında** yürür; acil yazmalar araya girer
   (`CCPClient.urgent()`). Arayüz iş parçacığında bloklayan CCP işi yazmayın.
 - Her tablo yazımından önce ECU içeriği yedeklenir; yazma sonrası geri okuma doğrulanır, hata olursa geri yazılır.

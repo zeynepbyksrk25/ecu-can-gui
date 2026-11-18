@@ -169,3 +169,32 @@ def test_fp_red_above_4_5_bar(tab):
     assert not gc.gauge.is_over_limit and gc.property("state") in ("", None)
     tab.set_gauge_value("FP", 4.6)
     assert gc.gauge.is_over_limit and gc.property("state") == "alarm" and gc.tag.text() == "LİMİT"
+
+
+def test_throttle_slider_real_mouse_drag(tab):
+    from PySide6.QtCore import QPoint, Qt
+    from PySide6.QtTest import QTest
+    _armed(tab)
+    sl = tab.throttle_slider
+    sl.resize(300, 26)
+    sl.show()
+    tab.calls.clear()
+    y = sl.height() // 2
+    QTest.mousePress(sl, Qt.LeftButton, Qt.NoModifier, QPoint(13, y))        # sol uç
+    assert sl.value() == 0
+    QTest.mouseMove(sl, QPoint(150, y))
+    assert abs(sl.value() - 50) <= 1 and tab._act_rows["throttle"]["control"].text() == str(sl.value())
+    QTest.mouseMove(sl, QPoint(900, y))                                      # aralık dışı: 100'e kıskaç
+    assert sl.value() == 100
+    QTest.mouseRelease(sl, Qt.LeftButton, Qt.NoModifier, QPoint(900, y))
+    assert tab.calls[-1] == ("CTRL.pla", 100.0) and not sl.isSliderDown()
+
+
+def test_throttle_slider_ignores_mouse_when_disabled(tab):
+    from PySide6.QtCore import QPoint, Qt
+    from PySide6.QtTest import QTest
+    tab.set_role(Role.OPERATOR)
+    sl = tab.throttle_slider
+    sl.resize(300, 26)
+    QTest.mouseClick(sl, Qt.LeftButton, Qt.NoModifier, QPoint(250, 13))
+    assert sl.value() == 0

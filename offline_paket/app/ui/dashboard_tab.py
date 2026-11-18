@@ -109,6 +109,37 @@ class _ThrottleSlider(QSlider):
 
     _HW, _HH, _GH = 26.0, 20.0, 8.0
 
+    # Tutamaç elle çizildiği (QSS'teki 14 px tutamaçla uyuşmadığı) için Qt'nin stil tabanlı isabet denetimi
+    # sürüklemeyi başlatmıyordu: fare konumu doğrudan değere çevrilir.
+    def _value_at(self, x: float) -> int:
+        x0, x1 = self._HW / 2, self.width() - self._HW / 2
+        frac = 0.0 if x1 <= x0 else min(1.0, max(0.0, (x - x0) / (x1 - x0)))
+        return int(round(self.minimum() + frac * (self.maximum() - self.minimum())))
+
+    def mousePressEvent(self, event):  # noqa: N802
+        if event.button() != Qt.LeftButton or not self.isEnabled():
+            event.ignore()
+            return
+        self.setSliderDown(True)
+        self.sliderPressed.emit()
+        self.setValue(self._value_at(event.position().x()))
+        event.accept()
+
+    def mouseMoveEvent(self, event):  # noqa: N802
+        if not self.isSliderDown():
+            event.ignore()
+            return
+        self.setValue(self._value_at(event.position().x()))
+        event.accept()
+
+    def mouseReleaseEvent(self, event):  # noqa: N802
+        if event.button() != Qt.LeftButton or not self.isSliderDown():
+            event.ignore()
+            return
+        self.setSliderDown(False)
+        self.sliderReleased.emit()
+        event.accept()
+
     def paintEvent(self, event):  # noqa: N802
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
@@ -262,14 +293,17 @@ class DashboardTab(QWidget):
         self.estop_button.setToolTip("\n\n".join(parts))
 
     def _on_estop_clicked(self, checked: bool = True):
-        # ONAY SORULMAZ: acil komutta fazladan bir tık gecikmedir. Eşleme yoksa MainWindow hatayı açıkça
-        # bildirir ve günlüğe yazar.
-        # 1. basış (checked): Acil Durdurma gönderilir, düğme koyu kırmızıda KİLİTLİ kalır.
-        # 2. basış (unchecked): kilit açılır (açık kırmızı) ve sistem yeniden başlatılır.
-        self.start_button.setEnabled(self.config.motor_start.binding.is_set and not checked)
+        # 1. basış (checked): ONAY SORULMAZ (acil komutta fazladan tık gecikmedir); Acil Durdurma gönderilir,
+        # düğme koyu kırmızıda KİLİTLİ kalır.
+        # 2. basış (unchecked): kilit hemen AÇILMAZ; MainWindow onay ister ve sinyali 0'a çeker, ancak
+        # başarılıysa ``reset_estop_latch`` ile serbest bırakır (Hayır / hata: kilitli kalır).
         if checked:
+            self.start_button.setEnabled(False)
             self.estop_requested.emit()
         else:
+            self.estop_button.blockSignals(True)
+            self.estop_button.setChecked(True)
+            self.estop_button.blockSignals(False)
             self.estop_released.emit()
 
     def reset_estop_latch(self):
