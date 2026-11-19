@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 
 from app import theme
 from app.dashboard_config import (
-    ACTUATOR_LABELS, CONTROL_KEYS, EYLEYICI_KEYS, MODE_KEY, MOTOR_COMMAND_KEYS, MOTOR_COMMAND_LABELS, SENSOR_KEYS,
+    ACTUATOR_LABELS, CONTROL_KEYS, EYLEYICI_KEYS, MODE_KEYS, MOTOR_COMMAND_KEYS, MOTOR_COMMAND_LABELS, SENSOR_KEYS,
     SENSOR_LABELS, SOURCE_A2L, SOURCE_CAN, Binding, DashboardConfig, MotorCommand, SignalMap,
 )
 from app.sim_interface import FLIGHT_DEFS, auto_match
@@ -268,7 +268,7 @@ class MappingDialog(QDialog):
             ed = {"value": self._editor(smap.value), "fault": self._editor(smap.fault)}
             for c, name in enumerate(("value", "fault"), start=1):
                 grid.addWidget(ed[name], r, c)
-            if key == MODE_KEY:                      # Motor Modu'nda arıza biti yok
+            if key in MODE_KEYS:                     # Mod satırlarında arıza biti yok
                 ed["fault"].setVisible(False)
             self.sensor_ed[key] = ed
         grid.setColumnMinimumWidth(0, 150)

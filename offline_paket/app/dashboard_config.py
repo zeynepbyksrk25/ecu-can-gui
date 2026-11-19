@@ -24,13 +24,28 @@ DEFAULT_PATH = "dashboard_config.json"
 GAUGE_KEYS = ["RPM", "İtki", "PLA", "Tt5", "FP", "FT", "Ps2", "Ps3"]
 # Motor Modu: göstergesi yoktur (başlıkta çip olarak görünür) ama sensör gibi CAN/A2L'den eşlenir.
 MODE_KEY = "motor_mode"
-SENSOR_KEYS = GAUGE_KEYS + [MODE_KEY]
+# Alt modlar (Starter / Start / Run / Stop): Motor Modu gibi göstergesiz, CAN/A2L'den eşlenen sayısal durum slotları.
+SUB_MODE_KEYS = ["starter_mode", "start_mode", "run_mode", "stop_mode"]
+MODE_KEYS = [MODE_KEY] + SUB_MODE_KEYS
+SENSOR_KEYS = GAUGE_KEYS + MODE_KEYS
 # A2L'deki EN_MODE_*_u8 sabitleri (motor_mode değeri -> ekranda yazan ad).
 MOTOR_MODE_NAMES = {0: "POWER ON", 1: "READY", 2: "START UP", 3: "IDLE", 4: "RUN", 5: "COOLING", 6: "STOP"}
+# Alt mod değer -> ad tabloları (algoritmadaki *_u8 sabitleri; değerler listedeki sırayla 0,1,2...).
+# Gerçek sayılar farklıysa YALNIZCA buradan düzeltilir.
+SUB_MODE_NAMES = {
+    "starter_mode": {0: "OFF", 1: "ON", 2: "COOLDOWN"},
+    "start_mode": {0: "MTRNG", 1: "IGN ON", 2: "F1 ON", 3: "LIGHTS UP", 4: "F1 BACKUP ON",
+                   5: "SELF SUST N", 6: "SUCCESS", 7: "ABORT"},
+    "run_mode": {0: "LOW", 1: "MID", 2: "INTERM", 3: "HIGH", 4: "MAX"},
+    "stop_mode": {0: "CMD", 1: "TIMER"},
+}
+SUB_MODE_TITLES = {"starter_mode": "STARTER", "start_mode": "START", "run_mode": "RUN", "stop_mode": "STOP"}
+# Ana mod (MOTOR_MODE_NAMES değeri) -> o anda "etkin" sayılan alt modlar (Ana Sayfa'da vurgulanır).
+ACTIVE_SUB_MODES = {2: ("starter_mode", "start_mode"), 4: ("run_mode",), 5: ("starter_mode",), 6: ("stop_mode",)}
 
 
-def motor_mode_name(value) -> str:
-    """motor_mode sayısını ad olarak döndürür: bilinmeyen -> 'BİLİNMİYOR (n)', değer yok -> '—'."""
+def mode_name(key: str, value) -> str:
+    """Mod sayısını ad olarak döndürür: bilinmeyen -> 'BİLİNMİYOR (n)', değer yok -> '—'."""
     try:
         n = float(value)
     except (TypeError, ValueError):
@@ -38,13 +53,19 @@ def motor_mode_name(value) -> str:
     if n != n or n != int(n):
         return "—"
     n = int(n)
-    return MOTOR_MODE_NAMES.get(n, f"BİLİNMİYOR ({n})")
+    names = MOTOR_MODE_NAMES if key == MODE_KEY else SUB_MODE_NAMES.get(key, {})
+    return names.get(n, f"BİLİNMİYOR ({n})")
+
+
+def motor_mode_name(value) -> str:
+    return mode_name(MODE_KEY, value)
 
 SENSOR_LABELS = {
     "RPM": "Devir (RPM)", "İtki": "İtki", "PLA": "Gaz Kolu (PLA)", "Tt5": "Egzoz Sıcaklığı (Tt5)",
     "FP": "Yakıt Basıncı (FP)", "FT": "Yakıt Sıcaklığı (FT)", "Ps2": "Giriş Basıncı (Ps2)",
     "Ps3": "Basınç (Ps3)",
     "motor_mode": "Motor Modu",
+    "starter_mode": "Starter Modu", "start_mode": "Start Modu", "run_mode": "Run Modu", "stop_mode": "Stop Modu",
 }
 
 # Eyleyiciler (manuel override).
