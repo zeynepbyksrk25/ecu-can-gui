@@ -292,7 +292,7 @@ haberleşmeyi test edebilirsiniz.
   yaz/oku) ve "Harita Editörü" (birden çok eğri/harita/dizi aynı anda sekmelerde, 1×16 gibi diziler dahil).
 - **Duyarlı arayüz**: sayfalar kaydırılabilir, pencere ekrana sığacak şekilde açılır,
   göstergeler orantılı ölçeklenir.
-- **Kalıcı dosyalar** exe'nin yanındaki klasörde (yazılamazsa Belgelerim\OpenECU_M220_Veri):
+- **Kalıcı dosyalar** sabit kullanıcı klasöründe: Belgelerim\OpenECU_M220_Veri (exe nereden açılırsa açılsın aynı; eski exe-yanı dosyalar ilk açılışta oraya kopyalanır):
   `audit_log.txt` (5 MB'ı aşınca `.1` yedeği), `calibration_history.json` (son 5000 yazım),
   `profiles.json`, `dashboard_config.json`, `watchlist.json`, `kontrol_paneli.json`, `sim_interface.json`,
   `workspace_layouts.json`, `openecu.log` (hata günlüğü); CAN kayıtları `can_loglari\`, tablo yazım yedekleri
@@ -388,7 +388,7 @@ Aşağıdakiler yazılımın otomatik testleriyle **kanıtlanamaz**; gerçek ECU
 Tüm kayıtlar **yalnızca bilgisayara** yazılır; ECU'ya (RAM ya da flaş) hiçbir şey gönderilmez. ECU'ya yazma
 yalnızca sizin açıkça başlattığınız kalibrasyon işlemleridir (RAM'e Yaz / Kalıcı Kaydet / Harita yazma).
 
-| Kayıt | Ne zaman | Dosya (`<veri klasörü>` = exe'nin yanı) |
+| Kayıt | Ne zaman | Dosya (`<veri klasörü>` = Belgelerim\OpenECU_M220_Veri) |
 |---|---|---|
 | **Oturum Excel dosyası** | *Tanılama ve Oturum* > **Oturumu Bitir** (otomatik) | `<veri klasörü>\oturum_kayitlari\<oturum>_<tarih>.xlsx` (+ aynı adlı `.csv`) |
 | **CAN kaydı Excel dosyası** | CAN Monitor > **■ Kaydı durdur** (otomatik; ⚙ menüsünden kapatılabilir) | `<veri klasörü>\can_loglari\can_log_<tarih>.xlsx` (+ `.csv`) |

@@ -266,7 +266,7 @@ class DashboardMixin:
             QMessageBox.warning(self, "Ayarlar kaydedilemedi",
                                 "Eşleşmeler diske yazılamadı; program kapanınca kaybolacak.")
         self._rebuild_dash_can_map()
-        self._log_event("AYAR", "Eşleşmeler (CAN/A2L) kaydedildi.")
+        self._log_event("AYAR", f"Eşleşmeler (CAN/A2L) kaydedildi: {self.dashboard_config_store.path}")
 
     def _on_dashboard_sources_changed(self, *_):
         summary = self.a2l_tab.db.summary
