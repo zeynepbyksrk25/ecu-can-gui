@@ -26,8 +26,8 @@ from PySide6.QtWidgets import QLineEdit
 
 from app import theme
 from app.dashboard_config import (
-    ACTUATOR_KEYS, ACTUATOR_KINDS, CONTROL_KEYS, EYLEYICI_KEYS, GAUGE_KEYS, MODE_KEY, Binding, DashboardConfig,
-    motor_mode_name,
+    ACTUATOR_KEYS, ACTUATOR_KINDS, CONTROL_KEYS, EYLEYICI_KEYS, GAUGE_KEYS, MODE_KEY, SUB_MODE_KEYS, SUB_MODE_TITLES, ACTIVE_SUB_MODES, Binding,
+    DashboardConfig, mode_name, motor_mode_name,
 )
 from app.ui.dash_widgets import (  # noqa: F401  (ToggleSwitch: eski import yolu)
     ACCENTS, DK_CYAN, DK_MUT, DashGauge, GaugeCard, IconLabel, LockButton, ToggleSwitch,
@@ -55,6 +55,9 @@ GAUGE_RANGES = {
 # Kırmızı sınır aşılınca kartta yazan etiket (varsayılan "LİMİT").
 # Motor Modu rengi (A2L EN_MODE_* sırası: 0 POWER ON ... 6 STOP)
 MODE_COLORS = {0: theme.SLATE, 1: theme.BLUE, 2: theme.WARN, 3: theme.ACCENT, 4: theme.OK, 5: "#2A8FBD", 6: theme.DANGER}
+# Alt mod adı -> renk (listede olmayan ad ACCENT; bilinmeyen sayı WARN).
+SUB_MODE_COLORS = {"OFF": theme.SLATE, "ON": theme.OK, "COOLDOWN": "#2A8FBD", "SUCCESS": theme.OK,
+                   "ABORT": theme.DANGER, "MAX": theme.WARN}
 GAUGE_LIMIT_TEXT = {"RPM": "OVERSPEED", "Tt5": "AŞIRI SICAK"}
 GAUGE_DISPLAY_LABELS = {key: key for key in GAUGE_KEYS}
 GAUGE_DISPLAY_LABELS["FP"] = "Fp"
@@ -400,6 +403,7 @@ class DashboardTab(QWidget):
         self.map_warn_button.clicked.connect(self.open_mappings)
         head.addWidget(self.map_warn_button)
         lay.addLayout(head)
+        lay.addLayout(self._build_sub_modes())
 
         grid = QGridLayout()
         grid.setSpacing(8)
@@ -442,6 +446,72 @@ class DashboardTab(QWidget):
         self._mode: tuple | None = None            # (değer, monotonic)
         self._paint_mode(None)
 
+    def _build_sub_modes(self) -> QHBoxLayout:
+        """Gösterge gridinin üstünde ince şerit: STARTER · START · RUN · STOP alt mod çipleri."""
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        cap = QLabel("ALT MODLAR")
+        cap.setObjectName("mutedSmall")
+        row.addWidget(cap)
+        self._sub_chips: dict = {}
+        self._sub: dict[str, tuple] = {}            # anahtar -> (değer, monotonic)
+        self._sub_shown: dict = {}
+        for key in SUB_MODE_KEYS:
+            chip = _ModeChip()
+            hl = QHBoxLayout(chip)
+            hl.setContentsMargins(10, 2, 14, 2)
+            hl.setSpacing(7)
+            dot = QLabel()
+            dot.setFixedSize(8, 8)
+            title = QLabel(SUB_MODE_TITLES[key])
+            title.setObjectName("mutedSmall")
+            name = QLabel("—")
+            hl.addWidget(dot)
+            hl.addWidget(title)
+            hl.addWidget(name)
+            row.addWidget(chip)
+            self._sub_chips[key] = (chip, dot, name)
+            self._paint_sub(key, None, True)
+        row.addStretch(1)
+        return row
+
+    def _paint_sub(self, key: str, value, active: bool):
+        chip, dot, name = self._sub_chips[key]
+        text = mode_name(key, value) if value is not None else "—"
+        if text == "—":
+            col = theme.DIM
+        elif text.startswith("BİLİNMİYOR"):
+            col = theme.WARN
+        else:
+            col = SUB_MODE_COLORS.get(text, theme.ACCENT)
+        if not active:
+            col = theme.DIM                            # ana moda uymayan alt mod: sönük
+        name.setText(text)
+        chip.set_color(col)
+        dot.setStyleSheet(f"background: {col}; border-radius: 4px; border: none;")
+        name.setStyleSheet(f"font-size: 13px; font-weight: {800 if active else 600}; letter-spacing: 1px; "
+                           f"color: {theme.HEAD if active else theme.MUTED}; background: transparent; border: none;")
+
+    def set_sub_mode(self, key: str, value):
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            self._sub[key] = (value, time.monotonic())
+        else:
+            self._sub.pop(key, None)
+        self._refresh_sub_modes()
+
+    def _refresh_sub_modes(self):
+        now = time.monotonic()
+        m = self._mode
+        main = int(m[0]) if m is not None and (now - m[1]) <= STALE_S and float(m[0]) == int(m[0]) else None
+        active_keys = ACTIVE_SUB_MODES.get(main) if main is not None else None
+        for key in SUB_MODE_KEYS:
+            s = self._sub.get(key)
+            shown = s[0] if s is not None and (now - s[1]) <= STALE_S else None
+            active = active_keys is None or key in active_keys
+            if (shown, active) != self._sub_shown.get(key, object()):
+                self._sub_shown[key] = (shown, active)
+                self._paint_sub(key, shown, active)
+
     def _paint_mode(self, value):
         """value None/bayat: gri "—"; aksi halde modun adı ve rengi."""
         name = motor_mode_name(value) if value is not None else "—"
@@ -467,6 +537,7 @@ class DashboardTab(QWidget):
         if shown != getattr(self, "_mode_shown", object()):
             self._mode_shown = shown
             self._paint_mode(shown)
+        self._refresh_sub_modes()
 
     @property
     def motor_mode_text(self) -> str:
@@ -537,6 +608,9 @@ class DashboardTab(QWidget):
     def set_gauge_value(self, key: str, value):
         if key == MODE_KEY:                       # gösterge değil: başlıktaki Motor Modu çipi
             self.set_motor_mode(value)
+            return
+        if key in SUB_MODE_KEYS:                  # alt mod çipleri
+            self.set_sub_mode(key, value)
             return
         if isinstance(value, (int, float)):
             self._values[key] = (float(value), time.monotonic())
@@ -1035,6 +1109,9 @@ class DashboardTab(QWidget):
                 self._values.pop(key, None)
         if MODE_KEY not in cfg.gauge_a2l_map() and MODE_KEY not in cfg.gauge_can_map():
             self._mode = None
+        for key in SUB_MODE_KEYS:
+            if key not in cfg.gauge_a2l_map() and key not in cfg.gauge_can_map():
+                self._sub.pop(key, None)
         self._refresh_gauge_states()
 
     def open_mappings(self):

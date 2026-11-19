@@ -198,3 +198,32 @@ def test_throttle_slider_ignores_mouse_when_disabled(tab):
     sl.resize(300, 26)
     QTest.mouseClick(sl, Qt.LeftButton, Qt.NoModifier, QPoint(250, 13))
     assert sl.value() == 0
+
+
+def test_sub_mode_names_and_keys():
+    from app.dashboard_config import MODE_KEYS, SUB_MODE_KEYS, mode_name
+    assert all(k in SENSOR_KEYS and k not in GAUGE_KEYS for k in MODE_KEYS) and len(SUB_MODE_KEYS) == 4
+    assert mode_name("starter_mode", 2) == "COOLDOWN" and mode_name("start_mode", 28) == "ABORT" and mode_name("start_mode", 21) == "MTRNG"
+    assert mode_name("run_mode", 45) == "MAX" and mode_name("stop_mode", 62) == "TIMER"
+    assert mode_name("stop_mode", 1) == "BİLİNMİYOR (1)" and mode_name("run_mode", None) == "—"
+
+
+def test_sub_mode_chips_update_stale_and_emphasis(tab, monkeypatch):
+    import app.ui.dashboard_tab as dtab
+    texts = lambda: {k: tab._sub_chips[k][2].text() for k in tab._sub_chips}   # noqa: E731
+    assert set(texts().values()) == {"—"}
+    tab.set_gauge_value("run_mode", 44)
+    tab.set_gauge_value("start_mode", 27)
+    assert texts()["run_mode"] == "HIGH" and texts()["start_mode"] == "SUCCESS"
+    tab.set_gauge_value(MODE_KEY, 4)                            # RUN: yalnız run_mode vurgulu
+    assert tab._sub_shown["run_mode"][1] is True and tab._sub_shown["start_mode"][1] is False
+    assert not any(k in tab._gauge_cards for k in tab._sub_chips)
+    real = dtab.time.monotonic
+    monkeypatch.setattr(dtab.time, "monotonic", lambda: real() + dtab.STALE_S + 1)
+    tab._refresh_gauge_states()
+    assert set(texts().values()) == {"—"}
+
+
+def test_old_config_loads_with_empty_sub_modes():
+    cfg = config_from_dict({"sensors": {"RPM": {"value": {"source": "can", "message": "A", "signal": "b"}}}})
+    assert all(not cfg.sensor_map(k).value.is_set for k in ("starter_mode", "start_mode", "run_mode", "stop_mode"))
