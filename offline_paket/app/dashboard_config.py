@@ -30,14 +30,14 @@ MODE_KEYS = [MODE_KEY] + SUB_MODE_KEYS
 SENSOR_KEYS = GAUGE_KEYS + MODE_KEYS
 # A2L'deki EN_MODE_*_u8 sabitleri (motor_mode değeri -> ekranda yazan ad).
 MOTOR_MODE_NAMES = {0: "POWER ON", 1: "READY", 2: "START UP", 3: "IDLE", 4: "RUN", 5: "COOLING", 6: "STOP"}
-# Alt mod değer -> ad tabloları (algoritmadaki *_u8 sabitleri; değerler listedeki sırayla 0,1,2...).
+# Alt mod değer -> ad tabloları (algoritmadaki *_u8 sabitlerinin gerçek değerleri).
 # Gerçek sayılar farklıysa YALNIZCA buradan düzeltilir.
 SUB_MODE_NAMES = {
     "starter_mode": {0: "OFF", 1: "ON", 2: "COOLDOWN"},
-    "start_mode": {0: "MTRNG", 1: "IGN ON", 2: "F1 ON", 3: "LIGHTS UP", 4: "F1 BACKUP ON",
-                   5: "SELF SUST N", 6: "SUCCESS", 7: "ABORT"},
-    "run_mode": {0: "LOW", 1: "MID", 2: "INTERM", 3: "HIGH", 4: "MAX"},
-    "stop_mode": {0: "CMD", 1: "TIMER"},
+    "start_mode": {21: "MTRNG", 22: "IGN ON", 23: "F1 ON", 24: "LIGHTS UP", 25: "F1 BACKUP ON",
+                   26: "SELF SUST N", 27: "SUCCESS", 28: "ABORT"},
+    "run_mode": {41: "LOW", 42: "MID", 43: "INTERM", 44: "HIGH", 45: "MAX"},
+    "stop_mode": {61: "CMD", 62: "TIMER"},
 }
 SUB_MODE_TITLES = {"starter_mode": "STARTER", "start_mode": "START", "run_mode": "RUN", "stop_mode": "STOP"}
 # Ana mod (MOTOR_MODE_NAMES değeri) -> o anda "etkin" sayılan alt modlar (Ana Sayfa'da vurgulanır).

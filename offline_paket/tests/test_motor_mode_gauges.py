@@ -203,17 +203,17 @@ def test_throttle_slider_ignores_mouse_when_disabled(tab):
 def test_sub_mode_names_and_keys():
     from app.dashboard_config import MODE_KEYS, SUB_MODE_KEYS, mode_name
     assert all(k in SENSOR_KEYS and k not in GAUGE_KEYS for k in MODE_KEYS) and len(SUB_MODE_KEYS) == 4
-    assert mode_name("starter_mode", 2) == "COOLDOWN" and mode_name("start_mode", 7) == "ABORT"
-    assert mode_name("run_mode", 4) == "MAX" and mode_name("stop_mode", 1) == "TIMER"
-    assert mode_name("stop_mode", 5) == "BİLİNMİYOR (5)" and mode_name("run_mode", None) == "—"
+    assert mode_name("starter_mode", 2) == "COOLDOWN" and mode_name("start_mode", 28) == "ABORT" and mode_name("start_mode", 21) == "MTRNG"
+    assert mode_name("run_mode", 45) == "MAX" and mode_name("stop_mode", 62) == "TIMER"
+    assert mode_name("stop_mode", 1) == "BİLİNMİYOR (1)" and mode_name("run_mode", None) == "—"
 
 
 def test_sub_mode_chips_update_stale_and_emphasis(tab, monkeypatch):
     import app.ui.dashboard_tab as dtab
     texts = lambda: {k: tab._sub_chips[k][2].text() for k in tab._sub_chips}   # noqa: E731
     assert set(texts().values()) == {"—"}
-    tab.set_gauge_value("run_mode", 3)
-    tab.set_gauge_value("start_mode", 6)
+    tab.set_gauge_value("run_mode", 44)
+    tab.set_gauge_value("start_mode", 27)
     assert texts()["run_mode"] == "HIGH" and texts()["start_mode"] == "SUCCESS"
     tab.set_gauge_value(MODE_KEY, 4)                            # RUN: yalnız run_mode vurgulu
     assert tab._sub_shown["run_mode"][1] is True and tab._sub_shown["start_mode"][1] is False
