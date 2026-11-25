@@ -27,7 +27,7 @@ class PanelMixin:
 
     def _panel_sources_changed(self):
         self.control_panel_tab.refresh_sources(self.transmit_tab.dbc, self.a2l_tab.db)
-        self.dashboard_tab.sim_inputs.refresh_sources(self.transmit_tab.dbc)
+        self.dashboard_tab.sim_inputs.refresh_sources(self.transmit_tab.dbc, self.a2l_tab.db.summary)
         self.performance_tab.refresh_sources(self.transmit_tab.dbc, self.a2l_tab.db)
         self._push_flight()
 
@@ -52,62 +52,101 @@ class PanelMixin:
             self._push_flight()
 
     def _on_sim_inputs(self, values: dict):
+        """Uçuş Koşulları girişleri: CAN'a bağlı olanlar DBC mesajıyla (periyodik), A2L'ye bağlı olanlar CCP ile
+        ECU'ya yazılır. Hangi kaynağın bağlantısı eksikse yalnızca o girişler gönderilmez."""
         panel = self.dashboard_tab.sim_inputs
+        from app.sim_interface import INPUT_BY_KEY
 
         def record(ok: bool, detail: str, only=None):
             """Her uçuş koşulu girişi (başarısız denemeler dahil) giriş kaydına yazılır."""
-            from app.sim_interface import INPUT_BY_KEY
             for key, v in values.items():
                 if only is not None and key not in only:
                     continue
                 m = panel.mapped(key)
+                a = panel.mapped_a2l(key)
                 d = INPUT_BY_KEY.get(key)
-                self._record_input("Ana Sayfa", "Uçuş koşulu", "CAN", f"{m[0]}.{m[1]}" if m else key, v, ok=ok,
+                self._record_input("Ana Sayfa", "Uçuş koşulu", "A2L" if a else "CAN",
+                                   a if a else (f"{m[0]}.{m[1]}" if m else key), v, ok=ok,
                                    detail=detail, unit=(d.unit if d else ""))
 
         if not can_override_actuator(self.current_role):
             panel.set_status("Yetki yok: Mühendis veya Yönetici rolü gerekir.", False)
             record(False, "Yetki yok: Mühendis veya Yönetici rolü gerekir")
             return
-        if not self.connection.is_connected:
-            panel.set_status("CAN bağlı değil: değerler gönderilemedi.", False)
-            record(False, "CAN bağlı değil")
-            return
         by_msg: dict[str, dict] = {}
+        a2l_items: dict[str, float] = {}          # giriş anahtarı -> değer
         unmapped = []
         for key, v in values.items():
             m = panel.mapped(key)
-            if m is None:
+            if m is not None:
+                by_msg.setdefault(m[0], {})[m[1]] = v
+            elif panel.mapped_a2l(key) is not None:
+                a2l_items[key] = v
+            else:
                 unmapped.append(key)
-                continue
-            by_msg.setdefault(m[0], {})[m[1]] = v
         errors = []
+        failed_keys: set = set()
+        ok_keys: set = set()
+
+        # ---- CAN
+        if by_msg and not self.connection.is_connected:
+            panel.set_status("CAN bağlı değil: CAN girişleri gönderilemedi.", False)
+            can_keys = {k for k in values if panel.mapped(k) is not None}
+            record(False, "CAN bağlı değil", only=can_keys)
+            errors.append("CAN bağlı değil")
+            failed_keys |= can_keys
+            by_msg = {}
         for msg, vals in by_msg.items():
+            msg_keys = {k for k in values if (panel.mapped(k) or ("",))[0] == msg}
             try:
                 self.tx_scheduler.set_values(msg, vals, None, start=not self._panel_paused)
                 for sig, v in vals.items():
                     self.control_panel_tab.set_external_applied(msg, sig, v)
+                ok_keys |= msg_keys
             except Exception as exc:
                 errors.append(f"{msg}: {exc}")
-                record(False, str(exc), only={k for k in values if (panel.mapped(k) or ("",))[0] == msg})
-        failed_msgs = {e.split(":", 1)[0] for e in errors}
-        record(True, "", only={k for k in values if (panel.mapped(k) or (None,))[0] in by_msg
-                                and panel.mapped(k)[0] not in failed_msgs})
+                failed_keys |= msg_keys
+                record(False, str(exc), only=msg_keys)
+
+        # ---- A2L (CCP)
+        if a2l_items:
+            if self.ccp_client is None:
+                errors.append("CCP bağlı değil (A2L girişleri)")
+                failed_keys |= set(a2l_items)
+                record(False, "CCP bağlı değil", only=set(a2l_items))
+            else:
+                for key, v in a2l_items.items():
+                    name = panel.mapped_a2l(key)
+                    info = self._a2l_info(name)
+                    try:
+                        if info is None:
+                            raise ValueError(f"A2L'de '{name}' bulunamadı")
+                        if info.address is None:
+                            raise ValueError(f"'{name}' için ECU adresi yok")
+                        with self._ccp_urgent():
+                            cpanel.ccp_write_value(self.ccp_client, info, v, enforce_limits=(float(v) != 0.0))
+                        ok_keys.add(key)
+                    except Exception as exc:  # noqa: BLE001
+                        errors.append(f"{name}: {exc}")
+                        failed_keys.add(key)
+                        record(False, str(exc), only={key})
+        if ok_keys:
+            record(True, "", only=ok_keys)
         if unmapped:
-            record(False, "DBC sinyaline bağlı değil (gönderilmedi)", only=set(unmapped))
-        sent = sum(len(v) for v in by_msg.values()) - len(errors)
-        panel.set_sent([k for k in values if k not in unmapped], ok=not errors)
-        if not errors:
-            self._sim_sent.update(k for k in values if k not in unmapped)
+            record(False, "DBC sinyaline / A2L değişkenine bağlı değil (gönderilmedi)", only=set(unmapped))
+        sent_keys = [k for k in values if k in ok_keys]
+        panel.set_sent(sent_keys, ok=not errors)
+        self._sim_sent.update(sent_keys)
         if errors:
             panel.set_status("Gönderilemedi: " + "; ".join(errors), False)
         else:
-            txt = f"{sent} değer gönderildi."
+            txt = f"{len(sent_keys)} değer gönderildi."
             if unmapped:
-                txt += f" {len(unmapped)} giriş DBC'ye bağlı olmadığı için atlandı."
+                txt += f" {len(unmapped)} giriş bağlı olmadığı için atlandı."
             panel.set_status(txt, not unmapped)
+        if sent_keys:
             self._log_event("SIMÜLASYON", "Giriş gönderildi: " + ", ".join(
-                f"{k}={v:g}" for k, v in values.items() if k not in unmapped))
+                f"{k}={values[k]:g}" for k in sent_keys))
         self._push_flight()
         self._panel_tx_state()
 

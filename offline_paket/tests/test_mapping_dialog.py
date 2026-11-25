@@ -117,3 +117,32 @@ def test_dialog_is_dark_scoped_and_message_boxes_stay_light(dlg):
     assert "mapBody" not in d.styleSheet()                              # iletişim kutusunun kendisinde yalnız zemin rengi
     box = QMessageBox(d)                                                # açık tema korunur (okunaklı kalır)
     assert box.styleSheet() == "" and not body.isAncestorOf(box)
+
+
+def test_flight_input_can_be_mapped_to_a2l_and_is_written_over_ccp(qapp, monkeypatch):
+    from app import control_panel as cpanel
+    from app.ui.main_window import MainWindow
+    from app.user_roles import Role
+    w = MainWindow()
+    w.transmit_tab.dbc.load(os.path.join(DATA, "sample.dbc"))
+    w.a2l_tab.db.load(os.path.join(DATA, "sample.a2l"))
+    panel = w.dashboard_tab.sim_inputs
+    panel.refresh_sources(w.transmit_tab.dbc, w.a2l_tab.db.summary)
+    name = next(m.name for m in w.a2l_tab.db.summary.measurements if m.address is not None)
+    panel.config.input_map["beta"] = f"a2l:{name}"
+    panel.refresh_sources()
+    assert panel.mapped("beta") is None and panel.mapped_a2l("beta") == name and panel.is_bound("beta")
+    # Eşleşmeler penceresi A2L eşleşmesini doğru gösterir ve geri kaydeder
+    d = MappingDialog(w.dashboard_tab.config, panel, w.transmit_tab.dbc, w.a2l_tab.db.summary, w)
+    assert d.input_ed["beta"].binding() == Binding(SOURCE_A2L, a2l_name=name)
+    d.accept()
+    assert panel.config.input_map["beta"] == f"a2l:{name}"
+    w.current_role = Role.ENGINEER
+    got = []
+    monkeypatch.setattr(cpanel, "ccp_write_value", lambda client, info, v, **k: got.append((info.name, v)))
+    w._on_sim_inputs({"beta": 3.0})                 # CCP bağlı değil: yazılmaz
+    assert got == [] and "beta" not in w._sim_sent
+    monkeypatch.setattr(type(w), "ccp_client", property(lambda s: object(), lambda s, v: None))
+    w._on_sim_inputs({"beta": 3.0})
+    assert got == [(name, 3.0)] and "beta" in w._sim_sent
+    w.close()

@@ -175,7 +175,7 @@ class MappingDialog(QDialog):
     * **Sinyaller**: Sensörler (Değer / Anahtar / Arıza) tam genişlikte; altında yan yana
       Eyleyiciler ve Motor Kontrol (ikisi de Değer / Anahtar, CAN ya da A2L); en altta Motor Komutları
       (Komut + Değer + isteğe bağlı Anahtar).
-    * **Uçuş Koşulları**: uçaktan gelen girişlerin DBC sinyalleri (yalnızca CAN).
+    * **Uçuş Koşulları**: uçaktan gelen girişlerin kaynağı (CAN: DBC sinyali ya da A2L: CCP değişkeni).
     """
 
     def __init__(self, config: DashboardConfig, sim_panel, dbc, a2l_summary, parent=None):
@@ -334,7 +334,7 @@ class MappingDialog(QDialog):
         sources = {s.key: s for s in self._sim.sources()}
 
         top = QHBoxLayout()
-        lab = QLabel("Girişler yalnızca CAN hattından (DBC mesajı) gönderilir.")
+        lab = QLabel("Girişler CAN hattından (DBC sinyali) ya da CCP ile A2L değişkenine gönderilir.")
         lab.setObjectName("mutedSmall")
         auto = QPushButton("İsme göre otomatik eşle (boş olanlar)")
         auto.setProperty("compact", True)
@@ -350,16 +350,18 @@ class MappingDialog(QDialog):
             card, grid, _h = _card(title, icon)
             grid.setVerticalSpacing(12)           # az satırlı sekme daha ferah dursun
             grid.addWidget(_col_head(""), 0, 0)
-            grid.addWidget(_col_head("DBC sinyali"), 0, 1)
+            grid.addWidget(_col_head("DBC sinyali / A2L değişkeni"), 0, 1)
             r = 1
             for d in FLIGHT_DEFS:
                 if d.group != group:
                     continue
                 grid.addWidget(_row_label(d.display + (f"  [{d.unit}]" if d.unit else "")), r, 0)
-                be = BindingEditor(self._dbc_names, [], allow_a2l=False)
+                be = BindingEditor(self._dbc_names, self._a2l)
                 cur = self._sim.config.input_map.get(d.key, "")
                 src = sources.get(cur)
-                if src is not None:
+                if cur.startswith("a2l:"):
+                    be.set_binding(Binding(SOURCE_A2L, a2l_name=cur[4:]))
+                elif src is not None:
                     be.set_binding(Binding(SOURCE_CAN, src.where, src.name))
                 elif cur.startswith("dbc:") and "." in cur:
                     m, sg = cur[4:].split(".", 1)
@@ -395,9 +397,15 @@ class MappingDialog(QDialog):
             be = self.input_ed[d.key]
             if be.text():
                 continue
-            hit = auto_match(d.aliases, d.label, sources)
+            dbc_src = [s for s in sources if not s.key.startswith("a2l:")]
+            a2l_src = [s for s in sources if s.key.startswith("a2l:")]
+            hit = auto_match(d.aliases, d.label, dbc_src)
             if hit is not None:
                 be.set_binding(Binding(SOURCE_CAN, hit.where, hit.name))
+                continue
+            hit = auto_match(d.aliases, d.label, a2l_src)
+            if hit is not None:
+                be.set_binding(Binding(SOURCE_A2L, a2l_name=hit.name))
 
     # ------------------------------------------------------------ sonuç
     def result_config(self) -> DashboardConfig:
@@ -419,7 +427,7 @@ class MappingDialog(QDialog):
         for key, be in self.input_ed.items():
             b = be.binding()
             if b.is_set:
-                new_map[key] = f"dbc:{b.message}.{b.signal}"
+                new_map[key] = f"a2l:{b.a2l_name}" if b.source == SOURCE_A2L else f"dbc:{b.message}.{b.signal}"
         self._sim.config.input_map = new_map
         self._sim.config.save()
         self._sim.refresh_sources()

@@ -1,6 +1,7 @@
-"""Ana Sayfa'daki **Uçuş Koşulları** kartı (uçaktan gelen değerler). Değerler CAN hattından (DBC)
-basılır; gönderimi MainWindow yapar, bu widget yalnızca ``values_changed({anahtar: değer})``
-sinyali yayar. Sinyal eşleşmeleri "Eşleşmeler" penceresinden yapılır.
+"""Ana Sayfa'daki **Uçuş Koşulları** kartı (uçaktan gelen değerler). Her giriş CAN hattından (DBC sinyali)
+ya da CCP ile A2L değişkenine yazılır; gönderimi MainWindow yapar, bu widget yalnızca
+``values_changed({anahtar: değer})`` sinyali yayar. Sinyal eşleşmeleri "Eşleşmeler" penceresinden yapılır
+(``input_map``: "dbc:MESAJ.SİNYAL" ya da "a2l:Değişken").
 
 Motor Kontrol (Start/Spark/Gaz Kolu/Birincil Yakıt) artık buradan GİTMEZ: Eyleyiciler gibi kilitli
 satırlardır (bkz. DashboardTab)."""
@@ -10,7 +11,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.ui.noscroll import no_wheel
-from app.sim_interface import FLIGHT_DEFS, INPUT_BY_KEY, SimConfig, auto_match, list_sources
+from app.sim_interface import FLIGHT_DEFS, INPUT_BY_KEY, SimConfig, SourceSig, auto_match, list_sources
 from app.ui.dash_widgets import ACCENTS, DK_MUT, IconLabel
 
 FLIGHT_LEFT = ["altitude", "ma", "alfa", "beta"]
@@ -43,6 +44,7 @@ class SimInputsPanel(QWidget):
         super().__init__(parent)
         self.config = config or SimConfig()
         self._dbc = None
+        self._a2l_summary = None
         self._sources = []
         self._src = {}
         self._allowed = True
@@ -222,12 +224,20 @@ class SimInputsPanel(QWidget):
         self.config.save()
 
     def mapped(self, key: str):
-        """(mesaj, sinyal) ya da None."""
+        """CAN eşleşmesi: (mesaj, sinyal) ya da None (eşleşme yok / A2L eşleşmesi)."""
         s = self._src.get(self.config.input_map.get(key, ""))
-        return (s.where, s.name) if s is not None else None
+        return (s.where, s.name) if (s is not None and not s.key.startswith("a2l:")) else None
+
+    def mapped_a2l(self, key: str):
+        """A2L eşleşmesi: değişken adı ya da None."""
+        s = self._src.get(self.config.input_map.get(key, ""))
+        return s.name if (s is not None and s.key.startswith("a2l:")) else None
+
+    def is_bound(self, key: str) -> bool:
+        return self.mapped(key) is not None or self.mapped_a2l(key) is not None
 
     def sendable_keys(self) -> list:
-        return [d.key for d in FLIGHT_DEFS if d.enabled and self.mapped(d.key) is not None]
+        return [d.key for d in FLIGHT_DEFS if d.enabled and self.is_bound(d.key)]
 
     # ------------------------------------------------------------ olaylar
     def _emit_one(self, key):
@@ -248,7 +258,7 @@ class SimInputsPanel(QWidget):
     def _send_all(self):
         keys = self.sendable_keys()
         if not keys:
-            self.set_status("Bağlı giriş yok: ⚙ Eşleşmeler ile DBC sinyallerini seçin.", False)
+            self.set_status("Bağlı giriş yok: ⚙ Eşleşmeler ile DBC sinyali / A2L değişkeni seçin.", False)
             return
         self._emit({k: self.value_of(k) for k in keys})
 
@@ -296,18 +306,23 @@ class SimInputsPanel(QWidget):
         self.status_label.style().polish(self.status_label)
         self.status_label.setToolTip(text)
 
-    def refresh_sources(self, dbc=None):
+    def refresh_sources(self, dbc=None, a2l_summary=None):
         if dbc is not None:
             self._dbc = dbc
+        if a2l_summary is not None:
+            self._a2l_summary = a2l_summary
         ok = self._dbc if (self._dbc is not None and getattr(self._dbc, "is_loaded", False)) else None
-        self._sources = list_sources(ok, None, dbc_only=True)
+        dbc_sources = list_sources(ok, None, dbc_only=True)
+        a2l_sources = self._a2l_sources()
+        self._sources = dbc_sources + a2l_sources
         self._src = {s.key: s for s in self._sources}
         changed = False
         for d in FLIGHT_DEFS:
             cur = self.config.input_map.get(d.key)
             if cur:
                 continue
-            hit = auto_match(d.aliases, d.label, self._sources)
+            # Önce DBC; bulunamazsa A2L (aynı adın iki kaynakta olması belirsizlik yaratmasın)
+            hit = auto_match(d.aliases, d.label, dbc_sources) or auto_match(d.aliases, d.label, a2l_sources)
             if hit is not None:
                 self.config.input_map[d.key] = hit.key
                 changed = True
@@ -317,6 +332,21 @@ class SimInputsPanel(QWidget):
             self.config.save()
         self._refresh_warn()
 
+    def _a2l_sources(self) -> list:
+        """A2L ölçüm + karakteristik adları (CCP ile yazılabilecek değişkenler)."""
+        summ = self._a2l_summary
+        if summ is None:
+            return []
+        out, seen = [], set()
+        for coll in (getattr(summ, "measurements", []), getattr(summ, "characteristics", [])):
+            for me in coll:
+                if me.name in seen:
+                    continue
+                seen.add(me.name)
+                out.append(SourceSig(f"a2l:{me.name}", me.name, "A2L", getattr(me, "unit", "") or "",
+                                     getattr(me, "minimum", None), getattr(me, "maximum", None), None, None, me))
+        return out
+
     def sources(self) -> list:
         return list(self._sources)
 
@@ -325,23 +355,26 @@ class SimInputsPanel(QWidget):
         show = bool(self._sources)  # DBC hiç yokken satır satır uyarı yok; tek banner
         for d in FLIGHT_DEFS:
             c = self._ctrl[d.key]
-            bound = self.mapped(d.key) is not None
+            bound = self.is_bound(d.key)
             c["warn"].setText("" if (bound or not d.enabled or not show) else "⚠")
             c["warn"].setVisible(bool(c["warn"].text()))
-            c["warn"].setToolTip("DBC sinyali bağlı değil — ⚙ Eşleşmeler")
+            c["warn"].setToolTip("DBC sinyali / A2L değişkeni bağlı değil — ⚙ Eşleşmeler")
             tip = (f"{self.config.input_map.get(d.key, '')}" if bound else
-                   "DBC sinyali bağlı değil — ⚙ Eşleşmeler")
+                   "DBC sinyali / A2L değişkeni bağlı değil — ⚙ Eşleşmeler")
             c["w"].setToolTip(tip)
             if d.enabled and not bound:
                 missing.append(d.display)
         m = self.mapped("altitude")
         msg = self._dbc.get_message(m[0]) if (m and self._dbc is not None) else None
         ct = getattr(msg, "cycle_time", None) if msg is not None else None
-        self.flight_cycle.setText(f"CAN {ct} ms" if ct else ("CAN periyodik" if m else ""))
+        if m:
+            self.flight_cycle.setText(f"CAN {ct} ms" if ct else "CAN periyodik")
+        else:
+            self.flight_cycle.setText("A2L (CCP)" if self.mapped_a2l("altitude") else "")
         if not self._sources:
-            self._info_text = "DBC yüklenmedi (CAN Monitor → DBC)."
+            self._info_text = "DBC / A2L yüklenmedi."
         elif missing:
-            self._info_text = f"⚠ {len(missing)} giriş DBC sinyaline bağlı değil"
+            self._info_text = f"⚠ {len(missing)} giriş DBC/A2L değişkenine bağlı değil"
         else:
             self._info_text = ""
         self._render_status()
