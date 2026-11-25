@@ -10,6 +10,7 @@ işaretleri ve CSV / MAT / MDF dışa aktarım.
 
 import logging
 import csv
+import math
 import time
 
 import numpy as np
@@ -17,18 +18,19 @@ import pyqtgraph as pg
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QFileDialog, QFrame, QHBoxLayout, QInputDialog, QLabel, QMenu, QMessageBox,
-    QPushButton, QSizePolicy, QVBoxLayout,
+    QPushButton, QSizePolicy, QStackedLayout, QVBoxLayout, QWidget,
 )
 
 from app import theme
 from app.ui.dash_widgets import (
-    DK_CYAN, DK_GREEN, DK_INK, DK_LINE2, DK_MUT, DK_ORANGE, DK_PURPLE, IconButton, icon_pixmap,
+    DK_CYAN, DK_GREEN, DK_INK, DK_LINE2, DK_MUT, DK_ORANGE, DK_PURPLE, IconButton, format_value, icon_pixmap,
 )
 
 log = logging.getLogger(__name__)
 
 WINDOWS = [("60 sn", 60.0), ("5 dk", 300.0), ("10 dk", 600.0), ("1 sa", 3600.0)]
 MAX_HISTORY_S = 3600.0
+MAX_GAP_S = 5.0       # imleçte iki örnek arası bundan uzunsa aradaki değer UYDURULMAZ (veri yok)
 PALETTE = [DK_CYAN, DK_ORANGE, DK_PURPLE, DK_GREEN, "#D6336C", "#B58900", theme.BLUE, theme.DANGER]
 PLOT_BG = theme.paint("@@SURFACE_SUBTLE@@")
 
@@ -110,6 +112,12 @@ class TrendPanel(QFrame):
         self._dirty = True
         self._diff_pair: tuple | None = None
         self._applying_range = False
+        self._strip_mode = True           # varsayılan: her birim kendi şeridinde (tek grafikte çok eksen okunmuyordu)
+        self._strips: list = []           # şerit modunda PlotItem'lar (yukarıdan aşağıya)
+        self._strip_lines: list = []      # her şeritte (A çizgisi, B çizgisi)
+        self._strip_titles: dict = {}
+        self._strip_texts: list = []      # şerit içi "ad + o anki değer" yazıları
+        self._cursor_vals: tuple | None = None   # (A değerleri, B değerleri): imleç açıkken şerit yazılarında
 
         root = QVBoxLayout(self)
         root.setContentsMargins(14, 8, 14, 8)
@@ -123,15 +131,16 @@ class TrendPanel(QFrame):
         self.test_label = QLabel("")
         self.test_label.setObjectName("chipGreen")
         self.test_label.setVisible(False)
-        self.btn_test_start = QPushButton("Başlat")
+        self.btn_test_start = QPushButton("İşaretle")
         self.btn_test_start.setProperty("compact", True)
         self.btn_test_start.setProperty("tone", "go")
-        self.btn_test_start.setToolTip("Test başlangıç işareti ekle ve test süresini başlat")
+        self.btn_test_start.setToolTip("Grafiğe başlangıç işareti koyar ve süreyi sayar. Veri KAYDI başlatmaz "
+                                      "(kayıt için Tanılama ve Oturum sayfası)")
         self.btn_test_start.clicked.connect(self.start_test)
-        self.btn_test_end = QPushButton("Bitir")
+        self.btn_test_end = QPushButton("İşareti bitir")
         self.btn_test_end.setProperty("compact", True)
         self.btn_test_end.setEnabled(False)
-        self.btn_test_end.setToolTip("Test bitiş işareti ekle")
+        self.btn_test_end.setToolTip("Grafiğe bitiş işareti koyar (veri kaydını durdurmaz)")
         self.btn_test_end.clicked.connect(self.end_test)
         for b, name in ((self.btn_test_start, "flag"), (self.btn_test_end, "flag")):
             b.setIcon(self._qicon(name, DK_MUT))
@@ -140,6 +149,13 @@ class TrendPanel(QFrame):
         head.addWidget(self.btn_test_start)
         head.addWidget(self.btn_test_end)
 
+        self.btn_strips = IconButton("trend", 28)       # yalnız simge: araç satırının asgari genişliği artmasın
+        self.btn_strips.setCheckable(True)
+        self.btn_strips.setChecked(True)
+        self.btn_strips.setToolTip("Şerit modu: her birim (rpm, °C, bar...) kendi şeridinde, kendi ölçeğinde ve "
+                                   "ortak zaman çizgisinde görünür; yanında o anki değer yazar. Kapalıysa tüm "
+                                   "sinyaller tek grafikte, çok eksenli çizilir.")
+        self.btn_strips.toggled.connect(self._set_strip_mode)
         self._win_buttons: list = []
         seg = QHBoxLayout()
         seg.setSpacing(0)
@@ -152,6 +168,8 @@ class TrendPanel(QFrame):
             seg.addWidget(b)
             self._win_buttons.append((secs, b))
         head.addLayout(seg)
+        head.addSpacing(6)
+        head.addWidget(self.btn_strips)        # üst satırda boşluk var; araç satırını genişletmesin
 
         self.btn_zoom_in = IconButton("zoom_in", 28)
         self.btn_zoom_in.setToolTip("Yakınlaştır (zaman penceresini yarıya indir)")
@@ -219,7 +237,15 @@ class TrendPanel(QFrame):
         self.vb.sigRangeChangedManually.connect(self._on_manual_range)
         self.vb.sigResized.connect(self._sync_geometry)
         self.plot.setMinimumHeight(110)
-        root.addWidget(self.plot, 1)
+        self.strips = pg.GraphicsLayoutWidget()
+        self.strips.setBackground(PLOT_BG)
+        self.strips.setMinimumHeight(110)
+        host = QWidget()
+        self._host_layout = QStackedLayout(host)
+        self._host_layout.setContentsMargins(0, 0, 0, 0)
+        self._host_layout.addWidget(self.strips)       # 0: şerit modu
+        self._host_layout.addWidget(self.plot)         # 1: tek grafik (çok eksenli)
+        root.addWidget(host, 1)
 
         # imleç çizgileri
         self._cur_a = pg.InfiniteLine(angle=90, movable=True, pen=pg.mkPen(theme.INK, width=1.4),
@@ -286,8 +312,8 @@ class TrendPanel(QFrame):
 
     def append(self, key: str, value, t: float | None = None):
         ser = self._series.get(key)
-        if ser is None or not isinstance(value, (int, float)):
-            return
+        if ser is None or not isinstance(value, (int, float)) or not math.isfinite(value):
+            return                                  # NaN / ±inf grafiğe ve dışa aktarıma taşınmaz
         ser.append(time.time() if t is None else t, float(value))
         self._dirty = True
 
@@ -314,17 +340,8 @@ class TrendPanel(QFrame):
         self._extra_vbs, self._extra_axes = [], []
         self.pi.hideAxis("right")
 
-    def _rebuild(self):
-        # eski eğriler
-        for ser in self._series.values():
-            if ser.curve is not None:
-                try:
-                    ser.curve.getViewBox().removeItem(ser.curve)
-                except Exception:
-                    log.debug("eğri kaldırılamadı", exc_info=True)
-                ser.curve = None
-        self._remove_extra()
-        # birim grupları (sıra korunur)
+    def _unit_groups(self) -> list:
+        """Birim grupları (sıra korunur): aynı birimdeki sinyaller aynı eksen / şerit."""
         groups: list = []
         for key in self._order:
             ser = self._series.get(key)
@@ -336,6 +353,111 @@ class TrendPanel(QFrame):
                     break
             else:
                 groups.append({"unit": ser.unit, "series": [ser]})
+        return groups
+
+    def _xvb(self):
+        """Zaman eksenini yöneten ViewBox: şerit modunda ilk şerit, değilse tek grafik."""
+        return self._strips[0].vb if self._strip_mode and self._strips else self.vb
+
+    def _event_targets(self) -> list:
+        return [p.vb for p in self._strips] if self._strip_mode and self._strips else [self.vb]
+
+    def _rebuild(self):
+        # eski eğriler
+        for ser in self._series.values():
+            if ser.curve is not None:
+                try:
+                    ser.curve.getViewBox().removeItem(ser.curve)
+                except Exception:
+                    log.debug("eğri kaldırılamadı", exc_info=True)
+                ser.curve = None
+        self._remove_extra()
+        for it in self._event_items:                      # olay çizgileri hedef ViewBox'lara göre yeniden çizilir
+            try:
+                it[0].removeItem(it[1])
+            except Exception:
+                log.debug("olay işareti kaldırılamadı", exc_info=True)
+        self._event_items = []
+        self._host_layout.setCurrentIndex(0 if self._strip_mode else 1)
+        self.readout.setParent(self.strips if self._strip_mode else self.plot)
+        self.readout.move(78, 8)
+        self.readout.setVisible(self.btn_cursor.isChecked() and not self._strip_mode)
+        if self._strip_mode:
+            self._rebuild_strips()
+        else:
+            self._strips, self._strip_lines, self._strip_titles, self._strip_texts = [], [], {}, []
+            self.strips.clear()
+            self._rebuild_overlay()
+        self._rebuild_legend()
+        self._draw_events()
+        self._dirty = True
+
+    def _rebuild_strips(self):
+        """Her birim grubu kendi şeridinde (kendi Y ekseni); hepsi ortak zaman çizgisini paylaşır."""
+        self.strips.clear()
+        self._strips, self._strip_lines, self._strip_titles, self._strip_texts = [], [], {}, []
+        groups = self._unit_groups()
+        n = max(len(groups), 1)
+        cursors_on = self.btn_cursor.isChecked()
+        for gi in range(n):
+            g = groups[gi] if gi < len(groups) else None
+            last = gi == n - 1
+            axes = {"bottom": _RelAxis(self, orientation="bottom")} if last else {}
+            plot = self.strips.addPlot(row=gi, col=0, axisItems=axes)
+            plot.showGrid(x=True, y=True, alpha=0.18)
+            plot.setMenuEnabled(False)
+            plot.hideButtons()
+            if not last:
+                plot.hideAxis("bottom")
+            for ax in ("left", "bottom"):
+                if ax == "bottom" and not last:
+                    continue
+                plot.getAxis(ax).setTextPen(pg.mkPen(DK_MUT))
+                plot.getAxis(ax).setPen(pg.mkPen(DK_LINE2))
+            left = plot.getAxis("left")
+            left.setWidth(66)                              # şeritlerin plot alanları hizalı kalsın
+            vb = plot.vb
+            vb.setMouseEnabled(x=True, y=False)
+            vb.enableAutoRange(axis=pg.ViewBox.YAxis, enable=True)
+            vb.setAutoVisible(y=True)
+            if self._strips:
+                vb.setXLink(self._strips[0].vb)
+            vb.sigRangeChangedManually.connect(self._on_manual_range)
+            if g is not None:
+                first = g["series"][0]
+                left.setLabel(f"[{g['unit']}]" if g["unit"] else "",
+                              color=first.color if len(g["series"]) == 1 else DK_MUT)
+                for ser in g["series"]:
+                    ser.curve = pg.PlotDataItem(pen=pg.mkPen(ser.color, width=2), name=ser.label)
+                    ser.curve.setClipToView(True)
+                    ser.curve.setDownsampling(auto=True, method="peak")
+                    vb.addItem(ser.curve)
+                    ser.vb = vb
+                g["vb"] = vb
+                g["plot"] = plot
+            lines = []
+            for which, cur in (("a", self._cur_a), ("b", self._cur_b)):
+                ln = pg.InfiniteLine(angle=90, movable=True, pos=cur.value(), pen=cur.pen,
+                                     label=which.upper(), labelOpts={"position": 0.06, "color": cur.pen.color()})
+                ln.setZValue(50)
+                ln.sigPositionChanged.connect(lambda l, w=which: self._on_strip_line_moved(w, l))
+                vb.addItem(ln, ignoreBounds=True)
+                ln.setVisible(cursors_on)
+                lines.append(ln)
+            self._strip_lines.append(tuple(lines))
+            # ad + o anki değer: şeridin SOL ÜST köşesine (yer ayırmadan, grafiğin üstüne) yazılır
+            txt = pg.TextItem(html="", anchor=(0, 0))
+            txt.setParentItem(vb)
+            txt.setPos(8, 2)
+            txt.setZValue(60)
+            self._strip_texts.append(txt)
+            self._strips.append(plot)
+        self._groups = groups
+        self._strip_titles = {}
+        self._update_strip_titles()
+
+    def _rebuild_overlay(self):
+        groups = self._unit_groups()
         left_axis = self.pi.getAxis("left")
         left_axis.setLabel("")
         for gi, g in enumerate(groups):
@@ -379,9 +501,41 @@ class TrendPanel(QFrame):
                 ser.vb = vb
         self._groups = groups
         self._sync_geometry()
-        self._rebuild_legend()
-        self._draw_events()
-        self._dirty = True
+
+
+    def _set_strip_mode(self, on: bool):
+        if bool(on) == self._strip_mode:
+            return
+        lo, hi = self._xvb().viewRange()[0]
+        self._strip_mode = bool(on)
+        self._rebuild()
+        self._apply_x(lo, hi)
+
+    def _update_strip_titles(self):
+        """Her şeridin üstünde sinyal adı + O ANKİ değer (yalnızca metin değişince yazılır)."""
+        if not self._strip_mode:
+            return
+        for gi, g in enumerate(self._groups):
+            if gi >= len(self._strips):
+                break
+            parts = []
+            for ser in g["series"]:
+                u = f" {ser.unit}" if ser.unit else ""
+                if self._cursor_vals is not None and self.btn_cursor.isChecked():
+                    a, b = self._cursor_vals[0].get(ser.key), self._cursor_vals[1].get(ser.key)
+                    fa = "—" if a is None else format_value(a)
+                    fb = "—" if b is None else format_value(b)
+                    d = "—" if a is None or b is None else f"{'+' if a - b >= 0 else '−'}{format_value(abs(a - b))}"
+                    parts.append(f'<span style="color:{ser.color}">●</span> {ser.label}&nbsp; A <b style="color:{DK_INK}">{fa}</b>'
+                                 f'&nbsp; B <b style="color:{DK_INK}">{fb}</b>&nbsp; Δ <b style="color:{DK_INK}">{d}</b>{u}')
+                else:
+                    cur = format_value(ser.v[-1]) if ser.v else "—"
+                    parts.append(f'<span style="color:{ser.color}">●</span> {ser.label} '
+                                 f'<b style="color:{DK_INK}">{cur}</b>{u}')
+            text = "&nbsp;&nbsp;&nbsp;".join(parts)
+            if self._strip_titles.get(gi) != text and gi < len(self._strip_texts):
+                self._strip_titles[gi] = text
+                self._strip_texts[gi].setHtml(f'<span style="font-size:10pt; color:{DK_MUT}">{text}</span>')
 
     def _sync_geometry(self):
         for vb in self._extra_vbs:
@@ -396,6 +550,8 @@ class TrendPanel(QFrame):
                 w.hide()
                 w.setParent(None)       # deleteLater gecikirse eski etiket ekranda asılı kalmasın
                 w.deleteLater()
+        if self._strip_mode:
+            return                      # şerit modunda her şeridin içinde ad + değer yazar; ayrıca gösterge satırı yok
         pos = 0
         for key in self._order:
             ser = self._series.get(key)
@@ -419,7 +575,7 @@ class TrendPanel(QFrame):
     def zoom(self, factor: float):
         """Pencereyi büyütür/küçültür; canlıysa sağ kenar 'şimdi' kalır,
         değilse görünümün ortası sabit tutulur."""
-        lo, hi = self.vb.viewRange()[0]
+        lo, hi = self._xvb().viewRange()[0]
         if self._live:
             self._window = max(5.0, min(MAX_HISTORY_S, self._window * factor))
             for s, b in self._win_buttons:
@@ -439,7 +595,7 @@ class TrendPanel(QFrame):
     def _apply_x(self, lo, hi):
         self._applying_range = True
         try:
-            self.vb.setXRange(lo, hi, padding=0)
+            self._xvb().setXRange(lo, hi, padding=0)
         finally:
             self._applying_range = False
 
@@ -450,7 +606,7 @@ class TrendPanel(QFrame):
         if self._live:
             self._live = False
             self._frozen_ref = time.time()
-        lo, hi = self.vb.viewRange()[0]
+        lo, hi = self._xvb().viewRange()[0]
         self._window = max(5.0, hi - lo)
 
     # ------------------------------------------------------------ periyodik çizim
@@ -459,7 +615,9 @@ class TrendPanel(QFrame):
         if self._live:
             self._apply_x(now - self._window, now)
         if self._dirty or self._live:
-            lo, hi = self.vb.viewRange()[0]
+            if self._dirty:
+                self._recompute_diffs()
+            lo, hi = self._xvb().viewRange()[0]
             margin = (hi - lo) * 0.05
             for ser in self._series.values():
                 if ser.curve is None:
@@ -471,6 +629,7 @@ class TrendPanel(QFrame):
                 else:
                     ser.curve.setData([], [])
             self._dirty = False
+            self._update_strip_titles()
         if self._test_start is not None:
             el = int(now - self._test_start)
             self.test_label.setText(f"⚑ Test süresi {el // 60:02d}:{el % 60:02d}")
@@ -481,7 +640,13 @@ class TrendPanel(QFrame):
     def _on_cursor_toggled(self, on: bool):
         for ln in (self._cur_a, self._cur_b):
             ln.setVisible(on)
-        self.readout.setVisible(on)
+        for pair in self._strip_lines:
+            for ln in pair:
+                ln.setVisible(on)
+        self.readout.setVisible(on and not self._strip_mode)       # şerit modunda değerler şeritlerin içine yazılır
+        self._cursor_vals = None
+        self._strip_titles = {}
+        self._update_strip_titles()
         if on:
             hi = self.ref_time()
             if self._live:
@@ -494,6 +659,18 @@ class TrendPanel(QFrame):
         else:
             self.cursor_summary.setText("")
 
+    def _on_strip_line_moved(self, which: str, ln):
+        """Bir şeritteki A/B çizgisi sürüklendi: asıl imleç değerini günceller, diğer şeritler eşlenir."""
+        (self._cur_a if which == "a" else self._cur_b).setPos(ln.value())
+
+    def _sync_strip_lines(self):
+        for a, b in self._strip_lines:
+            for ln, cur in ((a, self._cur_a), (b, self._cur_b)):
+                if abs(ln.value() - cur.value()) > 1e-9:
+                    ln.blockSignals(True)
+                    ln.setPos(cur.value())
+                    ln.blockSignals(False)
+
     def values_at(self, t: float) -> dict:
         out = {}
         for key in self._order:
@@ -503,15 +680,25 @@ class TrendPanel(QFrame):
             ta, va = ser.arrays()
             if t < ta[0] or t > ta[-1]:
                 continue
+            j = int(np.searchsorted(ta, t))
+            if j < len(ta) and ta[j] != t and j > 0 and ta[j] - ta[j - 1] > MAX_GAP_S:
+                continue            # iki örnek arasında uzun veri boşluğu: aradaki değer uydurulmaz (veri yok)
             out[key] = float(np.interp(t, ta, va))
         return out
 
     def _update_cursor_readout(self, *_):
         if not self.btn_cursor.isChecked():
             return
+        self._sync_strip_lines()
         ta, tb = float(self._cur_a.value()), float(self._cur_b.value())
         ref = self.ref_time()
         va, vb = self.values_at(ta), self.values_at(tb)
+        if self._strip_mode:
+            self._cursor_vals = (va, vb)
+            self._update_strip_titles()
+            self.cursor_summary.setText(
+                f"İmleç A: {ta - ref:.1f} sn  ·  B: {tb - ref:.1f} sn  ·  Δt {abs(ta - tb):.1f} sn")
+            return
         rows = [f'<tr><td></td><td align="right" style="color:{DK_MUT}">A</td>'
                 f'<td align="right" style="color:{DK_MUT}">B</td><td align="right" style="color:{DK_MUT}">Δ (A−B)</td></tr>']
         for key in self._order:
@@ -550,17 +737,33 @@ class TrendPanel(QFrame):
             return
         key = f"d:{ka}|{kb}"
         ser = _Series(key, f"{a} − {b}", sa.unit, theme.SURFACE)
-        ta, va = sa.arrays()
-        tb, vb = sb.arrays()
-        if len(ta) and len(tb):
-            lo, hi = max(ta[0], tb[0]), min(ta[-1], tb[-1])
-            grid = ta[(ta >= lo) & (ta <= hi)]
-            ser.t = list(grid)
-            ser.v = list(np.interp(grid, ta, va) - np.interp(grid, tb, vb))
+        ser.t, ser.v = self._diff_data(ka, kb)
         self._series[key] = ser
         if key not in self._order:
             self._order.append(key)
         self._rebuild()
+
+    def _diff_data(self, ka: str, kb: str) -> tuple:
+        """A − B: iki sinyalin ortak zaman aralığında, A'nın örnek anlarında hesaplanır."""
+        sa, sb = self._series.get(ka), self._series.get(kb)
+        if sa is None or sb is None:
+            return [], []
+        ta, va = sa.arrays()
+        tb, vb = sb.arrays()
+        if not (len(ta) and len(tb)):
+            return [], []
+        lo, hi = max(ta[0], tb[0]), min(ta[-1], tb[-1])
+        grid = ta[(ta >= lo) & (ta <= hi)]
+        return list(grid), list(np.interp(grid, ta, va) - np.interp(grid, tb, vb))
+
+    def _recompute_diffs(self):
+        """Fark (A−B) eğrileri canlıdır: kaynak sinyallere yeni örnek gelince yeniden hesaplanır."""
+        for key in [k for k in self._order if k.startswith("d:")]:
+            ser = self._series.get(key)
+            if ser is None or "|" not in key:
+                continue
+            ka, kb = key[2:].split("|", 1)
+            ser.t, ser.v = self._diff_data(ka, kb)
 
     # ------------------------------------------------------------ test işaretleri
     def start_test(self):
@@ -589,21 +792,23 @@ class TrendPanel(QFrame):
         self._draw_events()
 
     def _draw_events(self):
-        for it in self._event_items:
+        for vb, it in self._event_items:
             try:
-                self.vb.removeItem(it)
+                vb.removeItem(it)
             except Exception:
                 log.debug("olay işareti kaldırılamadı", exc_info=True)
         self._event_items = []
         for t, label, color in self._events:
             stamp = time.strftime("%H:%M:%S", time.localtime(t))
-            ln = pg.InfiniteLine(pos=t, angle=90, movable=False, pen=pg.mkPen(color, width=1.4, style=Qt.DashLine),
-                                 label=f"⚑ {label} {stamp}",
-                                 labelOpts={"position": 0.94, "color": color, "fill": (8, 18, 31, 200),
-                                            "anchors": [(0, 0), (0, 0)]})
-            ln.setZValue(40)
-            self.vb.addItem(ln, ignoreBounds=True)
-            self._event_items.append(ln)
+            for n, vb in enumerate(self._event_targets()):
+                ln = pg.InfiniteLine(pos=t, angle=90, movable=False,
+                                     pen=pg.mkPen(color, width=1.4, style=Qt.DashLine),
+                                     label=f"⚑ {label} {stamp}" if n == 0 else "",
+                                     labelOpts={"position": 0.94, "color": color, "fill": (8, 18, 31, 200),
+                                                "anchors": [(0, 0), (0, 0)]})
+                ln.setZValue(40)
+                vb.addItem(ln, ignoreBounds=True)
+                self._event_items.append((vb, ln))
 
     @property
     def events(self) -> list:

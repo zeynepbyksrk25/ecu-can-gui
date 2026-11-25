@@ -40,7 +40,7 @@ DashboardTab QListWidget#eventsList { background: transparent; border: none; out
 DashboardTab QListWidget#eventsList::item { padding: 3px 2px; border-bottom: 1px solid @@BG@@; }
 DashboardTab QLabel#chipBad { background: @@DANGER_BG@@; color: @@DANGER@@; border: 1px solid @@DANGER_LINE@@;
     border-radius: 10px; padding: 1px 9px; font-size: 12px; font-weight: 700; }
-DashboardTab QLabel#trendReadout { background: rgba(10,24,40,235); border: 1px solid @@LINE_STRONG@@;
+DashboardTab QLabel#trendReadout { background: @@SURFACE@@; color: @@INK@@; border: 1px solid @@LINE_STRONG@@;
     border-radius: 7px; padding: 5px 8px; font-size: 12px; }
 DashboardTab QDoubleSpinBox#valueSpin { background: @@SURFACE@@; border: 1px solid @@LINE_STRONG@@; border-radius: 6px;
     padding: 1px 16px 1px 8px; color: @@INK@@; font-size: 14px; font-weight: 700; min-height: 20px; }
