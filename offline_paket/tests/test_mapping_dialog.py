@@ -146,3 +146,17 @@ def test_flight_input_can_be_mapped_to_a2l_and_is_written_over_ccp(qapp, monkeyp
     w._on_sim_inputs({"beta": 3.0})
     assert got == [(name, 3.0)] and "beta" in w._sim_sent
     w.close()
+
+
+def test_binding_editor_wheel_does_not_change_mapping(qapp):
+    from PySide6.QtCore import QPoint, QPointF, Qt
+    from PySide6.QtGui import QWheelEvent
+    ed = BindingEditor(["ENG.rpm", "ENG.tt2"], ["N_RPM", "Tt2_raw"])
+    ed.set_binding(Binding(SOURCE_CAN, "ENG", "rpm"))
+    before = (ed.source.currentIndex(), ed.name.currentText())
+    for w in (ed.source, ed.name):
+        for dy in (-120, 120):
+            ev = QWheelEvent(QPointF(5, 5), QPointF(5, 5), QPoint(0, 0), QPoint(0, dy), Qt.NoButton,
+                             Qt.NoModifier, Qt.NoScrollPhase, False)
+            qapp.sendEvent(w, ev)
+    assert (ed.source.currentIndex(), ed.name.currentText()) == before
