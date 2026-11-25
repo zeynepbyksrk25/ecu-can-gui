@@ -258,7 +258,7 @@ def test_mapped_estop_is_sent_without_any_confirmation(win, monkeypatch):
     assert win._shown == [], "Acil Durdurma onay/uyarı penceresi açmamalı"
 
 
-def test_estop_latches_then_second_press_confirms_and_writes_zero(win, monkeypatch):
+def test_estop_latches_then_second_press_writes_zero_without_asking(win, monkeypatch):
     from PySide6.QtWidgets import QMessageBox
     from app.dashboard_config import SOURCE_CAN, Binding, DashboardConfig, MotorCommand
     asked = []
@@ -277,9 +277,9 @@ def test_estop_latches_then_second_press_confirms_and_writes_zero(win, monkeypat
     n = len(sent)
     assert n >= 1
     dt.estop_button.click()
-    assert len(asked) == 1, "ikinci basışta onay sorulmalı"
+    assert asked == [], "ikinci basışta onay SORULMAMALI"
     assert not dt.estop_button.isChecked() and dt.start_button.isEnabled()
-    assert len(sent) > n, "onaydan sonra sinyal 0'a çekilmeli (kare gönderilmeli)"
+    assert len(sent) > n, "ikinci basışta sinyal doğrudan 0'a çekilmeli (kare gönderilmeli)"
     assert sent[-1][1] != sent[0][1], "0 karesi, 1 karesinden farklı olmalı"
 
 

@@ -234,20 +234,10 @@ class DashboardMixin:
             self.dashboard_tab.reset_estop_latch()      # gitmediyse kilitli görünmesin
 
     def _on_estop_released(self):
-        """Kilitli Acil Durdurma 2. basışla açılmak isteniyor: onay ister, Acil Durdurma sinyalini 0'a çeker.
-        Motor Start GÖNDERİLMEZ (operatör ayrıca başlatır). Onay verilmezse ya da yazma başarısızsa kilit
-        kapalı (kilitli) kalır."""
+        """Kilitli Acil Durdurma toggle'ı OFF'a alındı: ONAY SORULMAZ; Acil Durdurma sinyali doğrudan 0'a çekilir.
+        Motor Start GÖNDERİLMEZ (operatör ayrıca başlatır). Yazma başarısızsa kilit kapalı (kilitli) kalır."""
         dt = self.dashboard_tab
-        cmd = dt.config.estop
-        answer = QMessageBox.question(
-            self, "Acil Durdurma kilidi açılsın mı?",
-            "Acil Durdurma sinyali 0'a çekilecek ve kilit açılacak.\n"
-            "Motor kendiliğinden BAŞLAMAZ; gerekirse Motor Başlat'a ayrıca basın.\n\nDevam edilsin mi?",
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-        if answer != QMessageBox.Yes:
-            self._log_event("MOTOR", "Acil Durdurma kilidi açma iptal edildi (kilitli kalıyor)")
-            return
-        if self._send_motor_command("Acil Durdurma kilidi açma", cmd, safety=True, value=0.0):
+        if self._send_motor_command("Acil Durdurma kilidi açma", dt.config.estop, safety=True, value=0.0):
             self._log_event("MOTOR", "Acil Durdurma kilidi açıldı (sinyal=0)")
             dt.reset_estop_latch()
         else:

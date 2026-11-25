@@ -62,18 +62,17 @@ def test_failed_send_returns_the_toggle_to_its_previous_state(win, can_out, monk
     assert dt.start_toggle.value.text() == "–"
 
 
-def test_estop_off_asks_confirmation_and_writes_0(win, can_out, monkeypatch):
+def test_estop_off_writes_0_directly_without_confirmation(win, can_out, monkeypatch):
     dt = win.dashboard_tab
     cfg = DashboardConfig()
     cfg.estop = MotorCommand(Binding(SOURCE_CAN, "CMD", "estop_req"), 1.0)
     dt.set_config(cfg)
     dt.estop_button.click()
     assert dt.estop_button.isChecked() and _decode(win, can_out[0][1])["estop_req"] == 1
-    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.No))
-    dt.estop_button.click()                              # onay: Hayır → kilitli kalır
-    assert dt.estop_button.isChecked()
-    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.Yes))
-    dt.estop_button.click()
+    asked = []
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: asked.append(a) or QMessageBox.No))
+    dt.estop_button.click()                              # OFF: onay yok, doğrudan 0
+    assert asked == []
     assert not dt.estop_button.isChecked()
     assert _decode(win, can_out[-1][1])["estop_req"] == 0
     assert dt.estop_toggle.value.text().startswith("0")
