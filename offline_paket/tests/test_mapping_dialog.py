@@ -160,3 +160,19 @@ def test_binding_editor_wheel_does_not_change_mapping(qapp):
                              Qt.NoModifier, Qt.NoScrollPhase, False)
             qapp.sendEvent(w, ev)
     assert (ed.source.currentIndex(), ed.name.currentText()) == before
+
+
+def test_editors_share_one_name_model_per_source_and_use_uniform_rows(qapp):
+    """Pencere geç açılıyordu: her editör tüm adları kopyalıyor, her kutu tüm öğeleri ölçüyordu."""
+    from app.ui.mapping_dialog import make_pools
+    pools = make_pools(["ENG.rpm", "ENG.tt2"], ["N_RPM", "Tt2_raw"])
+    a = BindingEditor(["ENG.rpm", "ENG.tt2"], ["N_RPM", "Tt2_raw"], pools=pools)
+    b = BindingEditor(["ENG.rpm", "ENG.tt2"], ["N_RPM", "Tt2_raw"], pools=pools)
+    assert a.name.model() is b.name.model() is pools[SOURCE_CAN]
+    assert a.name.view().uniformItemSizes()
+    a.set_binding(Binding(SOURCE_A2L, a2l_name="N_RPM"))
+    assert a.name.model() is pools[SOURCE_A2L] and a.binding() == Binding(SOURCE_A2L, a2l_name="N_RPM")
+    assert b.name.model() is pools[SOURCE_CAN]                                       # diğer editör etkilenmez
+    a.set_binding(Binding(SOURCE_CAN, "ENG", "tt2"))
+    assert a.name.model() is pools[SOURCE_CAN] and a.binding() == Binding(SOURCE_CAN, "ENG", "tt2")
+    assert a.name.findText("ENG.rpm") > 0 and a.name.itemText(0) == ""

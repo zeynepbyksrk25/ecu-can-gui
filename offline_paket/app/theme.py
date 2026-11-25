@@ -491,6 +491,25 @@ QFrame#actionStatusRow QPushButton[danger="true"]:disabled {{
     color: #B98A85;
 }}
 
+QFrame#actionStatusRow QPushButton#motorSwitch {{
+    background: transparent;
+    border: none;
+    padding: 0;
+}}
+
+QFrame#actionStatusRow QLabel#motorToggleTitle {{
+    color: #121A22;
+    font-weight: 600;
+    background: transparent;
+}}
+
+QFrame#actionStatusRow QLabel#motorToggleValue {{
+    color: #5B6B79;
+    font-size: 11px;
+    font-weight: 600;
+    background: transparent;
+}}
+
 QFrame#actionStatusRow QFrame#cmdSep {{
     background: #D6DEE6;
     max-width: 1px;
