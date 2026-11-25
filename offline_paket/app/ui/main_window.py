@@ -231,6 +231,8 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
 
         self.dashboard_tab.motor_start_requested.connect(self._on_motor_start)
         self.dashboard_tab.motor_stop_requested.connect(self._on_motor_stop)
+        self.dashboard_tab.motor_start_released.connect(self._on_motor_start_off)
+        self.dashboard_tab.motor_stop_released.connect(self._on_motor_stop_off)
         self.dashboard_tab.estop_requested.connect(self._on_estop)
         self.dashboard_tab.estop_released.connect(self._on_estop_released)
         self.dashboard_tab.config_saved.connect(self._on_dashboard_config_saved)
@@ -353,11 +355,25 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         central = self.centralWidget()
         if central is None:
             return
+        if central.layout() is not None:
+            central.layout().activate()                     # bekleyen yerleşim işlenmeden ipucu okunmasın
         hint = central.minimumSizeHint()
         want_w, want_h = max(1100, hint.width()), max(600, hint.height() + 26)
-        self.setMinimumSize(want_w, want_h)
-        if self.width() < want_w or self.height() < want_h:
+        if (want_w, want_h) != (self.minimumWidth(), self.minimumHeight()):
+            self.setMinimumSize(want_w, want_h)
+        # Tam ekran / büyütülmüş pencere zaten ekranı kaplar: yeniden boyutlandırmak yerleşimi kaydırır.
+        if not (self.isMaximized() or self.isFullScreen()) and (self.width() < want_w or self.height() < want_h):
             self.resize(max(self.width(), want_w), max(self.height(), want_h))
+
+    def showEvent(self, event):  # noqa: N802
+        """İlk gösterimde asgari boyutu YENİDEN hesaplar. Yapıcıdaki ilk hesap sayfa gösterilip stiller uygulanmadan
+        yapıldığı için eksik kalıyordu (kartlar ~40 px sıkışık açılıyor); ilk Kaydet'te düzelince pencere büyüyüp
+        yerleşim kayıyordu. Stil uygulanması bir olay turu sürdüğünden ikinci bir kez de geciktirilmiş çalışır."""
+        super().showEvent(event)
+        if not getattr(self, "_min_size_settled", False):
+            self._min_size_settled = True
+            self._schedule_minimum_size_refresh()
+            QTimer.singleShot(300, self._schedule_minimum_size_refresh)
 
     def _schedule_minimum_size_refresh(self, *_):
         """İçerik değişiminden SONRA (yerleşim güncellenince) asgari boyutu yeniler; art arda çağrılar birleşir."""
@@ -427,23 +443,17 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         layout.setContentsMargins(14, 4, 14, 4)
         layout.setSpacing(10)
 
-        self.dashboard_tab.start_button.setText("▶  Motoru Başlat")
-        self.dashboard_tab.stop_button.setText("⏹  Motoru Durdur")
-        self.dashboard_tab.estop_button.setText("⚠  Acil Durdurma")
-        for btn in (self.dashboard_tab.start_button, self.dashboard_tab.stop_button,
-                    self.dashboard_tab.estop_button):
-            btn.setFixedHeight(30)
-            btn.setMinimumWidth(150)
-            btn.setCursor(Qt.PointingHandCursor)
-            if btn is self.dashboard_tab.estop_button:
+        dt = self.dashboard_tab
+        for tg in (dt.start_toggle, dt.stop_toggle, dt.estop_toggle):
+            if tg is dt.estop_toggle:
                 # Acil Durdurma normal komutlardan görsel olarak ayrılır
                 sep = QFrame()
                 sep.setObjectName("cmdSep")
-                sep.setFixedHeight(22)
+                sep.setFixedHeight(30)
                 layout.addSpacing(6)
                 layout.addWidget(sep)
                 layout.addSpacing(6)
-            layout.addWidget(btn)
+            layout.addWidget(tg)
         layout.addWidget(self.dashboard_tab.estop_warn)
 
         layout.addStretch()
@@ -493,8 +503,8 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         dt.estop_hint = f"Kısayol: {self.ESTOP_SHORTCUT}"
         dt.update_estop_tooltip()
         names = {
-            dt.start_button: ("Motoru başlat", "Motor Start komutunu gönderir"),
-            dt.stop_button: ("Motoru durdur", "Motor Stop komutunu gönderir"),
+            dt.start_button: ("Motoru başlat", "Motor Start sinyaline ON=1, OFF=0 yazar"),
+            dt.stop_button: ("Motoru durdur", "Motor Stop sinyaline ON=1, OFF=0 yazar"),
             dt.estop_button: ("Acil durdurma", f"Acil Durdurma komutunu hemen gönderir. Kısayol {self.ESTOP_SHORTCUT}"),
             dt.estop_warn: ("Acil durdurma eşlenmemiş uyarısı", "Eşleşmeler penceresini açar"),
             self.header_conn_pill: ("CAN bağlantı durumu", "CAN Monitor sayfasını açar"),

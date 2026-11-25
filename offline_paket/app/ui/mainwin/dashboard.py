@@ -11,7 +11,7 @@ from app.ccp import codec as ccp_codec
 from app.ccp import protocol as ccp_protocol
 from app import control_panel as cpanel
 from app.dashboard_config import (
-    COMMAND_VALUE, CONTROL_KEYS, GAUGE_KEYS, SENSOR_KEYS, SOURCE_A2L, SOURCE_CAN, Binding,
+    COMMAND_VALUE, CONTROL_KEYS, GAUGE_KEYS, MOTOR_COMMAND_KEYS, SENSOR_KEYS, SOURCE_A2L, SOURCE_CAN, Binding,
 )
 from app.paths import data_path
 from app.ui.mainwin.common import (
@@ -190,18 +190,32 @@ class DashboardMixin:
             return False
         ok = self._write_binding(cmd.binding, value, command_name, merge=False, safety=safety)
         if ok:
+            key = next((k for k in MOTOR_COMMAND_KEYS if getattr(self.dashboard_tab.config, k) is cmd), None)
+            if key is not None:
+                self.dashboard_tab.set_motor_state(key, value, "sent")
             self._log_event("MOTOR", f"{command_name} gönderildi ({cmd.binding.text}={value:g})")
         else:
             self._log_event("HATA", f"{command_name} GÖNDERİLEMEDİ ({cmd.binding.text})")
         return ok
 
     def _on_motor_start(self):
-        self._send_motor_command("Motor Start", self.dashboard_tab.config.motor_start)
+        if not self._send_motor_command("Motor Start", self.dashboard_tab.config.motor_start):
+            self.dashboard_tab.set_motor_toggle("motor_start", False)       # gitmediyse ON görünmesin
+
+    def _on_motor_start_off(self):
+        """Toggle OFF: Başlat sinyaline 0 yazılır (güvenli yön; sınır kontrolü 0'ı zaten engellemez)."""
+        if not self._send_motor_command("Motor Start kapatma", self.dashboard_tab.config.motor_start, value=0.0):
+            self.dashboard_tab.set_motor_toggle("motor_start", True)        # gitmediyse OFF görünmesin
 
     def _on_motor_stop(self):
         # Durdurma "güvenli yön" komutudur: A2L/DBC sınırı ya da READ_ONLY yüzünden reddedilmez
         # (Motor Start sınırda kalır; bkz. _write_binding safety).
-        self._send_motor_command("Motor Stop", self.dashboard_tab.config.motor_stop, safety=True)
+        if not self._send_motor_command("Motor Stop", self.dashboard_tab.config.motor_stop, safety=True):
+            self.dashboard_tab.set_motor_toggle("motor_stop", False)
+
+    def _on_motor_stop_off(self):
+        if not self._send_motor_command("Motor Stop kapatma", self.dashboard_tab.config.motor_stop, value=0.0):
+            self.dashboard_tab.set_motor_toggle("motor_stop", True)
 
     def _on_estop(self):
         cmd = self.dashboard_tab.config.estop
@@ -294,6 +308,16 @@ class DashboardMixin:
                     continue
                 ent = self._dash_can.setdefault(msg.frame_id, {"msg": msg, "sigs": []})
                 ent["sigs"].append((b.signal, role, key))
+        for key in MOTOR_COMMAND_KEYS:     # komut sinyallerinin ECU'daki güncel değeri (toggle altındaki 1/0)
+            b = getattr(cfg, key).binding
+            if b.source != SOURCE_CAN or not b.is_set:
+                continue
+            try:
+                msg = cdb.get_message_by_name(b.message)
+            except KeyError:
+                continue
+            ent = self._dash_can.setdefault(msg.frame_id, {"msg": msg, "sigs": []})
+            ent["sigs"].append((b.signal, "motor", key))
 
     def _dash_on_can_frame(self, can_id: int, data: bytes):
         ent = self._dash_can.get(can_id)
@@ -310,6 +334,8 @@ class DashboardMixin:
                 continue
             if role == "value":
                 dt.set_gauge_value(key, float(v))
+            elif role == "motor":
+                dt.set_motor_state(key, float(v), "ecu")
             else:
                 dt.set_sensor_fault(key, "Sensör arızası" if v else None)
 
@@ -433,6 +459,10 @@ class DashboardMixin:
             f = cfg.sensor_map(key).fault
             if f.source == SOURCE_A2L and f.a2l_name.strip():
                 roles.setdefault(f.a2l_name.strip(), []).append(("fault", key))
+        for key in MOTOR_COMMAND_KEYS:                       # komut değişkenlerinin ECU'daki değeri (toggle altı)
+            b = getattr(cfg, key).binding
+            if b.source == SOURCE_A2L and b.a2l_name.strip():
+                roles.setdefault(b.a2l_name.strip(), []).append(("motor", key))
         graph_names = set(dt.graph_measurement_names())
 
         for name in names:
@@ -478,5 +508,8 @@ class DashboardMixin:
                              f"{m.byte_order or 'bayt sırası: varsayılan (MSB_FIRST)'}\n"
                              f"ham = {raw_value}   →   fiziksel = {float(phys_value):.6g} {m.unit or ''}"
                              f"   [{getattr(m.compu_method, 'conversionType', 'dönüşüm yok')}]")
+                elif role == "motor":
+                    if isinstance(phys_value, (int, float)):
+                        dt.set_motor_state(key, float(phys_value), "ecu")
                 else:
                     dt.set_sensor_fault(key, "Sensör arızası" if phys_value else None)

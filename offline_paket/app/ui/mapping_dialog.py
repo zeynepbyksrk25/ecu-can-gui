@@ -9,10 +9,10 @@ Her eşleşmenin kaynağı bağımsız olarak CAN (DBC mesaj.sinyal) ya da A2L (
 seçilir.
 """
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QStringListModel, Qt
 from PySide6.QtWidgets import (
     QComboBox, QCompleter, QDialog, QFrame, QGridLayout, QHBoxLayout,
-    QLabel, QPushButton, QScrollArea, QTabWidget, QVBoxLayout, QWidget,
+    QLabel, QListView, QPushButton, QScrollArea, QTabWidget, QVBoxLayout, QWidget,
 )
 
 from app import theme
@@ -64,12 +64,20 @@ def find_companion(name: str, source: str, pool: list, suffix: str = "_sw") -> s
     return None
 
 
+def make_pools(dbc_names: list, a2l: list, parent=None) -> dict:
+    """Kaynağa göre ortak isim modelleri ("" + isimler). 48 editör aynı modeli paylaşır: her editör için
+    ``addItems(tüm liste)`` + ``QCompleter(tüm liste)`` kopyası yapmak pencerenin geç açılmasının nedeniydi."""
+    return {SOURCE_CAN: QStringListModel([""] + list(dbc_names), parent),
+            SOURCE_A2L: QStringListModel([""] + list(a2l), parent)}
+
+
 class BindingEditor(QWidget):
     """Kaynak seçici (CAN/A2L) + sinyal/değişken seçici (aranabilir, serbest metin)."""
 
-    def __init__(self, dbc_names: list, a2l: list, allow_a2l: bool = True, parent=None):
+    def __init__(self, dbc_names: list, a2l: list, allow_a2l: bool = True, parent=None, pools: dict | None = None):
         super().__init__(parent)
         self._dbc_names, self._a2l = dbc_names, a2l
+        self._pools = pools if pools is not None else make_pools(dbc_names, a2l, self)
         lay = QHBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(4)
@@ -81,8 +89,17 @@ class BindingEditor(QWidget):
         self.source.currentIndexChanged.connect(self._reload)
         self.name = QComboBox()
         self.name.setEditable(True)
+        # Stil sayfası varken liste görünümü her öğeyi tek tek ölçer (20 bin ad × 48 kutu = saniyeler);
+        # tüm satırlar aynı boyda olduğundan tek ölçüm yeter.
+        view = QListView()
+        view.setUniformItemSizes(True)
+        self.name.setView(view)
         self.name.setInsertPolicy(QComboBox.NoInsert)
         self.name.setMinimumWidth(110)
+        # Varsayılan politika her kutuda TÜM öğelerin genişliğini ölçer (binlerce ad × 96 kutu = saniyeler);
+        # içeriğe göre değil sabit asgari karakter sayısına göre boyutlandır.
+        self.name.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.name.setMinimumContentsLength(16)
         # Sayfa tekerlekle kaydırılırken üzerinden geçilen kutunun eşleşmesi değişmesin
         no_wheel(self.source, self.name)
         lay.addWidget(self.source)
@@ -93,15 +110,16 @@ class BindingEditor(QWidget):
         return self._a2l if self.source.currentData() == SOURCE_A2L else self._dbc_names
 
     def _reload(self, *_):
+        """Kaynak değişince ortak modeli takar (liste kopyalanmaz); yazılı metin korunur."""
         cur = self.name.currentText()
+        model = self._pools[self.source.currentData()]
         self.name.blockSignals(True)
-        self.name.clear()
-        self.name.addItem("")
-        self.name.addItems(self._pool())
-        comp = QCompleter(self._pool(), self.name)
-        comp.setCaseSensitivity(Qt.CaseInsensitive)
-        comp.setFilterMode(Qt.MatchContains)
-        self.name.setCompleter(comp)
+        if self.name.model() is not model:
+            self.name.setModel(model)
+            comp = QCompleter(model, self.name)               # tamamlayıcı widget'a özel; model ortak
+            comp.setCaseSensitivity(Qt.CaseInsensitive)
+            comp.setFilterMode(Qt.MatchContains)
+            self.name.setCompleter(comp)
         self.name.setCurrentText(cur)
         self.name.blockSignals(False)
         self.name.lineEdit().setPlaceholderText(
@@ -195,6 +213,7 @@ class MappingDialog(QDialog):
         self._sim = sim_panel
         self._dbc_names = dbc_signal_names(dbc)
         self._a2l = a2l_names(a2l_summary)
+        self._pools = make_pools(self._dbc_names, self._a2l, self)      # tüm editörler paylaşır
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -251,7 +270,7 @@ class MappingDialog(QDialog):
 
     # ------------------------------------------------------------ sekmeler
     def _editor(self, binding: Binding, allow_a2l: bool = True) -> BindingEditor:
-        ed = BindingEditor(self._dbc_names, self._a2l if allow_a2l else [], allow_a2l=allow_a2l)
+        ed = BindingEditor(self._dbc_names, self._a2l if allow_a2l else [], allow_a2l=allow_a2l, pools=self._pools)
         ed.set_binding(binding)
         return ed
 
@@ -359,7 +378,7 @@ class MappingDialog(QDialog):
                 if d.group != group:
                     continue
                 grid.addWidget(_row_label(d.display + (f"  [{d.unit}]" if d.unit else "")), r, 0)
-                be = BindingEditor(self._dbc_names, self._a2l)
+                be = BindingEditor(self._dbc_names, self._a2l, pools=self._pools)
                 cur = self._sim.config.input_map.get(d.key, "")
                 src = sources.get(cur)
                 if cur.startswith("a2l:"):

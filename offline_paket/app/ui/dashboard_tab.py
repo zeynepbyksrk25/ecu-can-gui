@@ -26,11 +26,11 @@ from PySide6.QtWidgets import QLineEdit
 
 from app import theme
 from app.dashboard_config import (
-    ACTUATOR_KEYS, ACTUATOR_KINDS, CONTROL_KEYS, EYLEYICI_KEYS, GAUGE_KEYS, MODE_KEY, SUB_MODE_KEYS, SUB_MODE_TITLES, ACTIVE_SUB_MODES, Binding,
-    DashboardConfig, mode_name, motor_mode_name,
+    ACTUATOR_KEYS, ACTUATOR_KINDS, CONTROL_KEYS, EYLEYICI_KEYS, GAUGE_KEYS, MODE_KEY, MOTOR_COMMAND_KEYS, SUB_MODE_KEYS,
+    SUB_MODE_TITLES, ACTIVE_SUB_MODES, SOURCE_A2L, Binding, DashboardConfig, mode_name, motor_mode_name,
 )
 from app.ui.dash_widgets import (  # noqa: F401  (ToggleSwitch: eski import yolu)
-    ACCENTS, DK_CYAN, DK_MUT, DashGauge, GaugeCard, IconLabel, LockButton, ToggleSwitch,
+    ACCENTS, DK_CYAN, DK_MUT, DashGauge, GaugeCard, IconLabel, LockButton, MotorToggle, ToggleSwitch,
     format_value,
 )
 from app.ui.dark_theme import dark_qss
@@ -169,8 +169,10 @@ class _ThrottleSlider(QSlider):
 
 
 class DashboardTab(QWidget):
-    motor_start_requested = Signal()
-    motor_stop_requested = Signal()
+    motor_start_requested = Signal()       # Başlat toggle'ı ON  → sinyale 1
+    motor_stop_requested = Signal()        # Durdur toggle'ı ON  → sinyale 1
+    motor_start_released = Signal()        # Başlat toggle'ı OFF → sinyale 0
+    motor_stop_released = Signal()         # Durdur toggle'ı OFF → sinyale 0
     estop_requested = Signal()
     estop_released = Signal()      # kilitli Acil Durdurma 2. basışla açıldı → sistem yeniden başlatılır
     config_saved = Signal(object)        # DashboardConfig
@@ -262,14 +264,24 @@ class DashboardTab(QWidget):
     # Motor komutları (düğmeleri MainWindow üst satıra yerleştirir)
     # ======================================================================
     def _build_motor_buttons(self):
-        self.start_button = QPushButton("Motoru Başlat")
-        self.start_button.setProperty("primary", True)
-        self.stop_button = QPushButton("Motoru Durdur")
-        self.estop_button = QPushButton("Acil Durdurma")
-        self.estop_button.setProperty("danger", True)
-        self.estop_button.setCheckable(True)    # kilitli (koyu kırmızı) / serbest (açık kırmızı)
-        self.start_button.clicked.connect(self.motor_start_requested.emit)
-        self.stop_button.clicked.connect(self.motor_stop_requested.emit)
+        """Üç komut da toggle: ON → eşlenen sinyale 1, OFF → 0; altında sinyalin o anki değeri (ECU'dan, yoksa
+        gönderilen). ``*_button`` adları toggle'ın anahtarıdır (checkable QPushButton): click/isChecked/setEnabled
+        eskisi gibi çalışır."""
+        self.start_toggle = MotorToggle("Motoru Başlat", on_color=theme.OK)
+        self.stop_toggle = MotorToggle("Motoru Durdur", on_color=theme.BLUE)
+        self.estop_toggle = MotorToggle("Acil Durdurma", on_color=theme.DANGER)
+        self.start_button = self.start_toggle.switch
+        self.stop_button = self.stop_toggle.switch
+        self.estop_button = self.estop_toggle.switch       # kilitli (ON) / serbest (OFF)
+        self._motor_toggles = {"motor_start": self.start_toggle, "motor_stop": self.stop_toggle,
+                               "estop": self.estop_toggle}
+        self._motor_ecu: dict[str, tuple] = {}              # komut -> (değer, monotonic): ECU'dan okunan
+        self._motor_sent: dict[str, float] = {}             # komut -> son gönderilen değer
+        self._motor_bind_sig: dict[str, tuple] = {}
+        self.start_button.clicked.connect(
+            lambda on: (self.motor_start_requested if on else self.motor_start_released).emit())
+        self.stop_button.clicked.connect(
+            lambda on: (self.motor_stop_requested if on else self.motor_stop_released).emit())
         self.estop_button.clicked.connect(self._on_estop_clicked)
         # Eşleme yokken Acil Durdurma ÇALIŞMAZ; bunu operatör fark etmeli (düğme gri/tıklanamaz bırakılmaz,
         # yanında kalıcı bir uyarı gösterilir).
@@ -313,6 +325,45 @@ class DashboardTab(QWidget):
         """Komut gönderilemediyse düğme kilitli görünmesin."""
         self.estop_button.setChecked(False)
         self.start_button.setEnabled(self.config.motor_start.binding.is_set)
+
+    # ---- toggle durumu ve canlı değer ------------------------------------------------------------------
+    def set_motor_toggle(self, key: str, on: bool):
+        """Toggle'ı sinyal göndermeden ayarlar (gönderim başarısız olunca eski konuma döndürmek için)."""
+        sw = self._motor_toggles[key].switch
+        sw.blockSignals(True)
+        sw.setChecked(bool(on))
+        sw.blockSignals(False)
+        sw.update()
+
+    def set_motor_state(self, key: str, value: float, source: str):
+        """Komut sinyalinin değeri: ``source`` "ecu" (ECU'dan okundu) ya da "sent" (biz gönderdik)."""
+        if key not in self._motor_toggles:
+            return
+        if source == "ecu":
+            self._motor_ecu[key] = (float(value), time.monotonic())
+        else:
+            self._motor_sent[key] = float(value)
+        self._refresh_motor_readout(key)
+
+    def _refresh_motor_readout(self, key: str | None = None):
+        now = time.monotonic()
+        for k in ([key] if key else list(self._motor_toggles)):
+            ecu = self._motor_ecu.get(k)
+            if ecu is not None and (now - ecu[1]) <= STALE_S:
+                self._motor_toggles[k].set_readout(ecu[0], "ECU")
+            elif k in self._motor_sent:
+                self._motor_toggles[k].set_readout(self._motor_sent[k], "gönderilen")
+            else:
+                self._motor_toggles[k].set_readout(None)
+
+    def motor_a2l_names(self) -> list:
+        """Değerini ECU'dan okumamız gereken (A2L eşlemeli) komut değişkenleri."""
+        out = []
+        for k in MOTOR_COMMAND_KEYS:
+            b = getattr(self.config, k).binding
+            if b.is_set and b.source == SOURCE_A2L and b.a2l_name.strip():
+                out.append(b.a2l_name.strip())
+        return out
 
     # ======================================================================
     # Son olaylar (komut gönderildi, hata, bağlantı...): sol sütunun kalan yüksekliğini doldurur
@@ -1104,6 +1155,14 @@ class DashboardTab(QWidget):
                                  (self.stop_button, cfg.motor_stop, "Motoru Durdur")):
             btn.setToolTip("" if btn.isEnabled() else f"{label} için ⚙ Eşleşmeler penceresinden DBC sinyali veya A2L değişkeni seçin.")
         self.update_estop_tooltip()
+        for k in MOTOR_COMMAND_KEYS:                 # eşleme değiştiyse eski değer yanlış sinyale ait kalmasın
+            b = getattr(cfg, k).binding
+            sig = (b.source, b.message, b.signal, b.a2l_name)
+            if self._motor_bind_sig.get(k, sig) != sig:
+                self._motor_ecu.pop(k, None)
+                self._motor_sent.pop(k, None)
+            self._motor_bind_sig[k] = sig
+        self._refresh_motor_readout()
         for key in GAUGE_KEYS:
             if key not in cfg.gauge_a2l_map() and key not in cfg.gauge_can_map():
                 self._values.pop(key, None)
@@ -1129,7 +1188,9 @@ class DashboardTab(QWidget):
                                       for k in GAUGE_KEYS
                                       if self.config.sensor_map(k).fault.source == "a2l"
                                       and self.config.sensor_map(k).fault.a2l_name.strip()]
-                                   + self.graph_measurement_names()))
+                                   + self.graph_measurement_names()
+                                   + self.motor_a2l_names()))
         self._refresh_gauge_states()
+        self._refresh_motor_readout()
         if names:
             self.tick.emit(names)

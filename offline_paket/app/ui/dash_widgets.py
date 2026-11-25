@@ -212,6 +212,44 @@ class ToggleSwitch(QPushButton):
         painter.drawEllipse(x, 3, d, d)
 
 
+class MotorToggle(QWidget):
+    """Komut şeridi toggle'ı: başlık + ON/OFF anahtarı; altında sinyalin o anki 1/0 değeri.
+
+    ``switch`` (ToggleSwitch) tıklanabilir kısımdır; DashboardTab ``start_button`` vb. adlarla bunu dışarı verir."""
+
+    def __init__(self, title: str, on_color: str = DK_BLUE, parent=None):
+        super().__init__(parent)
+        self.setObjectName("motorToggle")
+        v = QVBoxLayout(self)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(1)
+        top = QHBoxLayout()
+        top.setSpacing(8)
+        self.title = QLabel(title)
+        self.title.setObjectName("motorToggleTitle")
+        self.switch = ToggleSwitch(on_color=on_color)
+        self.switch.setObjectName("motorSwitch")
+        top.addWidget(self.title)
+        top.addWidget(self.switch)
+        self.value = QLabel("–")
+        self.value.setObjectName("motorToggleValue")
+        self.value.setAlignment(Qt.AlignCenter)
+        v.addLayout(top)
+        v.addWidget(self.value)
+        self.setMinimumWidth(150)
+        self.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
+
+    def set_readout(self, value, source: str = ""):
+        """``value`` None ise "–"; aksi halde 1/0 (ya da sayı) ve kaynak ipucu ("ECU" / "gönderilen")."""
+        if value is None:
+            self.value.setText("–")
+            self.value.setToolTip("Değer okunamadı ve henüz gönderilmedi")
+            return
+        text = f"{float(value):g}"
+        self.value.setText(f"{text}  ·  {source}" if source else text)
+        self.value.setToolTip("ECU'dan okunan güncel değer" if source == "ECU" else "ECU'dan okunamadı: son gönderilen değer")
+
+
 def format_value(v, unit: str = "") -> str:
     """Gösterge/etiket değer biçimi: büyük sayılar ondalıksız, küçükler 1-2 ondalık."""
     if v is None:
