@@ -1,11 +1,15 @@
 """Motor Başlat / Durdur / Acil Durdurma toggle'ları: ON=1, OFF=0 yazar; altında sinyalin o anki değeri görünür."""
-import os
 
-import pytest
 from PySide6.QtWidgets import QMessageBox
 
 from app.dashboard_config import SOURCE_A2L, SOURCE_CAN, Binding, DashboardConfig, MotorCommand
-from tests.test_dashboard_e2e import _addr, _tick_until, can_out, ccp, win  # noqa: F401  (fixture'lar)
+from tests import test_dashboard_e2e as e2e
+from tests.test_dashboard_e2e import _addr, _tick_until
+
+# Ortak fixture'lar test_dashboard_e2e'den alınır (atama olarak: doğrudan import F811 uyarısı verir)
+win = e2e.win
+ccp = e2e.ccp
+can_out = e2e.can_out
 
 
 def _cfg_can():
