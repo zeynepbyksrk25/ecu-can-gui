@@ -67,6 +67,20 @@ class DashboardMixin:
                                                             start=not self._panel_paused)
                 extended = bool(self.transmit_tab.dbc.get_message(binding.message).is_extended_frame)
                 self.control_panel_tab.set_external_applied(binding.message, binding.signal, value)
+            elif self.tx_scheduler.is_running(binding.message):
+                # Bu mesaj ZATEN periyodik gönderiliyor (Kontrol Paneli / eyleyici): komutu yalnızca bir kez
+                # doğrudan yollarsak bir sonraki periyodik kare eski değerle (örn. estop_req=0) komutun ÜSTÜNE
+                # yazar ve Acil Durdurma etkisiz kalır. Bu yüzden komut ortak değer tablosuna işlenir: periyodik
+                # kareler de yeni değeri taşır (diğer sinyaller zaten periyodik karedeki değerlerinde kalır).
+                if safety:
+                    try:
+                        self.transmit_tab.dbc.encode(binding.message, dict(vals))
+                    except ValueError as exc:
+                        self._log_event("MOTOR", f"{label}: DBC sınır denetimi güvenlik komutu olduğu için atlandı ({exc})")
+                can_id, data = self.tx_scheduler.set_values(binding.message, vals, None, start=False, strict=not safety)
+                extended = bool(self.transmit_tab.dbc.get_message(binding.message).is_extended_frame)
+                for sig, val in vals.items():
+                    self.control_panel_tab.set_external_applied(binding.message, sig, val)
             elif safety:
                 try:
                     self.transmit_tab.dbc.encode(binding.message, dict(vals))

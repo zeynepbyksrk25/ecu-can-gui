@@ -100,12 +100,14 @@ class MapDocument(QWidget):
         self._style_online_label()
 
         self.caveat_label = QLabel(
-            "⚠ Bu nesnenin ekseni FIX_AXIS değil (STD_AXIS/COM_AXIS/vb.). "
-            "Fonksiyon değerlerinin bellek adresi bu sürümde DOĞRULANMADI — "
-            "gerçek donanımla kullanmadan önce PCAN-View trace'iyle kontrol edin."
+            "⚠ DİKKAT: Bu nesnenin ekseni FIX_AXIS değil (STD_AXIS/COM_AXIS/vb.). "
+            "Fonksiyon değerlerinin bellek adresi bu sürümde DOĞRULANMADI: ECU'dan okunan değerler YANLIŞ "
+            "ADRESTEN gelebilir, bunlara güvenmeyin. Yazma kapalıdır. Kullanmadan önce PCAN-View trace'iyle kontrol edin."
         )
         self.caveat_label.setWordWrap(True)
-        self.caveat_label.setStyleSheet(f"color: {theme.WARN_INK};")
+        self.caveat_label.setStyleSheet(
+            f"color: {theme.DANGER}; font-weight: 700; background: {theme.DANGER_BG}; "
+            f"border: 1px solid {theme.DANGER}; border-radius: 6px; padding: 6px 10px;")
         self.caveat_label.setVisible(
             c.kind in ("CURVE", "MAP") and any(a.attribute != "FIX_AXIS" for a in c.axes)
         )

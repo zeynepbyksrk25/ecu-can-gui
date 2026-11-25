@@ -604,7 +604,8 @@ class CalibrationMixin:
                 try:
                     # doğrulama (sonlu, tür aralığı, A2L min/max, READ_ONLY) + güvenli dönüşüm
                     raw_bytes = ccp_codec.encode_for_write(e, phys)
-                    client.write_memory(e.address, raw_bytes, e.address_extension or 0)
+                    # yazdıktan sonra geri okuyup doğrular; fark varsa CCPVerifyError (satır "yazılamadı" olur)
+                    client.write_memory(e.address, raw_bytes, e.address_extension or 0, verify=True)
                     out.append((old, None))
                 except _CCP_IO_ERRORS as exc:
                     out.append((old, exc))

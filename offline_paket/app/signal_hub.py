@@ -21,6 +21,7 @@ Tanım değişince veya sinyal eklenince mevcut geçmişe de uygulanır.
 from __future__ import annotations
 
 import csv
+import math
 import time
 
 import numpy as np
@@ -71,6 +72,7 @@ class SignalHub:
         self._active: set[str] = set()
         self.derived: dict[str, dict] = {}       # "math:isim" -> spec
         self.static: set[str] = set()            # csv: vb. (yeniden etkinleştirmeden saklanır)
+        self._recomputing: set[str] = set()
         self.tap = None                          # callable(sid, değer): etkin olsun olmasın her dış örnek (oturum kaydı)
 
     # ------------------------------------------------------------ zaman
@@ -116,7 +118,7 @@ class SignalHub:
             v = float(value)
         except (TypeError, ValueError):
             return
-        if v != v:                                # NaN
+        if not math.isfinite(v):                  # NaN ve ±inf: grafiğe / matematik sinyallerine taşınmasın
             return
         if self.tap is not None and kind_of(sid) not in ("math", "csv"):
             try:
@@ -207,9 +209,29 @@ class SignalHub:
         self.t0 = time.time()
 
     # ------------------------------------------------------------ matematik
+    def would_cycle(self, sid: str, spec: dict) -> bool:
+        """``sid`` bu ``spec`` ile tanımlanırsa kendi kendine (doğrudan ya da başka türetilmiş sinyaller üzerinden)
+        bağımlı olur mu? (A = B + 1, B = A + 1 gibi döngüler sonsuz özyinelemeye yol açar.)"""
+        sid = sid if sid.startswith("math:") else f"math:{sid}"
+        seen: set = set()
+        stack = [s for s in (spec.get("src"), spec.get("src2")) if s]
+        while stack:
+            cur = stack.pop()
+            if cur == sid:
+                return True
+            if cur in seen:
+                continue
+            seen.add(cur)
+            sub = self.derived.get(cur)
+            if sub is not None:
+                stack += [s for s in (sub.get("src"), sub.get("src2")) if s]
+        return False
+
     def define_derived(self, name: str, spec: dict):
-        """name 'math:' önekli ya da öneksiz verilebilir; kimliği döner."""
+        """name 'math:' önekli ya da öneksiz verilebilir; kimliği döner. Döngüsel bağımlılık ValueError."""
         sid = name if name.startswith("math:") else f"math:{name}"
+        if self.would_cycle(sid, spec):
+            raise ValueError(f"'{name}' kendisine bağımlı olurdu (döngüsel bağımlılık).")
         self.derived[sid] = dict(spec)
         self.recompute(sid)
         return sid
@@ -223,8 +245,15 @@ class SignalHub:
     def recompute(self, sid: str):
         """Türetilmiş sinyali, kaynakların mevcut geçmişinden baştan hesaplar."""
         spec = self.derived.get(sid)
-        if spec is None:
+        if spec is None or sid in self._recomputing:      # döngüsel tanım (örn. dosyadan yüklenen) sonsuz özyineleme yapmasın
             return
+        self._recomputing.add(sid)
+        try:
+            self._recompute(sid, spec)
+        finally:
+            self._recomputing.discard(sid)
+
+    def _recompute(self, sid: str, spec: dict):
         ser = _Series()
         ta, va = self._source_arrays(spec.get("src"))
         if ta.size:

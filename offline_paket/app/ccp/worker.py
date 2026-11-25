@@ -25,6 +25,8 @@ import time
 from app.ccp import protocol as ccp
 from app.ccp.client import CCPClient
 
+EVENT_QUEUE_MAX = 5000
+
 log = logging.getLogger(__name__)
 
 IDLE, CONNECTING, ONLINE, LOST = "idle", "connecting", "online", "lost"
@@ -103,7 +105,8 @@ class CcpSession:
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
         self._lock = threading.Lock()
-        self._events: "queue.Queue[tuple]" = queue.Queue()
+        self._events: "queue.Queue[tuple]" = queue.Queue(maxsize=EVENT_QUEUE_MAX)
+        self.events_dropped = 0                       # kuyruk dolunca atılan (en eski) olay sayısı
         self._cache: dict = {}                        # (adres, ext, boyut) -> (bytes|None, hata|None, t)
         self._wanted: dict = {}                       # (adres, ext, boyut) -> son istenme zamanı
         self._params: tuple | None = None
@@ -243,7 +246,18 @@ class CcpSession:
 
     # ------------------------------------------------------------------ iç
     def _emit(self, *event):
-        self._events.put(event)
+        """Arayüz olayları boşaltmazsa (uzun süre kilitli/arka planda) kuyruk sınırsız büyümesin: dolunca en eski
+        olay atılır (güncel durum olayları korunur)."""
+        while True:
+            try:
+                self._events.put_nowait(event)
+                return
+            except queue.Full:
+                try:
+                    self._events.get_nowait()
+                    self.events_dropped += 1
+                except queue.Empty:
+                    pass
 
     def _set_state(self, state: str, info: str = ""):
         changed = state != self.state or info != self.info
