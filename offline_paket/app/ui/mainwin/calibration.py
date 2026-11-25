@@ -162,7 +162,17 @@ class CalibrationMixin:
             self._log_event("CCP", "CCP bağlantısı düştü (CAN bağlantısı koptu)")
         self._apply_ccp_state(IDLE, "")
 
+    def _ccp_busy_refuse(self, what: str) -> bool:
+        """Uzun bir CCP yazımı (harita/flaş) sürerken DISCONNECT/bağlantı kesme yarım yazılmış tablo bırakır:
+        iş bitene kadar reddeder (kullanıcıya bildirir). True = reddedildi."""
+        if not self._ccp_busy:
+            return False
+        self.statusBar().showMessage(f"CCP yazımı sürüyor: {what}; iş bitince tekrar deneyin.", 6000)
+        return True
+
     def _on_ccp_disconnect(self):
+        if self._ccp_busy_refuse("CCP bağlantısı kesilemez"):
+            return
         was_active = self.ccp_session.state != IDLE
         self.ccp_session.stop(graceful=True)
         if was_active:

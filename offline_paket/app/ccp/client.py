@@ -212,9 +212,11 @@ class CCPClient:
             self.stop_listening()
             return
         try:
-            ctr = self._next_ctr()
-            cro = ccp.build_disconnect(ctr, self.station_address, permanent=permanent)
-            self._command(cro, ctr, ccp.DISCONNECT)
+            # SET_MTA + DNLOAD çifti bölünmesin: DISCONNECT iki komutun arasına girmez.
+            with self._sequence():
+                ctr = self._next_ctr()
+                cro = ccp.build_disconnect(ctr, self.station_address, permanent=permanent)
+                self._command(cro, ctr, ccp.DISCONNECT)
         finally:
             self._connected = False
             self.stop_listening()

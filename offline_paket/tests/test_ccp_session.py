@@ -244,3 +244,43 @@ def test_dashboard_ticks_stay_fast_with_silent_ecu_and_recover(qapp, monkeypatch
         ecu.stop()
         ecu_bus.shutdown()
         w.close()
+
+
+def test_stopped_thread_cannot_be_revived_by_restart(monkeypatch):
+    """join zaman aşımına uğrayan eski iş parçacığının bayrağı start() ile SIFIRLANMAZ (zombi dirilmez)."""
+    import threading
+    from app.ccp import worker as w
+    release = threading.Event()
+    entered = threading.Event()
+
+    class Conn:
+        bus = object()
+        recovering = False
+        ccp_queue = None
+        ccp_dto_id = None
+
+    class SlowClient:
+        timeout, retries, bus = 0.1, 0, None
+
+        def __init__(self, *a, **k):
+            pass
+
+        def connect(self):
+            entered.set()
+            release.wait(5)             # takılmış bus yazması
+
+        def get_ccp_version(self):
+            return (2, 1)
+
+    monkeypatch.setattr(w, "CCPClient", SlowClient)
+    monkeypatch.setattr(threading.Thread, "join", lambda self, timeout=None: None)   # join zaman aşımı
+    s = w.CcpSession(Conn())
+    s.start(1, 2, 0)
+    assert entered.wait(2)
+    old_stop, old_thread = s._stop, s._thread
+    s.stop(graceful=False)
+    s.start(1, 2, 0)                    # yeniden başlat: eski iş parçacığı hâlâ connect() içinde
+    assert old_stop.is_set() and s._stop is not old_stop
+    release.set()
+    s.stop(graceful=False)
+    assert old_thread is not s._thread

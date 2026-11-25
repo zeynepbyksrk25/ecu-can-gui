@@ -109,6 +109,8 @@ class ConnectionMixin:
         self._panel_conn_state()
 
     def _on_disconnect(self):
+        if self._ccp_busy_refuse("CAN bağlantısı kesilemez"):
+            return
         self._cancel_reconnect()
         self._conn_lost = False
         self._dismiss_loss_box()

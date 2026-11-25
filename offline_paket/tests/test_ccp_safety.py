@@ -228,3 +228,37 @@ def test_no_compu_method_object_is_identity_not_error():
     assert codec.physical_to_raw(NoCompu(), 1.0) == 1.0
     assert codec.raw_to_physical(NoCompu(), 7) == 7.0
     assert codec.encode_for_write(info(compu_method=NoCompu(), datatype="UBYTE", maximum=1.0), 1.0) == b"\x01"
+
+
+def test_disconnect_waits_for_write_sequence_and_busy_job_refuses_disconnect(qapp):
+    import threading
+    from app.ccp.client import CCPClient
+    from app.ui.main_window import MainWindow
+    # DISCONNECT, SET_MTA+DNLOAD dizisinin kilidi tutulurken araya giremez
+    c = CCPClient.__new__(CCPClient)
+    c._tls = threading.local()
+    c._urgent_waiters = 0
+    c._seq_lock = threading.RLock()
+    c._connected = True
+    c.station_address = 0
+    c.stop_listening = lambda: None
+    c._next_ctr = lambda: 1
+    sent = []
+    c._command = lambda cro, ctr, code, timeout=None: sent.append(code)
+    done = threading.Event()
+    with c._seq_lock:                                   # süren yazma dizisi
+        t = threading.Thread(target=lambda: (c.disconnect(), done.set()))
+        t.start()
+        assert not done.wait(0.2) and sent == []
+    assert done.wait(2) and len(sent) == 1
+    t.join()
+    # uzun CCP işi sürerken kullanıcı bağlantı kesme isteği reddedilir
+    w = MainWindow()
+    called = []
+    w.ccp_session.stop = lambda graceful=True: called.append(graceful)
+    w._ccp_busy = True
+    w._on_ccp_disconnect()
+    w._on_disconnect()
+    assert called == []
+    w._ccp_busy = False
+    w.close()
