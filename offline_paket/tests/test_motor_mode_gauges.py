@@ -29,7 +29,7 @@ def test_mode_names():
 
 
 def test_gauge_set_changed_and_mode_is_a_sensor_binding():
-    assert GAUGE_KEYS == ["RPM", "İtki", "PLA", "Tt5", "FP", "FT", "Ps2", "Ps3"] and "Tt2" not in GAUGE_KEYS
+    assert GAUGE_KEYS == ["RPM", "İtki", "PLA", "Tt5", "FP_start", "FP_main", "FT", "Ps2", "Ps3"] and "Tt2" not in GAUGE_KEYS
     assert MODE_KEY in SENSOR_KEYS and MODE_KEY not in GAUGE_KEYS
 
 
@@ -51,7 +51,7 @@ def test_mode_chip_shows_name_only_and_goes_blank_when_stale(tab, monkeypatch):
 
 @pytest.mark.parametrize("key,lo,hi,red", [
     ("RPM", 0, 140000, 118000), ("İtki", 0, 270, 255), ("PLA", 0, 100, None), ("Tt5", -40, 1200, 900),
-    ("FP", 0, 5, 4.5), ("FT", -30, 40, None), ("Ps2", 0, 2.5, 1.6), ("Ps3", 0, 5, None)])
+    ("FP_start", 0, 10, 5), ("FP_main", 0, 10, 5), ("FT", -30, 40, None), ("Ps2", 0, 2.5, 1.6), ("Ps3", 0, 5, None)])
 def test_ranges_and_red_limits(tab, key, lo, hi, red):
     g = tab._gauge_cards[key].gauge
     assert (g._min, g._max, g.red_limit) == (lo, hi, red)
@@ -163,12 +163,35 @@ def test_throttle_failure_stops_resending_during_drag(tab):
     assert len(tab.calls) == n                                    # hata sonrası sürükleme boyunca tekrar denemez
 
 
-def test_fp_red_above_4_5_bar(tab):
-    gc = tab._gauge_cards["FP"]
-    tab.set_gauge_value("FP", 4.5)
+@pytest.mark.parametrize("key", ["FP_start", "FP_main"])
+def test_fuel_pressure_gauges_turn_red_above_5_bar(tab, key):
+    gc = tab._gauge_cards[key]
+    tab.set_gauge_value(key, 5.0)
     assert not gc.gauge.is_over_limit and gc.property("state") in ("", None)
-    tab.set_gauge_value("FP", 4.6)
+    tab.set_gauge_value(key, 5.1)
     assert gc.gauge.is_over_limit and gc.property("state") == "alarm" and gc.tag.text() == "LİMİT"
+
+
+def test_the_two_fuel_pressure_gauges_are_independent(tab):
+    tab.set_gauge_value("FP_start", 2.0)
+    tab.set_gauge_value("FP_main", 7.0)
+    assert tab._values["FP_start"][0] == 2.0 and tab._values["FP_main"][0] == 7.0
+    assert not tab._gauge_cards["FP_start"].gauge.is_over_limit and tab._gauge_cards["FP_main"].gauge.is_over_limit
+
+
+def test_old_single_fp_config_loads_and_both_new_gauges_start_empty():
+    """Eski tek "FP" eşleşmesi ve "g:FP" grafik seçimi taşınmaz: hata yok, iki yeni gösterge boş, hayalet seri yok."""
+    old = {"sensors": {"RPM": {"value": {"source": "can", "message": "ENG", "signal": "rpm"}},
+                       "FP": {"value": {"source": "can", "message": "ENG", "signal": "fp"}}},
+           "graph_signals": ["g:RPM", "g:FP", "m:SomeVar"]}
+    cfg = config_from_dict(old)
+    assert cfg.sensors["RPM"].value.is_set
+    assert "FP" not in cfg.sensors
+    assert not cfg.sensors["FP_start"].value.is_set and not cfg.sensors["FP_main"].value.is_set
+    assert cfg.graph_signals == ["g:RPM", "m:SomeVar"]
+    legacy = config_from_dict({"measurement_rpm": "N_RPM", "measurement_fp": "FP_bar"})
+    assert legacy.sensors["RPM"].value.a2l_name == "N_RPM"
+    assert not legacy.sensors["FP_start"].value.is_set and not legacy.sensors["FP_main"].value.is_set
 
 
 def test_throttle_slider_real_mouse_drag(tab):
