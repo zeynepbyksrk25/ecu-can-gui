@@ -136,13 +136,14 @@ class CcpSession:
         if self._thread is not None and self._thread.is_alive():
             return
         self._adopted = False
-        self._stop.clear()
+        self._stop = threading.Event()      # HER oturum iş parçacığının KENDİ bayrağı (bkz. stop())
         self._conn.ccp_dto_id = dto_id
         self._client = CCPClient(self._conn.bus, cro_id, dto_id, station_address=station,
                                  timeout=SHORT_TIMEOUT_S, retries=SHORT_RETRIES,
                                  dto_queue=self._conn.ccp_queue)
         self._set_state(CONNECTING, "başlatılıyor")
-        self._thread = threading.Thread(target=self._run, name="ccp-session", daemon=True)
+        self._thread = threading.Thread(target=self._run, args=(self._stop, self._client),
+                                        name="ccp-session", daemon=True)
         self._thread.start()
 
     def adopt(self, client: CCPClient):
@@ -152,18 +153,25 @@ class CcpSession:
         self._client = client
         client.timeout, client.retries = SHORT_TIMEOUT_S, SHORT_RETRIES
         self._params = (client.cro_id, client.dto_id, client.station_address)
-        self._stop.clear()
+        self._stop = threading.Event()
         self._consec_fail = 0
         self._set_state(ONLINE, "")
-        self._thread = threading.Thread(target=self._run, name="ccp-session", daemon=True)
+        self._thread = threading.Thread(target=self._run, args=(self._stop, self._client),
+                                        name="ccp-session", daemon=True)
         self._thread.start()
 
     def stop(self, graceful: bool = True):
-        """İş parçacığını durdurur; graceful ve çevrimiçiyse ECU'ya DISCONNECT gönderir."""
+        """İş parçacığını durdurur; graceful ve çevrimiçiyse ECU'ya DISCONNECT gönderir.
+
+        Her iş parçacığı kendi ``Event``'ini taşır: ``join`` zaman aşımına uğrasa (takılmış adaptör) bile
+        o iş parçacığının bayrağı bir daha SIFIRLANMAZ; sonradan ``start()`` ile açılan yeni oturum eskisini
+        "diriltemez" (iki iş parçacığı aynı hatta komut göndermesin)."""
         self._stop.set()
         th = self._thread
         if th is not None and th is not threading.current_thread():
             th.join(timeout=2.0)
+            if th.is_alive():
+                log.warning("CCP oturum iş parçacığı 2 sn içinde durmadı; bayrağı set kalır, kendiliğinden çıkacak")
         self._thread = None
         client = self._client
         if graceful and client is not None and self.state == ONLINE:
@@ -253,9 +261,8 @@ class CcpSession:
         has_bus = self._adopted or self._conn.bus is not None
         return has_bus and not self._conn.recovering
 
-    def _try_connect(self) -> tuple:
+    def _try_connect(self, c: CCPClient) -> tuple:
         """(başarılı mı, hata metni). CONNECT + sürüm sorgusu; kısa zaman aşımlarıyla."""
-        c = self._client
         if not self._adopted:
             c.bus = self._conn.bus
         try:
@@ -270,28 +277,34 @@ class CcpSession:
         except Exception as exc:        # bus yazma hatası (adaptör toparlanıyor olabilir)
             return False, f"bus: {exc}"
 
-    def _run(self):
+    def _run(self, stop: threading.Event, client: CCPClient):
+        """``stop``/``client``: bu iş parçacığının KENDİ bayrağı ve istemcisi (oturum yeniden başlatılsa
+        da eski iş parçacığı yenisinin nesnelerine dokunmaz)."""
         backoff_i = 0
-        while not self._stop.is_set():
+        while not stop.is_set():
             try:
                 if self.state == ONLINE:
-                    self._poll_round()
+                    self._poll_round(stop, client)
                 elif self.state == LOST:
-                    self._recover_step()
+                    self._recover_step(stop, client)
                 else:
-                    backoff_i = self._connect_step(backoff_i)
+                    backoff_i = self._connect_step(stop, client, backoff_i)
             except Exception as exc:    # iş parçacığı hiçbir koşulda ölmesin
+                if stop.is_set():
+                    break
                 self.last_error = f"iç hata: {exc}"
                 self._emit("log", "HATA", f"CCP oturum iş parçacığı: {exc}")
-                self._stop.wait(0.5)
+                stop.wait(0.5)
 
-    def _connect_step(self, backoff_i: int) -> int:
+    def _connect_step(self, stop: threading.Event, client: CCPClient, backoff_i: int) -> int:
         if not self._bus_ready():
             self._set_state(CONNECTING, "hat hazır değil")
-            self._stop.wait(0.2)
+            stop.wait(0.2)
             return backoff_i
         self.attempts += 1
-        ok, err = self._try_connect()
+        ok, err = self._try_connect(client)
+        if stop.is_set():                 # bekleme sırasında durduruldu: durumu/ECU'yu değiştirme
+            return backoff_i
         if ok:
             self._consec_fail = 0
             self.attempts = 0
@@ -303,14 +316,16 @@ class CcpSession:
         self._set_state(CONNECTING, f"deneme {self.attempts}: {err}")
         if self.attempts in (1, 5, 20):
             self._emit("log", "HATA", f"CCP bağlantı denemesi {self.attempts}: {err}")
-        self._stop.wait(BACKOFF[min(backoff_i, len(BACKOFF) - 1)])
+        stop.wait(BACKOFF[min(backoff_i, len(BACKOFF) - 1)])
         return backoff_i + 1
 
-    def _recover_step(self):
-        self._stop.wait(LOST_PROBE_S)
-        if self._stop.is_set() or not self._bus_ready():
+    def _recover_step(self, stop: threading.Event, client: CCPClient):
+        stop.wait(LOST_PROBE_S)
+        if stop.is_set() or not self._bus_ready():
             return
-        ok, err = self._try_connect()
+        ok, err = self._try_connect(client)
+        if stop.is_set():
+            return
         if ok:
             self._consec_fail = 0
             self.reconnects += 1
@@ -323,9 +338,9 @@ class CcpSession:
     # CCP dönüş kodları: oturumun GEÇERSİZ olduğunu gösterenler (ECU açılışta oturumu unutur).
     _SESSION_INVALID_RC = (ccp.RC_ACCESS_DENIED, ccp.RC_CMD_UNKNOWN)
 
-    def _poll_round(self):
+    def _poll_round(self, stop: threading.Event, client: CCPClient):
         if not self._bus_ready():
-            self._stop.wait(0.2)
+            stop.wait(0.2)
             return
         now = time.monotonic()
         with self._lock:
@@ -334,18 +349,18 @@ class CcpSession:
             wanted = list(self._wanted)
         self.items = len(wanted)
         if not wanted:
-            self._stop.wait(0.05)
+            stop.wait(0.05)
             return
         t0 = time.monotonic()
         successes = 0
         dead = False                 # ECU/hat yok ya da oturum geçersiz (okumayı kes)
         for key in wanted:
-            if self._stop.is_set():
+            if stop.is_set():
                 return
             address, ext, size = key
             data, err = None, None
             try:
-                data = self._client.read_memory(address, size, ext)
+                data = client.read_memory(address, size, ext)
                 successes += 1
                 cb = self.on_read
                 if cb is not None:
@@ -361,6 +376,8 @@ class CcpSession:
                     dead = True
             except Exception as exc:
                 err, dead = exc, True        # bus yazma hatası
+            if stop.is_set():             # oturum kapatıldı/yeniden başlatıldı: eski sonucu önbelleğe yazma
+                return
             with self._lock:
                 self._cache[key] = (data, err, time.monotonic())
             if dead:
@@ -375,4 +392,4 @@ class CcpSession:
             self._consec_fail = 0
         spent = (time.monotonic() - t0) * 1000.0
         self.round_ms = 0.7 * self.round_ms + 0.3 * spent if self.round_ms else spent
-        self._stop.wait(MIN_ROUND_S)
+        stop.wait(MIN_ROUND_S)
