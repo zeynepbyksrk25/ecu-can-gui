@@ -23,6 +23,7 @@ from app.dashboard_config import (
 from app.sim_interface import FLIGHT_DEFS, auto_match
 from app.ui.dark_theme import dark_qss
 from app.ui.dash_widgets import DK_CYAN, IconLabel
+from app.ui.noscroll import no_wheel
 
 
 def a2l_names(summary) -> list:
@@ -82,6 +83,8 @@ class BindingEditor(QWidget):
         self.name.setEditable(True)
         self.name.setInsertPolicy(QComboBox.NoInsert)
         self.name.setMinimumWidth(110)
+        # Sayfa tekerlekle kaydırılırken üzerinden geçilen kutunun eşleşmesi değişmesin
+        no_wheel(self.source, self.name)
         lay.addWidget(self.source)
         lay.addWidget(self.name, 1)
         self._reload()
