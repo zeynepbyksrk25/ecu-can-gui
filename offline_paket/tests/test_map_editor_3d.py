@@ -27,7 +27,7 @@ def test_layout_has_spreadsheet_mesh_contour_and_data_source(qapp):
     doc = tab.open_characteristic(_map())
     doc.set_grid_from_ecu([[1, 2, 3], [4, 5, 6]])
     assert doc.mesh_panel is not None and doc.contour_panel is not None
-    assert doc.heatmap_checkbox.isChecked()
+    assert not doc.heatmap_checkbox.isChecked()
     assert doc.source_table.rowCount() == 3                      # Z + eksen X + eksen Y
     assert doc.mesh.z == [[1, 2, 3], [4, 5, 6]] and doc.mesh.xs == [1.0, 2.0, 3.0] and doc.mesh.ys == [10.0, 20.0]
     assert doc.mesh.labels == ("X", "Y (rpm)", "Z (%)")
@@ -99,3 +99,21 @@ def test_curve_and_partial_grid_render_without_errors(qapp):
     cur.mesh.grab()
     mp.table.item(0, 0).setText("7")
     mp.mesh.grab()
+
+
+def test_matlab_style_headers_expression_and_plain_cells(qapp):
+    from app.ui.map_editor_tab import MapEditorTab
+    doc = MapEditorTab().open_characteristic(_map())
+    doc.set_grid_from_ecu([[1, 2, 3], [4, 5, 6]])
+    assert not doc.heatmap_checkbox.isChecked()
+    assert doc.table.horizontalHeader().sizeHint().height() > doc.table.verticalHeader().defaultSectionSize()
+    doc.table.horizontalHeader().grab()
+    doc.table.verticalHeader().grab()
+    doc.table.setCurrentCell(0, 0)
+    for rc in ((0, 0), (1, 1)):
+        doc.table.item(*rc).setSelected(True)
+    doc.expr_edit.setText("x*10+1")
+    assert doc.apply_expression() == (2, 0)
+    assert doc.current_grid() == [[11, 2, 3], [4, 51, 6]]
+    doc.expr_edit.setText("__import__('os')")
+    assert doc.apply_expression() == (0, 0) and doc.current_grid()[0][0] == 11

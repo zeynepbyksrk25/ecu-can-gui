@@ -19,13 +19,14 @@ import pyqtgraph as pg
 
 from app import theme
 from app.ui.dash_widgets import make_card
+from app.ui.lookup_headers import apply_lookup_style
 from app.ui.mesh3d import Mesh3DWidget, parula, parula_lut
 from app.ccp.mapio import grid_shape as _grid_shape
 
 from PySide6.QtCore import QItemSelectionModel, Qt, Signal
 from PySide6.QtGui import QColor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QAbstractItemView, QApplication, QCheckBox, QFrame, QHBoxLayout,
+    QAbstractItemView, QApplication, QCheckBox, QComboBox, QFrame, QHBoxLayout,
     QLabel, QLineEdit, QPushButton, QSplitter, QTableWidget,
     QTableWidgetItem, QTabWidget, QTreeWidgetItem,
     QVBoxLayout, QWidget, QHeaderView,
@@ -55,6 +56,28 @@ def _parse_number(text) -> float | None:
 
 def _fmt(v: float | None) -> str:
     return PLACEHOLDER if v is None else f"{v:.10g}"
+
+
+class _VerticalLabel(QWidget):
+    """Dikey yazılmış eksen adı (MATLAB'daki sol kenar düğmesi gibi)."""
+
+    def __init__(self, text: str):
+        super().__init__()
+        self._text = text
+        self.setFixedWidth(26)
+        self.setMinimumHeight(60)
+
+    def paintEvent(self, _ev):
+        from PySide6.QtGui import QPainter, QPen
+        p = QPainter(self)
+        p.setPen(QPen(QColor(theme.BORDER)))
+        p.setBrush(QColor(theme.SURFACE_SUBTLE))
+        p.drawRoundedRect(2, 4, self.width() - 5, self.height() - 8, 6, 6)
+        p.setPen(QColor(theme.HEAD))
+        p.translate(self.width() / 2 + 4, self.height() / 2)
+        p.rotate(-90)
+        p.drawText(-self.height() // 2, -self.width() // 2, self.height(), self.width(), Qt.AlignCenter, self._text)
+        p.end()
 
 
 class MapDocument(QWidget):
@@ -129,7 +152,6 @@ class MapDocument(QWidget):
         self.redo_button.clicked.connect(self.redo)
 
         self.heatmap_checkbox = QCheckBox("Isı haritası")
-        self.heatmap_checkbox.setChecked(True)          # MATLAB Lookup Table Editor gibi varsayılan açık
         self.heatmap_checkbox.toggled.connect(self._refresh_cell_colors)
         self.mesh_checkbox = QCheckBox("Mesh (3B)")
         self.mesh_checkbox.setChecked(True)
@@ -199,10 +221,7 @@ class MapDocument(QWidget):
         # --- Sol taraf: Spreadsheet (X üstte, Y solda, Z hücrelerde) ---
         self.table = QTableWidget()
         self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
-        # Eksen değerleri (başlıklar) Lookup penceresindeki gibi gri zeminde, kalın
-        hdr_css = theme.paint("QHeaderView::section { background:@@LINE_SOFT@@; color:@@HEAD@@; font-weight:bold; padding:3px 8px; border:1px solid @@BORDER@@; }")
-        self.table.horizontalHeader().setStyleSheet(hdr_css)
-        self.table.verticalHeader().setStyleSheet(hdr_css)
+        apply_lookup_style(self.table)   # MATLAB: gri indeks satırı/sütunu + kalın eksen değerleri
         self.table.setSelectionBehavior(QAbstractItemView.SelectItems)
         self.table.itemChanged.connect(self._on_item_changed)
         self.table.itemSelectionChanged.connect(self._on_selection_changed)
@@ -216,7 +235,37 @@ class MapDocument(QWidget):
         self.axis_label = QLabel(self._axis_summary())
         self.axis_label.setWordWrap(True)
         self.axis_label.setStyleSheet(f"color:{theme.INK_2}; font-size:11px;")
-        sheet = self._plot_panel("Spreadsheet", self.table, extra=self.axis_label)
+
+        # Üst: nesne adı + MATLAB ifadesi satırı, altında eksen seçici (MATLAB Spreadsheet sekmesi)
+        self.name_combo = QComboBox()
+        self.name_combo.addItem(c.name)
+        self.name_combo.setEnabled(False)
+        self.expr_edit = QLineEdit()
+        self.expr_edit.setPlaceholderText("İfade yazıp Enter'a basın (seçili hücrelere; x = hücrenin değeri, ör. x*1.1+2)")
+        self.expr_edit.returnPressed.connect(self.apply_expression)
+        expr_row = QHBoxLayout()
+        expr_row.addWidget(self.name_combo, 1)
+        expr_row.addWidget(self.expr_edit, 3)
+        self.axis_combo = QComboBox()
+        names = self._axis_names()
+        self.axis_combo.addItems([names[1] if c.kind == "MAP" else names[0]])
+        self.axis_combo.setEnabled(False)
+        self.axis_combo.setMaximumWidth(200)
+        top = QWidget()
+        tl = QVBoxLayout(top)
+        tl.setContentsMargins(6, 6, 6, 4)
+        tl.addLayout(expr_row)
+        tl.addWidget(self.axis_combo)
+        tl.addWidget(self.axis_label)
+
+        # Sol kenarda dikey eksen adı (MATLAB'daki "SpeedVect" düğmesi)
+        self.side_label = _VerticalLabel(names[1] if c.kind == "MAP" else names[2])
+        body = QWidget()
+        bl = QHBoxLayout(body)
+        bl.setContentsMargins(4, 0, 0, 0)
+        bl.addWidget(self.side_label)
+        bl.addWidget(self.table, 1)
+        sheet = self._plot_panel("Spreadsheet", body, extra=top)
 
         self.main_splitter = QSplitter(Qt.Horizontal)
         self.main_splitter.addWidget(sheet)
@@ -224,7 +273,7 @@ class MapDocument(QWidget):
         self.main_splitter.setChildrenCollapsible(False)
         self.main_splitter.setStretchFactor(0, 3)
         self.main_splitter.setStretchFactor(1, 4)
-        self.main_splitter.setSizes([480, 720])
+        self.main_splitter.setSizes([600, 600])
         self.plot_splitter.setSizes([320, 220])
 
         # --- Veri kaynağı tablosu (MATLAB "Data Source") ---
@@ -359,7 +408,7 @@ class MapDocument(QWidget):
         for r in range(rows):
             for col in range(cols):
                 item = QTableWidgetItem(PLACEHOLDER)
-                item.setTextAlignment(Qt.AlignCenter)
+                item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 self.table.setItem(r, col, item)
         self._updating_table = False
 
@@ -683,7 +732,7 @@ class MapDocument(QWidget):
                     if r >= self.table.rowCount() or c >= self.table.columnCount():
                         continue
                     item = QTableWidgetItem()
-                    item.setTextAlignment(Qt.AlignCenter)
+                    item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
                     self.table.setItem(r, c, item)
                 item.setText(_fmt(val))
         self._updating_table = False
@@ -757,7 +806,7 @@ class MapDocument(QWidget):
                     item.setBackground(color)
                     item.setForeground(HEAT_MODIFIED_FG if modified else QColor(theme.INK))
                 else:
-                    item.setBackground(MODIFIED_BG if modified else QColor(theme.paint("@@SURFACE_SUBTLE@@")))
+                    item.setBackground(MODIFIED_BG if modified else QColor(theme.SURFACE))
                     item.setForeground(MODIFIED_FG if modified else QColor(theme.INK))
                 font = item.font()
                 font.setBold(modified)
@@ -798,6 +847,44 @@ class MapDocument(QWidget):
                 new = cur * operand
             else:  # pct
                 new = cur * (1.0 + operand / 100.0)
+            if not math.isfinite(new):
+                skipped += 1
+                continue
+            item.setText(_fmt(new))
+            updated += 1
+        self._updating_table = False
+        self._push_history()
+        self._report_bulk(updated, skipped)
+        return updated, skipped
+
+    def apply_expression(self) -> tuple:
+        """Üstteki ifade kutusu: seçili hücrelere ifadeyi uygular (x = hücrenin değeri). TEK undo adımı."""
+        text = self.expr_edit.text().strip()
+        cells = self._selected_cells()
+        if not text or not cells:
+            self._set_status("Önce hücre seçin ve bir ifade yazın.", ok=False)
+            return 0, 0
+        env = {k: getattr(math, k) for k in ("sqrt", "sin", "cos", "tan", "exp", "log", "log10", "pi", "floor", "ceil")}
+        env.update(abs=abs, min=min, max=max, round=round)
+        try:
+            code = compile(text, "<ifade>", "eval")
+        except SyntaxError:
+            self._set_status("İfade geçersiz.", ok=False)
+            return 0, 0
+        if any(n.startswith("__") for n in code.co_names):
+            self._set_status("İfade geçersiz.", ok=False)
+            return 0, 0
+        updated = skipped = 0
+        self._updating_table = True
+        for r, c in cells:
+            item = self.table.item(r, c)
+            cur = _parse_number(item.text()) if item else None
+            try:
+                new = eval(code, {"__builtins__": {}}, dict(env, x=cur if cur is not None else 0.0))   # noqa: S307
+                new = float(new)
+            except Exception:
+                skipped += 1
+                continue
             if not math.isfinite(new):
                 skipped += 1
                 continue
