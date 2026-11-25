@@ -61,9 +61,7 @@ SUB_MODE_COLORS = {"OFF": theme.SLATE, "ON": theme.OK, "COOLDOWN": "#2A8FBD", "S
                    "ABORT": theme.DANGER, "MAX": theme.WARN}
 GAUGE_LIMIT_TEXT = {"RPM": "OVERSPEED", "Tt5": "AŞIRI SICAK"}
 
-# Motor Parametreleri ızgarası (12 sütun). Üst satır: RPM (5) + İtki (5) + PLA (2). Kalan 6 küçük kart:
-#   "A": alt satırda 6 kart x 2 sütun (yükseklik değişmez)   "B": iki satırda 3'er kart x 4 sütun
-GAUGE_LAYOUT = "A"
+# Motor Parametreleri ızgarası (12 sütun): üst satır RPM (5) + İtki (5) + PLA (2); alt satır 6 küçük kart x 2 sütun.
 
 
 def _gauge_cell(i: int) -> tuple:
@@ -71,10 +69,7 @@ def _gauge_cell(i: int) -> tuple:
     if i < 3:
         col, span = ((0, 5), (5, 5), (10, 2))[i]
         return 0, col, span
-    j = i - 3
-    if GAUGE_LAYOUT == "B":
-        return 1 + j // 3, (j % 3) * 4, 4
-    return 1, j * 2, 2
+    return 1, (i - 3) * 2, 2
 GAUGE_DISPLAY_LABELS = {key: key for key in GAUGE_KEYS}
 # Kısa başlık: "Fp Başlangıç" kartı 142 px asgari genişlik ister, diğerleri 112 px; 6 kart yan yana sığsın diye kısa.
 # Tam ad kartın başlığında fare üstüne gelince görünür (SENSOR_LABELS).
@@ -490,8 +485,7 @@ class DashboardTab(QWidget):
         for c in range(12):
             grid.setColumnStretch(c, 1)
         grid.setRowStretch(0, 3)
-        for r in range(1, 3 if GAUGE_LAYOUT == "B" else 2):
-            grid.setRowStretch(r, 2)
+        grid.setRowStretch(1, 2)
         lay.addLayout(grid, 1)
         self.refresh_sensor_health()
         return card
