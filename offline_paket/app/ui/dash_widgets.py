@@ -34,7 +34,7 @@ ACCENTS = {"blue": theme.BLUE, "green": theme.OK, "orange": theme.ORANGE, "teal"
            "purple": theme.PURPLE, "slate": theme.MUTED}
 # Her gösterge kendi renginde: Canlı Trend'deki seri renkleriyle uyumlu (RPM teal, Tt5 turuncu, FP mor ...).
 GAUGE_ACCENT = {"RPM": theme.ACCENT, "İtki": theme.BLUE, "PLA": theme.OK, "Tt5": theme.ORANGE,
-                "FP": theme.PURPLE, "FT": theme.WARN, "Ps2": "#0E8C7C", "Ps3": "#D6336C"}
+                "FP_start": theme.PURPLE, "FP_main": "#9D7AE8", "FT": theme.WARN, "Ps2": "#0E8C7C", "Ps3": "#D6336C"}
 DK_ORANGE = theme.ORANGE
 # Büyük göstergelerde renk geçişli yay (yalnızca görünüm).
 GAUGE_GRADIENT = {"RPM": [(0.0, theme.OK), (0.5, theme.WARN), (0.85, theme.DANGER), (1.0, theme.DANGER)],
@@ -86,7 +86,7 @@ ICONS = {
     "g_ps2": "M3 10a7 7 0 1 0 14 0a7 7 0 1 0-14 0M10 10l3-3M6 12.5h8",
     "g_ps3": "M3 10a7 7 0 1 0 14 0a7 7 0 1 0-14 0M10 10l3-3M6 12.5h8M10 3v2",
 }
-GAUGE_ICON = {"RPM": "g_rpm", "İtki": "g_thrust", "PLA": "g_pla", "Tt5": "g_tt5", "FP": "g_fp", "FT": "g_ft",
+GAUGE_ICON = {"RPM": "g_rpm", "İtki": "g_thrust", "PLA": "g_pla", "Tt5": "g_tt5", "FP_start": "g_fp", "FP_main": "g_fp", "FT": "g_ft",
               "Ps2": "g_ps2", "Ps3": "g_ps3"}
 
 _pix_cache: dict = {}
@@ -654,6 +654,9 @@ class GaugeCard(QFrame):
             self.gauge = RingGauge(minimum, maximum, unit)
         else:
             self.gauge = DashGauge(minimum, maximum, unit)
+            if variant == "small":
+                # 6 küçük kart yan yana sığsın (Ana Sayfa asgari genişliği artmasın); çizim ölçeklenir
+                self.gauge.setMinimumSize(70, 52)
             if variant == "big":
                 self.gauge.set_style(big=True, scale_labels=True, gradient=GAUGE_GRADIENT.get(key))
         self.gauge.set_accent(self._accent)

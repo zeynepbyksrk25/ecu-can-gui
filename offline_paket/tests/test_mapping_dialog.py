@@ -176,3 +176,12 @@ def test_editors_share_one_name_model_per_source_and_use_uniform_rows(qapp):
     a.set_binding(Binding(SOURCE_CAN, "ENG", "tt2"))
     assert a.name.model() is pools[SOURCE_CAN] and a.binding() == Binding(SOURCE_CAN, "ENG", "tt2")
     assert a.name.findText("ENG.rpm") > 0 and a.name.itemText(0) == ""
+
+
+def test_mapping_dialog_has_a_row_for_each_fuel_pressure_gauge(dlg):
+    w, d = dlg
+    assert {"FP_start", "FP_main"} <= set(d.sensor_ed) and "FP" not in d.sensor_ed
+    d.sensor_ed["FP_start"]["value"].set_binding(Binding(SOURCE_A2L, a2l_name="FP_bar"))
+    cfg = d.result_config()
+    assert cfg.sensors["FP_start"].value == Binding(SOURCE_A2L, a2l_name="FP_bar")
+    assert not cfg.sensors["FP_main"].value.is_set

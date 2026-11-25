@@ -79,7 +79,7 @@ Sürücü kurulduktan sonra adaptörü takıp Aygıt Yöneticisi'nde
 
 | Sekme | Ne işe yarar |
 |---|---|
-| **Ana Sayfa** | Annunciator lamba şeridi (RED STOP LAMP/MIL LAMP/vb.), Motor Komutları, 8 ibre göstergeli Motor Parametreleri (RPM/İtki/PLA/Tt5/FP/FT/Ps2/Tt2), Sensör Durumu ve Arıza Tablosu, gömülü canlı grafik, **Eyleyiciler** (manuel override anahtarları — MATLAB/Simulink ile donanım testi için). Aşağıdaki "Ayarlar" bölümüne bakın — bu sekmenin çalışması için DBC/A2L eşlemelerini bir kere girmeniz gerekir. |
+| **Ana Sayfa** | Annunciator lamba şeridi (RED STOP LAMP/MIL LAMP/vb.), Motor Komutları, 9 ibre göstergeli Motor Parametreleri (RPM/İtki/PLA/Tt5/Başlangıç Yakıt Basıncı/Ana Yakıt Basıncı/FT/Ps2/Ps3), Sensör Durumu ve Arıza Tablosu, gömülü canlı grafik, **Eyleyiciler** (manuel override anahtarları — MATLAB/Simulink ile donanım testi için). Aşağıdaki "Ayarlar" bölümüne bakın — bu sekmenin çalışması için DBC/A2L eşlemelerini bir kere girmeniz gerekir. |
 | **CAN Monitor** | Bağlantı (arayüz/kanal/baudrate — arayüz seçimi "▸ Gelişmiş ayarlar" arkasında, varsayılan arayüz `virtual` — **gerçek test için `pcan` seçin**), İzleme (gelen/giden CAN trafiği), Gönderim (manuel/periyodik mesaj + DBC yükleme — Ana Sayfa'daki motor komutları ve eyleyici override'ları da aynı DBC'yi kullanır), Log (CAN trafiğini CSV'ye kaydetme) — tek sekmede birleşik |
 | **Kalibrasyon** | İç sekmeler (5): **A2L** (A2L dosyası yükleyip Measurement/Characteristic nesnelerini gezme; kalibrasyonun ilk adımı), **CCP** (canlı değer okuma, RAM'e geçici yazma, **Yönetici rolüyle flaşa kalıcı yazma**), **Harita Editörü** (1D/2D kalibrasyon tabloları, geri al/yinele, ısı haritası), **Parametre Listesi** (adres/hex ile serbest satırlar, toplu yaz/oku), **Geçmiş** (RAM ve FLAŞ yazımlarının eski/yeni değerleri, geri alma — FLAŞ kaydı uygulama kapansa bile kalıcıdır) |
 | **Tanılama ve Oturum** | CCP bağlantı testi + ham DIAG_SERVICE isteği, CAN bağlantı sağlığı, test oturumu (başlat/bitir, PDF test raporu) ve TEK olay günlüğü ("Tümü / Yalnız hatalar" süzgeci) — birleşik |
@@ -130,7 +130,7 @@ Ana Sayfa'daki "Ayarlar" panelinden şunları girip **Ayarları Kaydet**'e bası
   ve gönderilecek değer (örn. mesaj `ENGINE_CMD`, sinyal `Start_Req`, değer `1`).
   Motor komutları, Gönderim sekmesinde yüklediğiniz DBC dosyasını kullanır —
   önce orada DBC'yi yükleyin.
-- **RPM, İtki, PLA, Tt5, FP, FT, Ps2, Tt2** ve Ortam Koşulları (Batarya
+- **RPM, İtki, PLA, Tt5, Başlangıç Yakıt Basıncı (FPs), Ana Yakıt Basıncı (FPm), FT, Ps2, Ps3** ve Ortam Koşulları (Batarya
   Gerilimi, Ortam Basıncı, Atmosferik Sıcaklık, Tt0): gerçek A2L
   dosyanızdaki tam Measurement adı (örn. Tt2 için A2L'de `T_T2_degC` gibi
   farklı bir isim kayıtlı olabilir).

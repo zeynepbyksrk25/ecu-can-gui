@@ -27,7 +27,7 @@ from PySide6.QtWidgets import QLineEdit
 from app import theme
 from app.dashboard_config import (
     ACTUATOR_KEYS, ACTUATOR_KINDS, CONTROL_KEYS, EYLEYICI_KEYS, GAUGE_KEYS, MODE_KEY, MOTOR_COMMAND_KEYS, SUB_MODE_KEYS,
-    SUB_MODE_TITLES, ACTIVE_SUB_MODES, SOURCE_A2L, Binding, DashboardConfig, mode_name, motor_mode_name,
+    SENSOR_LABELS, SUB_MODE_TITLES, ACTIVE_SUB_MODES, SOURCE_A2L, Binding, DashboardConfig, mode_name, motor_mode_name,
 )
 from app.ui.dash_widgets import (  # noqa: F401  (ToggleSwitch: eski import yolu)
     ACCENTS, DK_CYAN, DK_MUT, DashGauge, GaugeCard, IconLabel, LockButton, MotorToggle, ToggleSwitch,
@@ -47,7 +47,8 @@ GAUGE_RANGES = {
     "İtki": (0.0, 270.0, "N", 255.0),
     "PLA": (0.0, 100.0, "%", None),
     "Tt5": (-40.0, 1200.0, "°C", 900.0),
-    "FP": (0.0, 5.0, "bar", 4.5),
+    "FP_start": (0.0, 10.0, "bar", 5.0),
+    "FP_main": (0.0, 10.0, "bar", 5.0),
     "FT": (-30.0, 40.0, "°C", None),
     "Ps2": (0.0, 2.5, "bar", 1.6),
     "Ps3": (0.0, 5.0, "bar", None),
@@ -59,8 +60,21 @@ MODE_COLORS = {0: theme.SLATE, 1: theme.BLUE, 2: theme.WARN, 3: theme.ACCENT, 4:
 SUB_MODE_COLORS = {"OFF": theme.SLATE, "ON": theme.OK, "COOLDOWN": "#2A8FBD", "SUCCESS": theme.OK,
                    "ABORT": theme.DANGER, "MAX": theme.WARN}
 GAUGE_LIMIT_TEXT = {"RPM": "OVERSPEED", "Tt5": "AŞIRI SICAK"}
+
+# Motor Parametreleri ızgarası (12 sütun): üst satır RPM (5) + İtki (5) + PLA (2); alt satır 6 küçük kart x 2 sütun.
+
+
+def _gauge_cell(i: int) -> tuple:
+    """i. göstergenin (satır, sütun, sütun sayısı) hücresi."""
+    if i < 3:
+        col, span = ((0, 5), (5, 5), (10, 2))[i]
+        return 0, col, span
+    return 1, (i - 3) * 2, 2
 GAUGE_DISPLAY_LABELS = {key: key for key in GAUGE_KEYS}
-GAUGE_DISPLAY_LABELS["FP"] = "Fp"
+# Kısa başlık: "Fp Başlangıç" kartı 142 px asgari genişlik ister, diğerleri 112 px; 6 kart yan yana sığsın diye kısa.
+# Tam ad kartın başlığında fare üstüne gelince görünür (SENSOR_LABELS).
+GAUGE_DISPLAY_LABELS["FP_start"] = "Fp Başl."
+GAUGE_DISPLAY_LABELS["FP_main"] = "Fp Ana"
 GAUGE_DISPLAY_LABELS["FT"] = "Ft"
 THROTTLE_SEND_MS = 100      # PLA sürgüsü sürüklenirken en fazla 10 Hz komut
 
@@ -417,7 +431,7 @@ class DashboardTab(QWidget):
             self.events_list.takeItem(self.events_list.count() - 1)
 
     # ======================================================================
-    # Motor Parametreleri (8 gösterge) + sensör sağlığı
+    # Motor Parametreleri (9 gösterge) + sensör sağlığı
     # ======================================================================
     def _build_gauges_card(self) -> QFrame:
         card = QFrame()
@@ -464,13 +478,11 @@ class DashboardTab(QWidget):
             gc = GaugeCard(key, GAUGE_DISPLAY_LABELS.get(key, key), lo, hi, unit,
                            red_limit=red, limit_text=GAUGE_LIMIT_TEXT.get(key, "LİMİT"), variant=variant)
             gc.lock.setVisible(False)       # sensörlerde manuel değer / switch yok: yalnızca Eyleyicilerde
+            gc.title.setToolTip(SENSOR_LABELS.get(key, key))
             self._gauge_cards[key] = gc
-            if i < 3:       # üst satır: RPM (4) + İtki (4) + PLA (2) sütun; alt satır: 5 kart x 2 sütun
-                col, span = ((0, 4), (4, 4), (8, 2))[i]
-                grid.addWidget(gc, 0, col, 1, span)
-            else:
-                grid.addWidget(gc, 1, (i - 3) * 2, 1, 2)
-        for c in range(10):
+            row, col, span = _gauge_cell(i)
+            grid.addWidget(gc, row, col, 1, span)
+        for c in range(12):
             grid.setColumnStretch(c, 1)
         grid.setRowStretch(0, 3)
         grid.setRowStretch(1, 2)
