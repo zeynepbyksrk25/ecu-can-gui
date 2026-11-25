@@ -871,6 +871,10 @@ class WorkspaceTab(QWidget):
         if sid != existing and sid in self.hub.derived:
             QMessageBox.warning(self, "Matematik sinyali", f"'{name}' zaten var.")
             return
+        if self.hub.would_cycle(sid, spec):
+            QMessageBox.warning(self, "Matematik sinyali",
+                                f"'{name}' kendisine bağımlı olurdu (döngüsel bağımlılık); tanım kaydedilmedi.")
+            return
         if existing and sid != existing:            # yeniden adlandırma
             for p in self._panels:
                 if existing in p.signals_ids:

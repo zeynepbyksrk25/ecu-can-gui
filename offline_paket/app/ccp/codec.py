@@ -34,6 +34,10 @@ class UnsupportedConversionError(ValueError):
     """COMPU_METHOD ters çevrilemedi: yazma güvenli değil."""
 
 
+class ConversionError(ValueError):
+    """COMPU_METHOD ham -> fiziksel dönüşümü başarısız: ham değer fiziksel değer gibi GÖSTERİLMEZ."""
+
+
 class WriteValidationError(ValueError):
     """Yazılmak istenen değer güvenlik kontrolünden geçemedi."""
 
@@ -131,15 +135,19 @@ def _converter(compu_method):
 
 def raw_to_physical(compu_method, raw):
     """Ham (ECU'dan okunan) değeri COMPU_METHOD ile fiziksel değere çevirir.
-    compu_method None ise (NO_COMPU_METHOD) ya da dönüşüm desteklenmiyorsa
-    ham değeri aynen döndürür."""
+    compu_method None ise (NO_COMPU_METHOD) ham değer aynen döner. TAB_VERB (sayı -> metin) tablolarında
+    sayısal karşılık yoktur; ham durum kodu aynen döner (Motor Modu gibi sayılar bu kodla yorumlanır).
+    Diğer dönüşüm türlerinde (LINEAR, RAT_FUNC, TAB_INTP...) dönüşüm başarısız olursa ConversionError fırlar:
+    ham sayı birimiyle birlikte fiziksel değer gibi gösterilirse (örn. 2500 yerine 2,5 bar) yanıltır."""
     if compu_method is None:
         return raw
     try:
         return float(_converter(compu_method).int_to_physical(raw))
     except Exception as exc:
-        log.warning("COMPU_METHOD ham->fiziksel dönüşümü başarısız (%s); ham değer gösteriliyor.", exc)
-        return raw
+        if str(getattr(compu_method, "conversionType", "")).upper() == "TAB_VERB":
+            return raw
+        log.warning("COMPU_METHOD ham->fiziksel dönüşümü başarısız (%s)", exc)
+        raise ConversionError(f"COMPU_METHOD dönüşümü başarısız (ham değer {raw}): {exc}") from exc
 
 
 def physical_to_raw(compu_method, phys):

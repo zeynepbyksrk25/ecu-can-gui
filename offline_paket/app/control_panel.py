@@ -391,6 +391,7 @@ class TxScheduler(QObject):
         self.frames_sent = 0
         self.errors = 0
         self._failing: set = set()          # şu an hata dizisinde olan mesajlar
+        self._nonstrict: set = set()        # DBC min/max dışı değer taşıyan (güvenlik komutu) mesajlar
 
     # -- durum --
     def running_messages(self) -> set:
@@ -405,10 +406,15 @@ class TxScheduler(QObject):
 
     # -- kontrol --
     def set_values(self, message: str, values: dict, cycle_ms: int | None = None,
-                   start: bool = True) -> tuple[int, bytes]:
+                   start: bool = True, strict: bool = True) -> tuple[int, bytes]:
         """Sinyal değerlerini günceller ve HEMEN bir kare gönderir; mesaj
         zaten periyodik gönderiliyorsa yeni değerlerle sürer, değilse (start)
-        periyodik göndermeyi başlatır. (frame_id, data) döner."""
+        periyodik göndermeyi başlatır. (frame_id, data) döner. ``strict=False``: DBC min/max dışı değer de
+        kodlanır (yalnız güvenlik komutları); bit genişliğine sığmayan değer yine hata verir."""
+        if strict:
+            self._nonstrict.discard(message)
+        else:
+            self._nonstrict.add(message)
         cur = self._values.setdefault(message, {})
         cur.update(values)
         frame = self._send_now(message)          # hata -> istisna çağırana gider
@@ -449,7 +455,7 @@ class TxScheduler(QObject):
     def _encode(self, message: str) -> tuple:
         merged = self._defaults_for(message)
         merged.update(self._values.get(message, {}))
-        return self._dbc.encode(message, merged)
+        return self._dbc.encode(message, merged, strict=message not in self._nonstrict)
 
     def _send_now(self, message: str) -> tuple[int, bytes]:
         """Güncel değerlerle kareyi kodlar, periyodik gönderimin kullanacağı hazır kareyi günceller ve
