@@ -20,8 +20,9 @@ from dataclasses import asdict, dataclass, field
 
 DEFAULT_PATH = "dashboard_config.json"
 
-# Motor Parametreleri panelindeki 8 gösterge (= 8 sensör).
-GAUGE_KEYS = ["RPM", "İtki", "PLA", "Tt5", "FP", "FT", "Ps2", "Ps3"]
+# Motor Parametreleri panelindeki 9 gösterge (= 9 sensör). Yakıt basıncı ikiye ayrıldı:
+# FP_start = Başlangıç Yakıt Basıncı, FP_main = Ana Yakıt Basıncı (eski tek "FP" göstergesi kaldırıldı).
+GAUGE_KEYS = ["RPM", "İtki", "PLA", "Tt5", "FP_start", "FP_main", "FT", "Ps2", "Ps3"]
 # Motor Modu: göstergesi yoktur (başlıkta çip olarak görünür) ama sensör gibi CAN/A2L'den eşlenir.
 MODE_KEY = "motor_mode"
 # Alt modlar (Starter / Start / Run / Stop): Motor Modu gibi göstergesiz, CAN/A2L'den eşlenen sayısal durum slotları.
@@ -62,7 +63,8 @@ def motor_mode_name(value) -> str:
 
 SENSOR_LABELS = {
     "RPM": "Devir (RPM)", "İtki": "İtki", "PLA": "Gaz Kolu (PLA)", "Tt5": "Egzoz Sıcaklığı (Tt5)",
-    "FP": "Yakıt Basıncı (FP)", "FT": "Yakıt Sıcaklığı (FT)", "Ps2": "Giriş Basıncı (Ps2)",
+    "FP_start": "Başlangıç Yakıt Basıncı (FPs)", "FP_main": "Ana Yakıt Basıncı (FPm)",
+    "FT": "Yakıt Sıcaklığı (FT)", "Ps2": "Giriş Basıncı (Ps2)",
     "Ps3": "Basınç (Ps3)",
     "motor_mode": "Motor Modu",
     "starter_mode": "Starter Modu", "start_mode": "Start Modu", "run_mode": "Run Modu", "stop_mode": "Stop Modu",
@@ -106,7 +108,7 @@ MOTOR_COMMAND_LABELS = {
     "estop": "Acil Durdurma",
 }
 
-DEFAULT_GRAPH_SIGNALS = ["g:RPM", "g:Tt5", "g:FP"]
+DEFAULT_GRAPH_SIGNALS = ["g:RPM", "g:Tt5", "g:FP_main"]
 
 SOURCE_CAN = "can"
 SOURCE_A2L = "a2l"
@@ -241,10 +243,11 @@ def _float(v, default=1.0) -> float:
         return default
 
 
-# Eski sürüm (measurement_* alanları) -> yeni sensör anahtarı.
+# Eski sürüm (measurement_* alanları) -> yeni sensör anahtarı. Eski tek "FP" (measurement_fp) iki yeni yakıt
+# basıncı göstergesinden hiçbirine taşınmaz: ikisi de boş başlar.
 _LEGACY_GAUGE_ATTR = {
     "RPM": "measurement_rpm", "İtki": "measurement_itki", "PLA": "measurement_pla",
-    "Tt5": "measurement_tt5", "FP": "measurement_fp", "FT": "measurement_ft",
+    "Tt5": "measurement_tt5", "FT": "measurement_ft",
     "Ps2": "measurement_ps2", "Ps3": "measurement_ps3",
 }
 
@@ -300,7 +303,9 @@ def config_from_dict(raw: dict) -> DashboardConfig:
 
     sigs = raw.get("graph_signals")
     if isinstance(sigs, list):
-        cfg.graph_signals = [s for s in sigs if isinstance(s, str) and s]
+        # Artık var olmayan gösterge anahtarları (eski "g:FP") süzülür; yoksa grafikte verisiz hayalet seri kalır.
+        cfg.graph_signals = [s for s in sigs if isinstance(s, str) and s
+                             and (not s.startswith("g:") or s[2:] in GAUGE_KEYS)]
     return strip_unused_switches(cfg)
 
 
