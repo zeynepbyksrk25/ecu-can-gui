@@ -81,23 +81,16 @@ def _mapped_locked(win, monkeypatch, answer, ok=True):
     return dt, sent, asked
 
 
-def test_second_press_confirm_yes_writes_zero_no_motor_start(win, monkeypatch):
-    dt, sent, asked = _mapped_locked(win, monkeypatch, QMessageBox.Yes)
+def test_second_press_writes_zero_without_asking_and_no_motor_start(win, monkeypatch):
+    dt, sent, asked = _mapped_locked(win, monkeypatch, QMessageBox.No)       # onay penceresi olsaydı "Hayır" derdi
     dt.estop_button.click()                      # 2. basış
-    assert len(asked) == 1
+    assert asked == [], "onay SORULMAMALI"
     assert [v for _, v, _ in sent] == [0.0] and sent[0][2] is True      # yalnız 0, güvenlik yolu; Start yok
     assert not dt.estop_button.isChecked()
-
-
-def test_second_press_confirm_no_keeps_latched_and_sends_nothing(win, monkeypatch):
-    dt, sent, asked = _mapped_locked(win, monkeypatch, QMessageBox.No)
-    dt.estop_button.click()
-    assert len(asked) == 1 and not sent
-    assert dt.estop_button.isChecked()
 
 
 def test_second_press_write_failure_keeps_latched(win, monkeypatch):
     dt, sent, asked = _mapped_locked(win, monkeypatch, QMessageBox.Yes, ok=False)
     dt.estop_button.click()
-    assert [v for _, v, _ in sent] == [0.0]
+    assert asked == [] and [v for _, v, _ in sent] == [0.0]
     assert dt.estop_button.isChecked()

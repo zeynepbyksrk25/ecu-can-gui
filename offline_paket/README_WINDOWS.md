@@ -172,7 +172,7 @@ uygulamada donanımla doğrulanmamıştır**. Bu yüzden:
   override kapatma yazmaları süren işin parçaları arasına ÖNCELİKLE girer. Kontrol Paneli / Ana Sayfa
   periyodik CAN gönderimi de ayrı iş parçacıklarındadır: arayüz takılsa bile kareler kesilmez. Gönderilen
   TÜM kareler (periyodik olanlar dahil) CAN Monitor'da ve CSV kaydında TX olarak görünür.
-- **Acil Durdurma 1. basışta ONAY SORMAZ** (kilitli kalır; 2. basışta onay sorulur, sinyal 0'a çekilir, Motor
+- **Acil Durdurma 1. basışta ONAY SORMAZ** (kilitli kalır; 2. basışta (OFF) onay SORULMAZ, sinyal doğrudan 0'a çekilir, Motor
   Start otomatik gitmez): tek tıkla ya da **`Ctrl+Shift+E`** ile (hangi sayfa açık olursa olsun, odak bir
   giriş kutusunda bile) gönderilir. `Ctrl+1` … `Ctrl+6` sayfalar arasında geçer. Ana düğmelerin ve durum
   göstergelerinin ekran okuyucu adları vardır.

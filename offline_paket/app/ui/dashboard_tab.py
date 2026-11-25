@@ -310,8 +310,8 @@ class DashboardTab(QWidget):
     def _on_estop_clicked(self, checked: bool = True):
         # 1. basış (checked): ONAY SORULMAZ (acil komutta fazladan tık gecikmedir); Acil Durdurma gönderilir,
         # düğme koyu kırmızıda KİLİTLİ kalır.
-        # 2. basış (unchecked): kilit hemen AÇILMAZ; MainWindow onay ister ve sinyali 0'a çeker, ancak
-        # başarılıysa ``reset_estop_latch`` ile serbest bırakır (Hayır / hata: kilitli kalır).
+        # 2. basış (unchecked): ONAY SORULMAZ; kilit hemen AÇILMAZ, MainWindow sinyali doğrudan 0'a çeker ve
+        # ancak başarılıysa ``reset_estop_latch`` ile serbest bırakır (hata: kilitli kalır).
         if checked:
             self.start_button.setEnabled(False)
             self.estop_requested.emit()
