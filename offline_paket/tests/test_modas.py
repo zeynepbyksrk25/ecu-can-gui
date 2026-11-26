@@ -195,6 +195,19 @@ def test_table_window_headers_ops_and_write_signal(qapp):
     assert not w.is_modified()
 
 
+def test_table_window_ctrl_r_restores_selection_and_corner_label(qapp):
+    from PySide6.QtWidgets import QAbstractButton
+    w = TableWindow(make_map())
+    assert w.table.findChild(QAbstractButton).text() == "Y\\X"        # Modas: sol üst köşe 'Y\X'
+    w.set_grid_from_ecu([[1, 2, 3], [4, 5, 6]])
+    w.table.item(0, 0).setText("9")
+    w.table.item(1, 2).setText("8")
+    w.table.clearSelection()
+    w.table.item(0, 0).setSelected(True)                            # yalnız (0,0) seçili
+    assert w.restore_selection() == 1                               # PDF §8: Ctrl+R
+    assert w.current_grid() == [[1, 2, 3], [4, 5, 8]]               # seçili olmayan değişiklik korunur
+
+
 def test_table_window_blocks_unverified_layouts_and_rp_view(qapp):
     bad = make_map()
     bad.axes[0].attribute = "STD_AXIS"

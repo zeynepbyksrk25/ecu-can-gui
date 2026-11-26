@@ -16,7 +16,7 @@ import math
 from PySide6.QtCore import QSize, QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QIcon, QPixmap
 from PySide6.QtWidgets import (
-    QAbstractItemView, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMdiSubWindow,
+    QAbstractButton, QAbstractItemView, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMdiSubWindow,
     QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
@@ -341,6 +341,7 @@ class TableWindow(ModasSub):
         self.table.horizontalHeader().setDefaultSectionSize(62)
         self.table.verticalHeader().setDefaultSectionSize(20)
         self._build_headers()
+        self._set_corner_label()
         for r in range(self.rows):
             for c in range(self.cols):
                 it = QTableWidgetItem("")
@@ -380,6 +381,12 @@ class TableWindow(ModasSub):
         y_ax = axes[1] if len(axes) >= 2 else None
         self.table.setHorizontalHeaderLabels(labels(x_ax, self.cols))
         self.table.setVerticalHeaderLabels(labels(y_ax, self.rows) if y_ax is not None else ["Z"] * self.rows)
+
+    def _set_corner_label(self):
+        """Modas Sport: sol üst köşe hücresi 'Y\\X' (satır ekseni \\ sütun ekseni); eğride 'X'."""
+        corner = self.table.findChild(QAbstractButton)
+        if corner is not None:
+            corner.setText("Y\\X" if len(self.characteristic.axes or []) >= 2 else "X")
 
     # ---- yetki ---------------------------------------------------------------------
     def set_allowed(self, allowed: bool):
@@ -550,15 +557,40 @@ class TableWindow(ModasSub):
             self.write_requested.emit(self)
         return changed
 
+    def restore_selection(self) -> int:
+        """Modas Ctrl+R: seçili hücreleri ECU'dan okunan (son yazılan) değerine döndürür. Değişen hücre sayısını döner."""
+        if not self.is_cell_editable() or self._original is None:
+            return 0
+        changed = 0
+        self._updating = True
+        try:
+            for r, c in self._selected():
+                orig = self._original[r][c] if r < len(self._original) and c < len(self._original[r]) else None
+                if orig is None:
+                    continue
+                cur = self._cell_value(r, c)
+                if cur is None or abs(cur - orig) > 1e-9:
+                    self.table.item(r, c).setText(format_phys(orig, 6))
+                    changed += 1
+        finally:
+            self._updating = False
+        self._refresh_pending()
+        if changed and self.is_writable() and self.is_modified():
+            self.write_requested.emit(self)
+        return changed
+
     def ask_operand(self, title: str) -> float | None:
         value, ok = QInputDialog.getDouble(self, title, "Değer:", 1.0, -1e12, 1e12, 6)
         return value if ok else None
 
     def keyPressEvent(self, event):  # noqa: N802
-        """PDF §8 tablo kısayolları: M / N artır-azalt, * çarp, / böl, + ekle, = ata, Delete (gizle değil: yok sayılır)."""
+        """PDF §8 tablo kısayolları: M / N artır-azalt, * çarp, / böl, + ekle, = ata, Ctrl+R geri yükle, Delete pencereyi kapatır."""
         key = event.key()
         table_focus = self.table.hasFocus() and self.table.state() != QAbstractItemView.EditingState
         if table_focus:
+            if key == Qt.Key_R and event.modifiers() & Qt.ControlModifier:
+                self.restore_selection()        # PDF §8: "Restore selected values" (Ctrl+R)
+                return
             if key == Qt.Key_Delete:
                 self.close()                    # PDF §8: "Remove label from view"
                 return
