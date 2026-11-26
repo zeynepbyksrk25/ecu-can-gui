@@ -15,7 +15,8 @@ def test_compare_scalar_grid_and_missing_labels():
 def test_store_roundtrip_filters_invalid_and_survives_corruption(tmp_path):
     st = DatasetStore(str(tmp_path))
     assert not st.exists() and st.load() is None
-    assert st.save({"A": 1.5, "T": [[1, 2], [3, 4]], "bad": "x", "n": None, "b": True, "e": []})
+    assert st.save({"A": 1.5, "T": [[1, 2], [3, 4]], "bad": "x", "n": None, "b": True, "e": [], "nan": float("nan"),
+                    "tn": [[1, float("inf")]]})
     assert st.load() == {"A": 1.5, "T": [[1, 2], [3, 4]]}
     with open(st.path, "w", encoding="utf-8") as fh:
         fh.write("{bozuk")

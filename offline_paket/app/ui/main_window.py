@@ -51,6 +51,7 @@ from app.ui.mainwin.connection import ConnectionMixin
 from app.ui.mainwin.dashboard import DashboardMixin
 from app.ui.mainwin.exports import ExportMixin
 from app.ui.mainwin.modas import ModasMixin
+from app.ui.mainwin.modas_tools import ModasToolsMixin
 from app.ui.mainwin.panel import PanelMixin
 from app.ui.mainwin.profiles import ProfilesMixin
 from app.ui.modas.pages import PageModel
@@ -86,7 +87,7 @@ class _ToolWindow(QWidget):
 
 
 class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, ProfilesMixin, ExportMixin, ModasMixin,
-                 QMainWindow):
+                 ModasToolsMixin, QMainWindow):
     """Ana pencere: pencere çatısı, sayfalar, sinyal bağlantıları ve kapanış. İş mantığı alanlara bölünmüş
     parçalardadır (bkz. ``app/ui/mainwin``): bağlantı, CCP/kalibrasyon, Ana Sayfa, Kontrol Paneli, profiller."""
 
@@ -261,6 +262,7 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self._wire_signals()
         self._install_shortcuts_and_accessibility()
         self._wire_modas()
+        self._wire_modas_tools()
         self.watch_tab.set_write_allowed(can_write_calibration(self.current_role))
         for sig in (self.transmit_tab.dbc_loaded, self.a2l_tab.a2l_loaded, self.dashboard_tab.config_saved,
                     self.user_tab.role_applied):

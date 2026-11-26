@@ -423,6 +423,7 @@ class ModasMixin:
             self._log_event("HATA", f"{obj.name} RAM yazma hatası: {detail}")
             return deny(detail)
         win.set_write_result(True, "RAM'e yazıldı (ECU'dan doğrulandı).")
+        self.macro_recorder.add("value", obj.name, phys)
         self._log_event("KALIBRASYON", f"{obj.name} = {phys} {unit} (RAM, Worksheets) yazıldı")
         self.calibration_history.add(self.current_user, self.current_role.value, obj.name, old, phys, unit,
                                      persistent=False)
@@ -441,6 +442,8 @@ class ModasMixin:
                                       win.characteristic.name)
             return
         self._write_map_docs([win])
+        if not win.is_modified():                          # başarılı yazım (yedek + geri okuma doğrulandı)
+            self.macro_recorder.add("table", win.label, win.current_grid())
         self._modas_update_diff()
 
     def _modas_write_pending(self):
@@ -496,14 +499,14 @@ class ModasMixin:
     def _modas_copy_rp_to_wp(self):
         if self.page_model.active == RP:
             self._modas_set_page(WP)
-        self._modas_restore_plan(self.page_model.restore_plan(self._modas_snapshot()))
+        self._modas_restore_plan(self.page_model.restore_plan(self._modas_snapshot()), "RP → WP", "referans (RP)")
 
     def _modas_restore_labels(self, names: list):
         """Yalnızca verilen etiketleri RP değerine geri yazar (Diff listesi)."""
         full = self.page_model.restore_plan(self._modas_snapshot())
-        self._modas_restore_plan({n: full[n] for n in names if n in full})
+        self._modas_restore_plan({n: full[n] for n in names if n in full}, "RP → WP", "referans (RP)")
 
-    def _modas_restore_plan(self, plan: dict):
+    def _modas_restore_plan(self, plan: dict, title: str = "RP → WP", source: str = "RP"):
         if not plan:
             self.statusBar().showMessage("WP ile RP aynı: geri yazılacak değer yok.", 4000)
             return
@@ -515,8 +518,8 @@ class ModasMixin:
             return
         names = ", ".join(sorted(plan)[:8]) + (" …" if len(plan) > 8 else "")
         ans = QMessageBox.question(
-            self, "RP → WP",
-            f"{len(plan)} etiket referans (RP) değerine geri yazılacak (ECU RAM):\n{names}\n\nDevam edilsin mi?",
+            self, title,
+            f"{len(plan)} etiket {source} değerine yazılacak (ECU RAM):\n{names}\n\nDevam edilsin mi?",
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if ans != QMessageBox.Yes:
             return
@@ -530,7 +533,7 @@ class ModasMixin:
                 win.load_grid_as_edit(ref)
                 self._modas_write_table(win)
                 done += 1
-        self._log_event("KALIBRASYON", f"Worksheets: RP → WP geri yazıldı ({done}/{len(plan)} etiket)")
+        self._log_event("KALIBRASYON", f"Worksheets: {title} yazıldı ({done}/{len(plan)} etiket)")
         self._modas_update_diff()
 
     def _modas_show_diff_list(self):
@@ -708,6 +711,7 @@ class ModasMixin:
                 self._modas_control_values[d.key] = float(value)
         win.set_result(bool(ok), message)
         if ok:
+            self.macro_recorder.add("input", win.label, float(value))
             win.set_value(value)
             self.statusBar().showMessage(f"{d.label} = {value:g} {d.unit} gönderildi.", 3000)
 

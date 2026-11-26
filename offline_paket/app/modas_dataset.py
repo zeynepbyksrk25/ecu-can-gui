@@ -6,6 +6,7 @@ Karşılaştırma yalnızca iki tarafta da değeri olan etiketleri kapsar (works
 """
 from __future__ import annotations
 
+import math
 import os
 import time
 from dataclasses import dataclass
@@ -33,9 +34,10 @@ def _valid(v) -> bool:
     if isinstance(v, bool):
         return False
     if isinstance(v, (int, float)):
-        return True
+        return math.isfinite(v)                       # NaN / ±inf dosyaya girmez (JSON'da geçersiz)
     return isinstance(v, list) and bool(v) and all(
-        isinstance(r, list) and r and all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in r) for r in v)
+        isinstance(r, list) and r and all(isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x)
+                                          for x in r) for r in v)
 
 
 class DatasetStore:

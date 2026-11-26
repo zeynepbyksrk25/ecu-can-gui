@@ -90,20 +90,22 @@ class DatasetChoiceDialog(QDialog):
 
 
 class DiffListDialog(QDialog):
-    def __init__(self, rows: list, can_write: bool, deny_reason: str = "", parent=None):
-        """``rows``: ``[(etiket, WP değeri, RP değeri), ...]``."""
+    def __init__(self, rows: list, can_write: bool, deny_reason: str = "", parent=None,
+                 headers: tuple = ("Label", "WP", "RP"), title: str = "Diff — WP ≠ RP",
+                 action_text: str = "Revert selected (RP → WP)", intro: str | None = None):
+        """``rows``: ``[(etiket, WP değeri, karşı değer), ...]`` (karşı değer: RP ya da dosya)."""
         super().__init__(parent)
-        self.setWindowTitle("Diff — WP ≠ RP")
+        self.setWindowTitle(title)
         self.setMinimumSize(520, 360)
         self.names = [r[0] for r in rows]
         v = QVBoxLayout(self)
-        v.addWidget(QLabel(f"{len(rows)} etiketin WP (çalışma) ve RP (referans) değeri farklı."
-                           if rows else "WP ve RP aynı."))
-        self.table = _table(["Label", "WP", "RP"], [[n, value_text(w), value_text(r)] for n, w, r in rows], multi=True)
+        v.addWidget(QLabel(intro or (f"{len(rows)} etiketin WP (çalışma) ve RP (referans) değeri farklı."
+                                     if rows else "WP ve RP aynı.")))
+        self.table = _table(list(headers), [[n, value_text(w), value_text(r)] for n, w, r in rows], multi=True)
         v.addWidget(self.table, 1)
         row = QHBoxLayout()
-        self.btn_revert = QPushButton("Revert selected (RP → WP)")
-        self.btn_revert.setToolTip("Seçili etiketleri RP (referans) değerine geri yazar (ECU RAM)")
+        self.btn_revert = QPushButton(action_text)
+        self.btn_revert.setToolTip("Seçili etiketleri karşı değere yazar (ECU RAM)")
         self.btn_revert.setEnabled(False)
         self.btn_close = QPushButton("Close")
         self.btn_close.clicked.connect(self.reject)

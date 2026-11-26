@@ -22,6 +22,9 @@ def _fresh_worksheets():
                 os.remove(data_path(name) + suffix)
             except OSError:
                 pass
+    import shutil
+    for folder in ("makrolar", "parametre_dosyalari", "modas_projects"):
+        shutil.rmtree(data_path(folder), ignore_errors=True)
     yield
 
 

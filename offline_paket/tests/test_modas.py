@@ -1,5 +1,6 @@
 """Modas Sport tarzı arayüz: Ribbon, çalışma alanı (worksheet / MDI / Variable list), WP/RP ve uçtan uca (CCP simülatörü)."""
 import itertools
+import json
 import os
 import struct
 import time
@@ -1063,3 +1064,173 @@ def test_record_keeps_a_name_the_user_already_typed(live):
     w.modas_ribbon.buttons["record"].click()
     assert st.name_edit.text() == "Soğutma testi #3" and st.operator_edit.text() == "Ayşe"
     w.modas_ribbon.buttons["record"].click()
+
+
+# ------------------------------------------------------------------ Aşama 4: dosya yöneticileri + macro
+def _write_via_window(w, win, text, pump):
+    win.edit.selectAll()
+    QTest.keyClicks(win.edit, text)
+    QTest.keyClick(win.edit, Qt.Key_Return)
+    pump()
+
+
+def _fuel(live_tuple):
+    w, ecu, obj, pump = live_tuple
+    assert wait_for(lambda: w.ccp_session.state == ONLINE, pump)
+    win = w.modas_tab.add_label(obj)
+    assert wait_for(lambda: win.edit.text() == "12.5", pump)
+    return win
+
+
+def test_data_file_save_compare_and_write_selected(live, monkeypatch, tmp_path):
+    from PySide6.QtWidgets import QMessageBox
+    import app.ui.mainwin.modas_tools as mt
+    from app.modas_datafiles import load_values
+    w, ecu, obj, pump = live
+    win = _fuel(live)
+    path = str(tmp_path / "wp.json")
+    assert w._modas_save_wp_file(path) and load_values(path) == {obj.name: pytest.approx(12.5)}
+    w.modas_ribbon.buttons["measure"].click()                                   # canlı WP okuması akar
+    _write_via_window(w, win, "40", pump)                                       # WP artık dosyadan farklı
+    assert wait_for(lambda: struct.unpack("<f", ecu.read_memory_bytes(obj.address, 4))[0] == pytest.approx(40.0), pump)
+    assert wait_for(lambda: w.modas_tab.wp_snapshot().get(obj.name) == pytest.approx(40.0), pump)   # WP okuması güncellendi
+    monkeypatch.setattr(mt.DiffListDialog, "exec", lambda d: (d.table.selectAll(), mt.DiffListDialog.Accepted)[1])
+    monkeypatch.setattr("app.ui.mainwin.modas.QMessageBox.question", staticmethod(lambda *a, **k: QMessageBox.Yes))
+    ok, msg = w._modas_compare_file(path)
+    assert ok and struct.unpack("<f", ecu.read_memory_bytes(obj.address, 4))[0] == pytest.approx(12.5)   # dosya → ECU
+
+
+def test_data_file_compare_reports_identical_unreadable_and_unauthorized(live, monkeypatch, tmp_path):
+    import app.ui.mainwin.modas_tools as mt
+    w, ecu, obj, pump = live
+    _fuel(live)
+    path = str(tmp_path / "wp.json")
+    w._modas_save_wp_file(path)
+    ok, msg = w._modas_compare_file(path)
+    assert ok and "aynı" in msg                                                  # fark yok
+    warned = []
+    monkeypatch.setattr(mt.QMessageBox, "warning", staticmethod(lambda *a, **k: warned.append(a[2])))
+    bad = tmp_path / "bad.json"
+    bad.write_text("{bozuk", encoding="utf-8")
+    ok, msg = w._modas_compare_file(str(bad))
+    assert not ok and warned
+    # Operatör: fark listesi açılır ama yazma düğmesi pasif (kilitli)
+    w.current_role = Role.OPERATOR
+    data = json.loads(open(path, encoding="utf-8").read())
+    data["values"][obj.name] = 99.0
+    open(path, "w", encoding="utf-8").write(json.dumps(data))
+    seen = {}
+
+    def fake_exec(d):
+        seen["can"] = d.btn_revert.isEnabled() or d._can_write
+        return 0
+    monkeypatch.setattr(mt.DiffListDialog, "exec", fake_exec)
+    w._modas_compare_file(str(path))
+    assert seen["can"] is False and struct.unpack("<f", ecu.read_memory_bytes(obj.address, 4))[0] == pytest.approx(12.5)
+
+
+def test_parameter_file_manager_saves_applies_and_deletes(live, monkeypatch, tmp_path):
+    from PySide6.QtWidgets import QInputDialog, QMessageBox
+    import app.ui.mainwin.modas_tools as mt
+    from app.ui.modas.tools_dialogs import ParameterFilesDialog
+    w, ecu, obj, pump = live
+    win = _fuel(live)
+    pr = w.project_store.create_project(f"Par{next(_ch)}")
+    wb = w.project_store.save_workbase(pr.name, Workbase(name="WB"))
+    w._modas_workbase = (pr, wb)
+    folder = w._modas_params_folder()
+    assert folder.folder.startswith(pr.path) and folder.list() == []
+    monkeypatch.setattr(QInputDialog, "getText", staticmethod(lambda *a, **k: ("Baz değer", True)))
+    ok, msg = w._modas_param_save()
+    assert ok and [n for n, _p, _t in folder.list()] == ["Baz değer"]
+    dlg = ParameterFilesDialog(folder, w._modas_param_save, w._modas_compare_file_result, w._modas_param_delete)
+    assert dlg.list.count() == 1 and not dlg.btn_apply.isEnabled()
+    dlg.list.setCurrentRow(0)
+    assert dlg.btn_apply.isEnabled() and dlg.btn_delete.isEnabled()
+    monkeypatch.setattr("app.ui.mainwin.modas_tools.QMessageBox.question", staticmethod(lambda *a, **k: QMessageBox.Yes))
+    dlg._save()                                                                   # aynı ad: üzerine yazma sorulur (Evet)
+    assert dlg.list.count() == 1 and "Kaydedildi" in dlg.status.text()
+    monkeypatch.setattr("app.ui.mainwin.modas_tools.QMessageBox.question", staticmethod(lambda *a, **k: QMessageBox.No))
+    dlg._save()
+    assert "Kaydedilmedi" in dlg.status.text()
+    dlg._delete()                                                                 # Hayır: silinmez
+    assert dlg.list.count() == 1
+    monkeypatch.setattr("app.ui.mainwin.modas_tools.QMessageBox.question", staticmethod(lambda *a, **k: QMessageBox.Yes))
+    dlg._delete()
+    assert dlg.list.count() == 0 and folder.list() == []
+
+
+def test_macro_records_successful_writes_and_replays_them_through_the_safe_path(live, monkeypatch):
+    from PySide6.QtWidgets import QInputDialog, QMessageBox
+    w, ecu, obj, pump = live
+    win = _fuel(live)
+    monkeypatch.setattr("app.ui.mainwin.modas.QMessageBox.question", staticmethod(lambda *a, **k: QMessageBox.Yes))
+    monkeypatch.setattr("app.ui.mainwin.modas_tools.QMessageBox.question", staticmethod(lambda *a, **k: QMessageBox.Yes))
+    assert w._modas_macro_toggle()[0] and w.macro_recorder.active
+    _write_via_window(w, win, "30", pump)
+    assert wait_for(lambda: w.macro_recorder.steps[-1:] == [{"kind": "value", "label": obj.name, "value": 30.0}], pump)
+    _write_via_window(w, win, "40", pump)
+    assert wait_for(lambda: len(w.macro_recorder.steps) == 1 and w.macro_recorder.steps[0]["value"] == 40.0, pump)
+    monkeypatch.setattr(QInputDialog, "getText", staticmethod(lambda *a, **k: ("Yakıt 40", True)))
+    ok, msg = w._modas_macro_toggle()
+    assert ok and not w.macro_recorder.active and w._modas_macro_store().names() == ["Yakıt 40"]
+    _write_via_window(w, win, "5", pump)
+    assert wait_for(lambda: struct.unpack("<f", ecu.read_memory_bytes(obj.address, 4))[0] == pytest.approx(5.0), pump)
+    ok, msg = w._modas_macro_play("Yakıt 40")
+    assert ok and struct.unpack("<f", ecu.read_memory_bytes(obj.address, 4))[0] == pytest.approx(40.0)
+    assert not w.macro_recorder.active and w.macro_recorder.steps == [{"kind": "value", "label": obj.name, "value": 40.0}]
+
+
+def test_macro_play_checks_preconditions_before_writing_anything(live, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+    w, ecu, obj, pump = live
+    win = _fuel(live)
+    store = w._modas_macro_store()
+    store.save("M", [{"kind": "value", "label": obj.name, "value": 77.0},
+                     {"kind": "table", "label": "YOK_TABLO", "value": [[1, 2]]}])
+    asked = []
+    monkeypatch.setattr("app.ui.mainwin.modas_tools.QMessageBox.question",
+                        staticmethod(lambda *a, **k: asked.append(1) or QMessageBox.Yes))
+    ok, msg = w._modas_macro_play("M")                                            # açık olmayan etiket: hiçbir şey yazılmaz
+    assert not ok and "YOK_TABLO" in msg and not asked
+    assert struct.unpack("<f", ecu.read_memory_bytes(obj.address, 4))[0] == pytest.approx(12.5)
+    store.save("Tek", [{"kind": "value", "label": obj.name, "value": 77.0}])
+    w.current_role = Role.OPERATOR
+    ok, msg = w._modas_macro_play("Tek")
+    assert not ok and "Yetki" in msg and struct.unpack("<f", ecu.read_memory_bytes(obj.address, 4))[0] == pytest.approx(12.5)
+    w.current_role = Role.ENGINEER
+    monkeypatch.setattr("app.ui.mainwin.modas_tools.QMessageBox.question", staticmethod(lambda *a, **k: QMessageBox.No))
+    ok, msg = w._modas_macro_play("Tek")                                          # onay Hayır: yazılmaz
+    assert not ok and struct.unpack("<f", ecu.read_memory_bytes(obj.address, 4))[0] == pytest.approx(12.5)
+    w._modas_macro_toggle()
+    ok, msg = w._modas_macro_play("Tek")                                          # kayıt sürerken oynatılmaz
+    assert not ok and "Kayıt" in msg
+    w.macro_recorder.stop()
+    assert w._modas_macro_toggle()[0] is True and w._modas_macro_toggle()[0] is False   # boş kayıt: macro oluşmaz
+    assert w._modas_macro_store().names() == ["M", "Tek"]
+    w._modas_workbase = None
+
+
+def test_macro_dialog_lists_steps_and_toggles_record_button(live, monkeypatch):
+    from app.ui.modas.tools_dialogs import MacroDialog
+    w, ecu, obj, pump = live
+    store = w._modas_macro_store()
+    store.save("D", [{"kind": "value", "label": "A", "value": 1.0}, {"kind": "table", "label": "T", "value": [[1, 2]]}])
+    dlg = MacroDialog(store, w.macro_recorder, w._modas_macro_toggle, w._modas_macro_play, w._modas_macro_delete)
+    dlg.list.setCurrentRow(0)
+    assert [dlg.steps.item(i).text() for i in range(dlg.steps.count())] == ["1. A = 1", "2. T = 1×2 tablo"]
+    assert dlg.btn_play.isEnabled() and dlg.btn_record.text() == "● Record"
+    dlg._record()
+    assert w.macro_recorder.active and dlg.btn_record.text().startswith("■") and not dlg.btn_play.isEnabled()
+    w.macro_recorder.stop()
+    dlg.close()
+
+
+def test_tools_tab_has_file_and_macro_buttons(qapp):
+    from app.ui.main_window import MainWindow
+    w = MainWindow()
+    b = w.modas_ribbon.buttons
+    assert {"data_file", "param_files", "macros"} <= set(b)
+    texts = [a.text() for a in b["data_file"].menu().actions()]
+    assert texts == ["Save WP to file…", "Compare file with WP…"]
+    w.close()

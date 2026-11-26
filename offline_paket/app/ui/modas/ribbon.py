@@ -302,7 +302,16 @@ class ModasRibbon(QFrame):
     # ---- Tools ------------------------------------------------------------------
     def _build_tools(self):
         self._tools_page, self._tools_layout = self._page()
-        self._tools_group = _Group("Pages")
+        self._tools_layout.addWidget(self._group(
+            "Files",
+            self.big("data_file", "Data file", "⇄", "WP değerlerini dosyaya kaydet / dosyayı WP ile karşılaştır (Data file manager)"),
+            self.big("param_files", "Parameter files", "🗂", "Projenin parametre dosyalarını yönet (Parameter file manager)"),
+        ))
+        self._tools_layout.addWidget(self._group(
+            "Macro",
+            self.big("macros", "Macro manager", "⏺", "Yazımları kaydet ve aynı sırayla oynat (Macro manager)"),
+        ))
+        self._tools_group = _Group("Tool windows")
         self._tools_layout.addWidget(self._tools_group)
         self._tools_layout.addStretch(1)
         self._page_buttons: list[QToolButton] = []
