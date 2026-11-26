@@ -291,6 +291,10 @@ class SimInputsPanel(QWidget):
         if keys:
             self.set_status(f"✓ {len(keys)} değer gönderildi" if ok else "✕ Gönderilemedi", ok)
 
+    def last_status(self) -> tuple:
+        """Son gönderimin durum metni ve başarısı: ``(metin, ok)`` (Worksheets test girişi pencereleri okur)."""
+        return self._status_text, self._status_ok
+
     def set_status(self, text: str, ok: bool):
         self._status_text, self._status_ok = text, ok
         self._render_status()

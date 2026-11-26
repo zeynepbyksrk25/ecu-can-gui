@@ -1024,6 +1024,22 @@ class DashboardTab(QWidget):
         ok = self._write(self.config.actuator_map(key).value, v, f"{ACTUATOR_SHORT[key]} komutu")
         self._mark_actuator_box(box, not ok)
 
+    def submit_control(self, key: str, value: float) -> tuple:
+        """Motor Kontrol komutunu (start / throttle) gönderir ve ``(ok, neden)`` döner; ``Enter`` ile aynı yazma yolu,
+        ama diyalog AÇMAZ (Worksheets test girişi penceresi nedeni kendi içinde gösterir)."""
+        if key not in CONTROL_KEYS:
+            return False, "Bilinmeyen komut."
+        label = ACTUATOR_SHORT[key]
+        if not can_override_actuator(self._role):
+            return False, f"{label} komutu için Mühendis veya Yönetici rolü gerekir."
+        if not self.config.actuator_map(key).value.is_set:
+            return False, f"{label} için değer eşleşmesi tanımlı değil (⚙ Eşleşmeler)."
+        box = self._act_rows[key]["control"]
+        box.setText(f"{float(value):g}")
+        ok = self._write(self.config.actuator_map(key).value, value, f"{label} komutu")
+        self._mark_actuator_box(box, not ok)
+        return ok, "" if ok else "Gönderilemedi (CAN / CCP bağlantısını kontrol edin)."
+
     def _on_actuator_lock(self, key: str, want_open: bool):
         amap = self.config.actuator_map(key)
         label = ACTUATOR_SHORT[key]
