@@ -1,6 +1,8 @@
 """Ana Sayfa: eşleşme (Binding) yazımı, motor komutları ve Acil Durdurma, gösterge/grafik beslemesi,
 oturum parametre kaydı ve Çalışma Alanı okuması."""
+import logging
 import os
+import time
 
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
@@ -17,6 +19,9 @@ from app.paths import data_path
 from app.ui.mainwin.common import (
     SAFETY_A2L_ATTEMPTS, SAFETY_REPEAT_COUNT, SAFETY_REPEAT_MS,
 )
+
+
+log = logging.getLogger(__name__)
 
 
 class DashboardMixin:
@@ -345,7 +350,7 @@ class DashboardMixin:
 
     def _on_session_record_start(self, name: str, operator: str):
         try:
-            path = self.session_recorder.start(data_path("oturum_kayitlari"), name)
+            path = self.session_recorder.start(data_path("oturum_kayitlari"), name, meta=self._record_meta(name, operator))
         except OSError as exc:
             self.event_log.add("HATA", f"Parametre kaydı başlatılamadı: {exc}")
             self.session_tab.set_record_info(f"Parametre kaydı BAŞLATILAMADI: {exc}")
@@ -355,6 +360,8 @@ class DashboardMixin:
         self._ccp_last_bytes = {}                                                  # ilk okuma başlangıç değeri olarak yazılsın
         self.frame_recorder.start()
         self.connection.frame_tap = self.frame_recorder.submit                     # her CAN karesi geliş zamanında
+        self.connection.tx_tap = lambda m: self.session_recorder.record_frame(m, rx=False)   # gönderilenler (Tx)
+        self._update_rec_state()
         self.event_log.add("OTURUM", f"Parametre kaydı başladı: {path}")
         self.session_tab.set_record_info(f"● Parametre kaydı: {path}")
         self.session_tab.refresh_log()
@@ -365,6 +372,7 @@ class DashboardMixin:
         rec.stop()
         self.input_log.stop_file()
         self.connection.frame_tap = None
+        self.connection.tx_tap = None
         self.frame_recorder.stop()
         if path and self.frame_recorder.frames:
             self.event_log.add("OTURUM", f"CAN kare kaydı: {self.frame_recorder.frames} kare çözümlenip yazıldı")
@@ -381,6 +389,63 @@ class DashboardMixin:
         if xlsx:
             self.session_tab.set_record_info(f"Kayıt: {path or '-'}\nExcel: {xlsx}")
         self.session_tab.refresh_log()
+        self._update_rec_state()
+
+    def _record_meta(self, name: str, operator: str) -> dict:
+        """Oturum üst verisi (docs/GOREV.md 4.6): kullanıcı, ECU bağlantı türü, DBC/A2L dosyası + sürümü, model."""
+        from app.session_recorder import file_fingerprint
+        params = getattr(self.connection, "_params", None) or {}
+        mode = getattr(self, "backend_mode", "REAL")
+        return {"operator": operator, "user": self.current_user, "role": self.current_role.value,
+                "mode": mode, "connection": {"interface": params.get("interface", ""),
+                                             "channel": params.get("channel", ""),
+                                             "connected": bool(self.connection.is_connected)},
+                "ecu": getattr(self, "ecu_name", "") or "",
+                "dbc": file_fingerprint(getattr(self.transmit_tab.dbc, "path", None)),
+                "a2l": file_fingerprint(getattr(self.a2l_tab.db, "path", None)),
+                "simulink_model": getattr(self, "simulink_model_name", "") or "",
+                "timebase": "simulation_time" if mode == "MIL" else "monotonic_acquisition",
+                "app": "ecu-can-gui"}
+
+    def _on_record_pause(self):
+        self.session_recorder.pause()
+        self._update_rec_state()
+
+    def _on_record_resume(self):
+        self.session_recorder.resume()
+        self._update_rec_state()
+
+    def _on_record_marker(self, label: str):
+        """Elle işaret: kayıt dosyasına (events + ASC), olay günlüğüne ve trend grafiğine."""
+        label = (label or "").strip()
+        if not label:
+            return
+        now = time.time()
+        self.session_recorder.add_marker(label, now)
+        self._log_event("ISARET", label)
+        try:
+            self.dashboard_tab.trend.add_event(label, now, "#B58900")
+        except Exception:  # noqa: BLE001 - grafik hatası işareti kaybettirmesin
+            log.debug("trend işareti eklenemedi", exc_info=True)
+
+    def _update_rec_state(self):
+        """REC göstergesi (üst şerit + oturum sayfası) ve canlı kayıt istatistiği. Düşen veri = yazıcı kuyruğu + CAN
+        kare çözümleyici kuyruğu + CAN alım kuyruğu."""
+        rec = self.session_recorder
+        st = rec.stats()
+        st["dropped"] += self.frame_recorder.dropped
+        state = rec.state
+        self.session_tab.set_record_state(state, st if (rec.is_active or rec.path) else None)
+        chip = getattr(self, "rec_chip", None)
+        if chip is not None:
+            text = {"KAYITTA": "● REC", "DURAKLATILDI": "❚❚ REC DURAKLATILDI", "HATA": "⚠ KAYIT HATASI"}.get(state, "REC yok")
+            if chip.text() != text:
+                chip.setText(text)
+                chip.setProperty("state", {"KAYITTA": "rec", "DURAKLATILDI": "pause", "HATA": "error"}.get(state, ""))
+                chip.style().unpolish(chip)
+                chip.style().polish(chip)
+            if st["dropped"] and state in ("KAYITTA", "DURAKLATILDI"):
+                chip.setToolTip(f"Kayıtta {st['dropped']} öğe kuyruk dolduğu için YAZILAMADI")
 
     def _on_hub_sample(self, sid: str, value):
         """Sinyal deposundan gelen örnek: yalnızca kullanıcı girişleri kayda yazılır (diğerleri kaynakta yazılır)."""

@@ -7,7 +7,7 @@ import time
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QFileDialog, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton,
+    QComboBox, QFileDialog, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton,
     QVBoxLayout, QWidget,
 )
 
@@ -20,6 +20,9 @@ class SessionTab(QWidget):
     session_started = Signal(str, str)     # test ismi, operatör
     session_stopped = Signal()
     excel_requested = Signal()             # elle Excel'e aktar (MainWindow dosyayı yazar)
+    record_pause_requested = Signal()
+    record_resume_requested = Signal()
+    marker_requested = Signal(str)         # elle olay işareti (Motor start, Idle, ...)
 
     def __init__(self):
         super().__init__()
@@ -35,6 +38,13 @@ class SessionTab(QWidget):
         layout.setContentsMargins(14, 8, 14, 8)
         layout.setSpacing(10)
         layout.addWidget(self._build_session_card())
+        layout.addWidget(self._build_record_card())
+        from app.paths import data_path
+        from app.ui.session_browser import SessionBrowser
+        self.browser = SessionBrowser(lambda: data_path("oturum_kayitlari"))
+        self.browser.status.connect(self.set_record_info)
+        layout.addWidget(self.browser)
+        self.browser.refresh()
         layout.addWidget(self._build_log_card(), stretch=1)
 
     def _build_session_card(self):
@@ -86,6 +96,73 @@ class SessionTab(QWidget):
         v.addWidget(self.record_label)
         return card
 
+    MARKERS = ["Motor start", "Ignition ON", "Fuel ON", "Idle", "Acceleration", "Maximum RPM", "Shutdown",
+               "Test error"]
+
+    def _build_record_card(self):
+        """Kayıt denetimi: REC göstergesi, Duraklat/Sürdür, canlı istatistik (süre, örnek, kare, boyut, düşen) ve
+        elle işaret. Kaydı başlatıp bitiren 'Oturumu Başlat/Bitir' düğmeleridir (her kayıt ayrı oturum)."""
+        card, v, head = make_card("Veri kaydı", "trend")
+        self.rec_indicator = QLabel("● REC değil")
+        self.rec_indicator.setObjectName("chipDim")
+        head.addWidget(self.rec_indicator)
+        self.pause_button = QPushButton("Duraklat")
+        self.pause_button.setEnabled(False)
+        self.pause_button.clicked.connect(self._on_pause_resume)
+        self.marker_combo = QComboBox()
+        self.marker_combo.setEditable(True)
+        self.marker_combo.addItems(self.MARKERS)
+        self.marker_combo.setMinimumWidth(160)
+        self.marker_button = QPushButton("İşaret Ekle")
+        self.marker_button.setToolTip("Kayda ve trend grafiğine elle olay işareti ekler (kayıt açıkken).")
+        self.marker_button.setEnabled(False)
+        self.marker_button.clicked.connect(lambda: self.marker_requested.emit(self.marker_combo.currentText().strip()))
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        row.addWidget(self.pause_button)
+        row.addSpacing(16)
+        row.addWidget(self.marker_combo)
+        row.addWidget(self.marker_button)
+        row.addStretch(1)
+        v.addLayout(row)
+        self.stats_label = QLabel("Kayıt yok.")
+        self.stats_label.setObjectName("colHead")
+        self.stats_label.setWordWrap(True)
+        v.addWidget(self.stats_label)
+        self._rec_paused = False
+        return card
+
+    def _on_pause_resume(self):
+        if self._rec_paused:
+            self.record_resume_requested.emit()
+        else:
+            self.record_pause_requested.emit()
+
+    def set_record_state(self, state: str, stats: dict | None = None):
+        """state: KAYITTA | DURAKLATILDI | DURDU | HATA. İstatistik: süre, örnek, kare, dosya boyutu, DÜŞEN, hata."""
+        self._rec_paused = state == "DURAKLATILDI"
+        active = state in ("KAYITTA", "DURAKLATILDI")
+        text = {"KAYITTA": "● REC", "DURAKLATILDI": "❚❚ DURAKLATILDI", "HATA": "⚠ KAYIT HATASI"}.get(state, "● REC değil")
+        self.rec_indicator.setText(text)
+        self.rec_indicator.setObjectName("recChip")
+        self.rec_indicator.setProperty("state", {"KAYITTA": "rec", "DURAKLATILDI": "pause", "HATA": "error"}.get(state, ""))
+        self.rec_indicator.style().unpolish(self.rec_indicator)
+        self.rec_indicator.style().polish(self.rec_indicator)
+        self.pause_button.setEnabled(active)
+        self.pause_button.setText("Sürdür" if self._rec_paused else "Duraklat")
+        self.marker_button.setEnabled(active)
+        if stats:
+            el = int(stats.get("elapsed_s", 0))
+            size = stats.get("bytes", 0)
+            size_text = f"{size / 1048576:.2f} MB" if size >= 1048576 else f"{size / 1024:.1f} KB"
+            parts = [f"Süre {el // 3600:02d}:{el % 3600 // 60:02d}:{el % 60:02d}",
+                     f"örnek {stats.get('rows', 0)}", f"CAN kare {stats.get('frames', 0)}",
+                     f"olay {stats.get('events', 0)}", f"dosya {size_text}",
+                     f"düşen {stats.get('dropped', 0)}", f"durum {state}"]
+            if stats.get("error"):
+                parts.append(f"HATA: {stats['error']}")
+            self.stats_label.setText("  ·  ".join(parts))
+
     def set_record_info(self, text: str):
         self.record_label.setText(text)
 
@@ -127,6 +204,7 @@ class SessionTab(QWidget):
         self.operator_edit.setEnabled(True)
         self.session_stopped.emit()
         self._set_chip("Oturum bitti", False)
+        self.browser.refresh()
 
     def _set_chip(self, text: str, active: bool):
         self.state_chip.setText(text)

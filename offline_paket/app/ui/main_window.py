@@ -241,8 +241,16 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self.a2l_tab.a2l_loaded.connect(self._rebuild_record_index)
         self.session_tab.session_started.connect(self._on_session_record_start)
         self.session_tab.session_stopped.connect(self._on_session_record_stop)
+        self.session_tab.record_pause_requested.connect(self._on_record_pause)
+        self.session_tab.record_resume_requested.connect(self._on_record_resume)
+        self.session_tab.marker_requested.connect(self._on_record_marker)
+        self._rec_timer = QTimer(self)
+        self._rec_timer.setInterval(500)               # yalnızca GÖSTERGE; kayıt hızı bundan bağımsızdır
+        self._rec_timer.timeout.connect(self._update_rec_state)
+        self._rec_timer.start()
         self.session_tab.excel_requested.connect(self._on_excel_export_requested)
         self.history_tab.history = self.calibration_history
+        self.change_tracker = self.watch_tab.tracker   # tek ortak değişiklik takibi (Parametre Listesi, CCP, geçmiş)
         self.user_tab.set_profiles(self.profile_store.names())
 
         self.dashboard_tab.motor_start_requested.connect(self._on_motor_start)
@@ -445,6 +453,10 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self.ccp_chip.setObjectName("ccpChip")
         self.ccp_chip.setProperty("state", IDLE)
         self.ccp_chip.setToolTip("CCP/ECU durumu: bağlı değil → bağlanıyor → çevrimiçi → ECU yok (otomatik yeniden bağlanır)")
+        self.rec_chip = QLabel("REC yok")
+        self.rec_chip.setObjectName("recChip")
+        self.rec_chip.setProperty("state", "")
+        self.rec_chip.setToolTip("Veri kaydı durumu: Test oturumu başlayınca REC; duraklatma ve yazma hataları burada görünür")
         self.header_role_label = _ClickLabel("")
         self.header_role_label.setObjectName("headerReadout")
         self.header_role_label.setTextFormat(Qt.RichText)
@@ -461,7 +473,7 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self.mappings_button.setCursor(Qt.PointingHandCursor)
         self.mappings_button.setToolTip("Sensör, eyleyici, motor komutu ve giriş sinyallerinin CAN (DBC) / A2L eşleşmeleri")
         self.mappings_button.clicked.connect(self.dashboard_tab.open_mappings)
-        for w in (self.ccp_chip, self.header_role_label, self.settings_button, self.mappings_button, self.header_conn_pill):
+        for w in (self.rec_chip, self.ccp_chip, self.header_role_label, self.settings_button, self.mappings_button, self.header_conn_pill):
             rb.add_status_widget(w)
 
         dt = self.dashboard_tab
@@ -628,6 +640,9 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
 
     def _log_event(self, category: str, message: str):
         self.event_log.add(category, message, user=self.current_user, role=self.current_role.value)
+        rec = getattr(self, "session_recorder", None)
+        if rec is not None:
+            rec.record_event(category, message)       # kayıt açıkken olay dosyasına (bağlantı, hata, kalibrasyon…)
         self.dashboard_tab.add_event(self.event_log.entries[-1])
         self.modas_tab.log_panel.add_entry(self.event_log.entries[-1])
         self.session_tab.refresh_log()

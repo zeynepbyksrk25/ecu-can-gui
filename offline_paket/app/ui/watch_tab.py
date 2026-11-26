@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 )
 
 from app import theme
+from app.change_tracker import ChangeTracker
 from app.persist import atomic_write_json, load_json
 from app.ccp import codec
 
@@ -39,8 +40,10 @@ FLASH_S = 0.9                   # başarıyla yazılan satırın yeşil yanma s�
 ROLE_OBJECT = Qt.UserRole
 
 # Sütun sırası
-COL_ADDR, COL_HEX, COL_VALUE, COL_NAME, COL_UNIT, COL_TYPE, COL_DESC = range(7)
-HEADERS = ["Adres", "Hex", "Değer (Value)", "İsim (Name)", "Birim", "Tip", "Açıklama"]
+COL_ADDR, COL_HEX, COL_VALUE, COL_DELTA, COL_NAME, COL_UNIT, COL_TYPE, COL_DESC = range(8)
+HEADERS = ["Adres", "Hex", "Değer (Value)", "Değişim", "İsim (Name)", "Birim", "Tip", "Açıklama"]
+ARROW_RED = QColor("#C62828")    # artış/azalış yalnızca ok yönüyle ayrılır; renk her iki durumda kırmızı
+ARROW_BLINK_MS = 400
 
 OK_BG = QColor("#DDF3E5")        # yazma doğrulandı (kısa süre)
 OK_FG = QColor("#1B6B3E")
@@ -344,6 +347,8 @@ class WatchTab(QWidget):
         self._name_pref = 240          # kullanıcının istediği İsim sütunu genişliği
         self._storage_path: str | None = None
         self._connected = False
+        self.tracker = ChangeTracker() # değişiklik takibi (MainWindow ortak örneği atayabilir)
+        self._blink_on = True
         self._write_allowed = True     # rol yazmaya yetkili mi (MainWindow bildirir; bkz. set_write_allowed)
 
         self._mono = QFontDatabase.systemFont(QFontDatabase.FixedFont)
@@ -359,6 +364,9 @@ class WatchTab(QWidget):
         self.poll_timer = QTimer(self)
         self.poll_timer.setInterval(POLL_INTERVAL_MS)
         self.poll_timer.timeout.connect(self._on_poll_tick)
+        self.blink_timer = QTimer(self)
+        self.blink_timer.setInterval(ARROW_BLINK_MS)
+        self.blink_timer.timeout.connect(self._on_blink_tick)
 
         self.set_connected(False)
 
@@ -406,7 +414,7 @@ class WatchTab(QWidget):
         header.setSectionResizeMode(QHeaderView.Interactive)
         header.setStretchLastSection(False)
         header.setMinimumSectionSize(50)
-        for col, width in ((COL_ADDR, 110), (COL_HEX, 150), (COL_VALUE, 130),
+        for col, width in ((COL_ADDR, 110), (COL_HEX, 150), (COL_VALUE, 130), (COL_DELTA, 110),
                            (COL_NAME, self._name_pref), (COL_UNIT, 80), (COL_TYPE, 110), (COL_DESC, 260)):
             table.setColumnWidth(col, width)
         header.sectionResized.connect(self._on_section_resized)
@@ -487,8 +495,43 @@ class WatchTab(QWidget):
             desc.setToolTip(e.description)
 
             self._render_value_cell(row)
+            self._render_delta_cell(row)
         finally:
             self._filling = False
+
+    def _render_delta_cell(self, row: int):
+        """Değişim sütunu: kırmızı ok + miktar. Uygulanan değişim ~1,5 sn yanıp söner, sonra sade kalır;
+        düzenlenmiş ama ECU'ya yazılmamış değer 'bekliyor' olarak ayrı gösterilir (uygulanmış sayılmaz)."""
+        e = self._entries[row]
+        item = self._cell(row, COL_DELTA)
+        item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        arrow, mode = self.tracker.arrow(e.name)
+        text = self.tracker.delta_text(e.name) if arrow else ""
+        if mode == "pending" and text:
+            text = f"{text} (yazılmadı)"
+        shown = text if (mode != "blink" or self._blink_on) else ""
+        self._set_text(item, shown)
+        item.setForeground(ARROW_RED) if arrow else item.setData(Qt.ForegroundRole, None)
+        item.setToolTip(self.tracker.summary(e.name))
+
+    def _on_blink_tick(self):
+        self._blink_on = not self._blink_on
+        blinking = False
+        for row, e in enumerate(self._entries):
+            if self.tracker.arrow(e.name)[1] == "blink":
+                blinking = True
+            self._filling = True
+            try:
+                self._render_delta_cell(row)
+            finally:
+                self._filling = False
+        if not blinking:
+            self._blink_on = True
+            self.blink_timer.stop()
+
+    def _start_blink(self):
+        if not self.blink_timer.isActive():
+            self.blink_timer.start()
 
     def _render_value_cell(self, row: int):
         """Değer hücresinin metni/rengi/tooltip'i satır durumundan türetilir."""
@@ -693,6 +736,7 @@ class WatchTab(QWidget):
 
     def set_row_value(self, row: int, raw: bytes, phys):
         e = self._entries[row]
+        self.tracker.observe(e.name, phys, e.unit, writable=not e.read_only)
         e.raw = bytes(raw)
         e.phys = phys
         e.error = None
@@ -719,8 +763,13 @@ class WatchTab(QWidget):
         e.phys = None
         self._render_row(row)
 
-    def commit_written(self, row: int, phys):
+    def commit_written(self, row: int, phys, old=None):
+        """Yazma ECU'ya uygulandı (arka plan işi geri okuyup doğruladı). ``old``: yazmadan önceki değer;
+        verilmezse tracker'ın bildiği ECU değeri kullanılır."""
         e = self._entries[row]
+        prev = old if old is not None else self.tracker.state(e.name, e.unit).ecu
+        self.tracker.applied(e.name, prev, phys, e.unit)
+        self._start_blink()
         e.pending_text = None
         e.phys = phys
         e.error = None
@@ -733,12 +782,18 @@ class WatchTab(QWidget):
             log.warning("%s: yazılan değer Hex hücresine yansıtılamadı", getattr(e, "name", "?"), exc_info=True)
         self._render_row(row)
 
+    def mark_write_failed(self, row: int, error: str):
+        e = self._entries[row]
+        self.tracker.failed(e.name, error, e.unit)
+        self._render_row(row)
+
     def discard_pending(self, rows):
         """Yazılamayan (yetki yok, ECU yok, geçersiz...) satırlarda bekleyen metni at: hücre canlı
         değere döner."""
         for row in rows:
             if 0 <= row < len(self._entries):
                 self._entries[row].pending_text = None
+                self.tracker.discard_edit(self._entries[row].name)
                 self._render_row(row)
 
     def _expire_flash_and_verify(self):
@@ -777,10 +832,11 @@ class WatchTab(QWidget):
             self._set_status(f"'{e.name}': bekleyen değer temizlendi.", None)
             return
         try:
-            parse_value_text(text)
+            self.tracker.edit(e.name, parse_value_text(text), e.unit)
         except ValueError as exc:
             self._set_status(f"'{e.name}': geçersiz sayı — {exc}", False)
             return
+        self._render_row(row)
         self._set_status(f"'{e.name}': ECU'ya yazılıyor…", None)
         self.write_requested.emit([row])        # Enter = anında RAM'e yaz
 

@@ -82,6 +82,7 @@ class CanConnection:
         # Alınan HER kare için (alım iş parçacığında, bloklamadan) çağrılır: oturum kaydı karenin GERÇEK geliş zamanında
         # yazabilsin diye (arayüz zamanlayıcısından bağımsız). Hatası alım döngüsünü durdurmaz.
         self.frame_tap = None
+        self.tx_tap = None            # gönderilen her kare için (oturum kaydı ASC'ye Tx olarak yazar); bloklamaz
         # CCP/CAL katmanı aynı fiziksel bus'ı paylaşır; tek RX thread her
         # mesajı okuyup CCP DTO ID'sine uyanları da (rx_queue'ya EK olarak)
         # bu kuyruğa yazar. İki ayrı thread'in aynı bus.recv()'i yarışarak
@@ -167,6 +168,12 @@ class CanConnection:
             self.tx_queue.put_nowait(copy)
         except queue.Full:
             self.dropped_tx += 1
+        tap = self.tx_tap
+        if tap is not None:
+            try:
+                tap(copy)
+            except Exception:  # noqa: BLE001
+                log.debug("tx_tap hata verdi", exc_info=True)
 
     def link_state(self) -> tuple[str, str]:
         """Bağlantının GERÇEK durumunu sürücüden sorgular ve üç durumdan

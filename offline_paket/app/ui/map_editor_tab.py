@@ -18,15 +18,19 @@ import math
 import pyqtgraph as pg
 
 from app import theme
+from app.change_tracker import BLINK_S, direction, format_delta
+from app.ui.change_icons import arrow_icon
 from app.ui.dash_widgets import make_card
 from app.ui.lookup_headers import apply_lookup_style
 from app.ui.mesh3d import Mesh3DWidget, parula, parula_lut
 from app.ccp.mapio import grid_shape as _grid_shape
 
-from PySide6.QtCore import QItemSelectionModel, Qt, Signal
+import time
+
+from PySide6.QtCore import QItemSelectionModel, QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QAbstractItemView, QApplication, QCheckBox, QComboBox, QFrame, QHBoxLayout,
+    QMessageBox, QAbstractItemView, QApplication, QCheckBox, QComboBox, QFrame, QHBoxLayout,
     QLabel, QLineEdit, QPushButton, QSplitter, QTableWidget,
     QTableWidgetItem, QTabWidget, QTreeWidgetItem,
     QVBoxLayout, QWidget, QHeaderView,
@@ -91,6 +95,9 @@ class MapDocument(QWidget):
         super().__init__(parent)
         self.characteristic = characteristic
         self._original_grid: list | None = None   # ECU'dan son okunan (baz alınan) değerler
+        self._session_baseline: list | None = None  # oturum başında ECU'dan İLK okunan değerler (başlangıç referansı)
+        self._applied: dict = {}                   # (r,c) -> (eski, yeni, zaman): ECU'ya yazılıp uygulanan değişimler
+        self._blink_on = True
         self._history: list = []                   # undo/redo yığını (None = geçersiz hücre)
         self._history_index = -1
         self._updating_table = False
@@ -151,6 +158,15 @@ class MapDocument(QWidget):
         self.redo_button = QPushButton("Yinele")
         self.redo_button.clicked.connect(self.redo)
 
+        self.discard_button = QPushButton("Düzenlemeleri Geri Al")
+        self.discard_button.setToolTip("ECU'ya YAZILMAMIŞ tüm düzenlemeleri atar; tablo ECU'dan son okunan değerlere döner.")
+        self.discard_button.clicked.connect(self.discard_edits)
+        self.cell_default_button = QPushButton("Seçili Hücreyi Başlangıca Döndür")
+        self.cell_default_button.clicked.connect(self.revert_selection_to_baseline)
+        self.map_default_button = QPushButton("Haritayı Başlangıca Döndür")
+        self.map_default_button.clicked.connect(self.revert_all_to_baseline)
+        self.baseline_label = QLabel("")
+        self.baseline_label.setStyleSheet(f"color: {theme.MUTED};")
         self.heatmap_checkbox = QCheckBox("Isı haritası")
         self.heatmap_checkbox.toggled.connect(self._refresh_cell_colors)
         self.mesh_checkbox = QCheckBox("Mesh (3B)")
@@ -185,6 +201,12 @@ class MapDocument(QWidget):
         self.mul_button.clicked.connect(lambda: self.apply_to_selection("mul"))
         self.pct_button.clicked.connect(lambda: self.apply_to_selection("pct"))
         self.pct_button.setToolTip("Seçili hücreleri yüzde olarak değiştirir (ör. 10 → %10 artır, -5 → %5 azalt).")
+
+        defaults = QHBoxLayout()
+        for w in (self.discard_button, self.cell_default_button, self.map_default_button, self.baseline_label):
+            defaults.addWidget(w)
+        defaults.addStretch()
+        self._defaults_row = defaults
 
         bulk = QHBoxLayout()
         bulk.addWidget(QLabel("Seçili hücrelere:"))
@@ -313,6 +335,7 @@ class MapDocument(QWidget):
         layout.addLayout(head)
         layout.addWidget(self.caveat_label)
         layout.addLayout(toolbar)
+        layout.addLayout(defaults)
         layout.addLayout(bulk)
         layout.addWidget(self.main_splitter, stretch=1)
         layout.addWidget(source_panel)
@@ -689,6 +712,10 @@ class MapDocument(QWidget):
     # ---- MainWindow'un çağırdığı erişimciler -------------------------------
     def set_grid_from_ecu(self, grid: list):
         self._original_grid = copy.deepcopy(grid)
+        if self._session_baseline is None or len(self._session_baseline) != len(grid):
+            self._session_baseline = copy.deepcopy(grid)    # başlangıç referansı: oturumdaki İLK okuma
+        self.baseline_label.setText(self.baseline_reference_text())
+        self._applied.clear()                               # yeniden okuma: önceki "uygulandı" işaretleri biter
         self._fill_table(grid)
         self._history = [self._values()]
         self._history_index = 0
@@ -703,7 +730,21 @@ class MapDocument(QWidget):
         self._set_status(message, ok=ok)
         if ok:
             # Yazma sonrası "ECU'daki" değer artık tablodaki değer -> yeni baz
-            self._original_grid = copy.deepcopy(self.current_grid())
+            new_grid = self.current_grid()
+            if self._original_grid is not None:
+                now = time.monotonic()
+                for r, row in enumerate(new_grid):
+                    for c, v in enumerate(row):
+                        try:
+                            old = self._original_grid[r][c]
+                        except IndexError:
+                            continue
+                        if direction(old, v) != 0:
+                            self._applied[(r, c)] = (old, v, now)
+                if self._applied:
+                    self._blink_on = True
+                    self._blink_timer().start()
+            self._original_grid = copy.deepcopy(new_grid)
             self._refresh_cell_colors()
             self.changed.emit()
 
@@ -811,9 +852,131 @@ class MapDocument(QWidget):
                 font = item.font()
                 font.setBold(modified)
                 item.setFont(font)
+                self._mark_cell(item, r, c, val)
         self._updating_table = False
         self._refresh_plot(vals)
         self._refresh_details(vals)
+
+    # ---- Değişiklik göstergeleri / başlangıca dönüş ------------------------------
+    def _blink_timer(self) -> QTimer:
+        t = getattr(self, "_blink_timer_obj", None)
+        if t is None:
+            t = self._blink_timer_obj = QTimer(self)
+            t.setInterval(400)
+            t.timeout.connect(self._on_blink)
+        return t
+
+    def _on_blink(self):
+        self._blink_on = not self._blink_on
+        now = time.monotonic()
+        if not any(now - t < BLINK_S for _o, _n, t in self._applied.values()):
+            self._blink_on = True
+            self._blink_timer().stop()
+        self._refresh_cell_colors()
+
+    def _mark_cell(self, item, r: int, c: int, val):
+        """Hücrenin değişim durumu: düzenlendi (ECU'ya yazılmadı) → ok + 'yazılmadı' ipucu;
+        uygulandı (yazıldı) → ok (~1,5 sn yanıp söner, sonra sade) + 'ECU'ya yazıldı' ipucu."""
+        applied = self._applied.get((r, c))
+        base = None
+        if self._original_grid is not None and r < len(self._original_grid) and c < len(self._original_grid[r]):
+            base = self._original_grid[r][c]
+        ref = None
+        if self._session_baseline is not None and r < len(self._session_baseline) and c < len(self._session_baseline[r]):
+            ref = self._session_baseline[r][c]
+        tip = []
+        icon = None
+        if val is not None and base is not None and direction(base, val) != 0:
+            icon = arrow_icon(val > base)
+            tip.append(f"ECU'daki değer: {_fmt(base)}  →  düzenlenen: {_fmt(val)}  ({format_delta(base, val)})  "
+                       "— ECU'ya HENÜZ yazılmadı")
+        elif applied is not None:
+            old, new, t = applied
+            if time.monotonic() - t >= BLINK_S or self._blink_on:
+                icon = arrow_icon(new > old)
+            tip.append(f"ECU'ya yazıldı: {_fmt(old)}  →  {_fmt(new)}  ({format_delta(old, new)})")
+        if val is not None and ref is not None and direction(ref, val) != 0:
+            tip.append(f"Başlangıç (oturum başı ECU değeri): {_fmt(ref)}  ({format_delta(ref, val)})")
+        if icon is None:
+            item.setData(Qt.DecorationRole, None)
+        else:
+            item.setIcon(icon)
+        item.setToolTip("\n".join(tip))
+
+    def _confirm(self, title: str, text: str) -> bool:
+        return QMessageBox.question(self, title, text, QMessageBox.Yes | QMessageBox.No,
+                                    QMessageBox.No) == QMessageBox.Yes
+
+    def discard_edits(self) -> int:
+        """ECU'ya yazılmamış düzenlemeleri geri alır (tablo = ECU'dan son okunan). Değişen hücre sayısını döner."""
+        if self._original_grid is None:
+            self._set_status("Önce ECU'dan okuyun; geri dönülecek ECU değeri yok.", ok=False)
+            return 0
+        n = self._count_diff(self.current_grid(), self._original_grid)
+        if n == 0:
+            self._set_status("Geri alınacak yazılmamış düzenleme yok.", ok=True)
+            return 0
+        if not self._confirm("Düzenlemeler geri alınsın mı?",
+                             f"{self.characteristic.name}: ECU'ya yazılmamış {n} hücredeki düzenleme atılacak "
+                             "(tablo ECU'dan son okunan değerlere döner)."):
+            return 0
+        self.load_grid_as_edit(copy.deepcopy(self._original_grid))
+        self._set_status(f"{n} hücredeki yazılmamış düzenleme geri alındı.", ok=True)
+        return n
+
+    def baseline_reference_text(self) -> str:
+        return "Başlangıç referansı: oturum başı ECU değeri (A2L'de tanımlı varsayılan bulunmadığı için)"
+
+    def revert_selection_to_baseline(self) -> int:
+        """Seçili hücreleri başlangıç referansına döndürür: tabloya DÜZENLEME olarak yüklenir, ECU'ya
+        yazılmaz (yazma normal 'ECU'ya Yaz' yolundan: yetki + kayıt korunur)."""
+        cells = self._selected_cells()
+        return self._revert_to_baseline(cells, f"{len(cells)} seçili hücre")
+
+    def revert_all_to_baseline(self) -> int:
+        rows, cols = len(self._session_baseline or []), len((self._session_baseline or [[]])[0])
+        cells = [(r, c) for r in range(rows) for c in range(cols)]
+        return self._revert_to_baseline(cells, "tüm harita")
+
+    def _revert_to_baseline(self, cells: list, what: str) -> int:
+        if self._session_baseline is None:
+            self._set_status("Başlangıç referansı yok: önce ECU'dan okuyun (referans oturumdaki ilk okumadır).",
+                             ok=False)
+            return 0
+        if not cells:
+            self._set_status("Önce tabloda hücre seçin.", ok=False)
+            return 0
+        cur = self._values()
+        todo = [(r, c) for r, c in cells
+                if r < len(self._session_baseline) and c < len(self._session_baseline[r])
+                and (cur[r][c] is None or direction(cur[r][c], self._session_baseline[r][c]) != 0)]
+        if not todo:
+            self._set_status("Seçim zaten başlangıç değerinde.", ok=True)
+            return 0
+        if not self._confirm("Başlangıç değerlerine dönülsün mü?",
+                             f"{self.characteristic.name}: {what} içinde {len(todo)} hücre başlangıç referansına "
+                             f"(oturum başı ECU değeri) döndürülecek. Değerler tabloya düzenleme olarak yüklenir; "
+                             "ECU'ya yazmak için 'ECU'ya Yaz'ı kullanın."):
+            return 0
+        grid = [[0.0 if v is None else v for v in row] for row in cur]
+        for r, c in todo:
+            grid[r][c] = self._session_baseline[r][c]
+        self.load_grid_as_edit(grid)
+        self._set_status(f"{len(todo)} hücre başlangıç değerine döndürüldü (ECU'ya HENÜZ yazılmadı). "
+                         + self.baseline_reference_text(), ok=True, warn=True)
+        return len(todo)
+
+    @staticmethod
+    def _count_diff(a: list, b: list) -> int:
+        n = 0
+        for r, row in enumerate(a):
+            for c, v in enumerate(row):
+                try:
+                    if direction(b[r][c], v) != 0:
+                        n += 1
+                except IndexError:
+                    n += 1
+        return n
 
     # ---- Toplu işlemler ---------------------------------------------------
     def _selected_cells(self) -> list:

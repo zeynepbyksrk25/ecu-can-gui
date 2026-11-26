@@ -311,6 +311,8 @@ class CalibrationMixin:
             kind = "FLAŞ" if persistent else "RAM"
             self.ccp_tab.set_write_result(False, f"Yazma hatası ({kind}): {exc}")
             self._log_event("HATA", f"{obj.name} {kind} yazma hatası: {exc}")
+            self.change_tracker.failed(obj.name, str(exc), obj.unit or "")
+            self._note_failed_write(obj.name, None, phys_value, obj.unit or "", str(exc), "ccp", persistent=persistent)
             self._record_input("Kalibrasyon > CCP", f"{kind} yazımı", "A2L", obj.name, phys_value, ok=False,
                                detail=str(exc), unit=obj.unit or "")
             return
@@ -323,11 +325,29 @@ class CalibrationMixin:
         )
         self.calibration_history.add(
             self.current_user, self.current_role.value, obj.name, old_phys, phys_value, obj.unit or "",
-            persistent=persistent,
+            persistent=persistent, source="ccp",
         )
+        self.change_tracker.applied(obj.name, old_phys, phys_value, obj.unit or "")
+        self._record_cal_sample(obj.name, phys_value, obj.unit or "")
         self._record_input("Kalibrasyon > CCP", "FLAŞ yazımı" if persistent else "RAM yazımı", "A2L", obj.name,
                            phys_value, old_value=old_phys, unit=obj.unit or "")
         self.history_tab.refresh()
+
+    def _record_cal_sample(self, name: str, value, unit: str):
+        """Uygulanan kalibrasyon değişimi kayıtta zaman serisi olarak da görünsün (cal:<ad>); olay satırı _log_event'ten."""
+        rec = self.session_recorder
+        if rec.is_active:
+            rec.register_signal(f"cal:{name}", unit, "Kalibrasyon", "wall_clock")
+            rec.record(f"cal:{name}", value)
+
+    def _note_failed_write(self, name: str, old, new, unit: str, error: str, source: str, persistent=False):
+        """Başarısız yazma da geçmişe girer (write_ok=False): ne denendiği ve neden uygulanmadığı görülsün."""
+        try:
+            self.calibration_history.add(self.current_user, self.current_role.value, name, old, float(new), unit,
+                                         persistent=persistent, detail="", write_ok=False, source=source)
+            self.history_tab.refresh()
+        except (TypeError, ValueError):
+            pass
 
     def _record_denied_write(self, page: str, kind: str, detail: str, target: str = "", value=None):
         """Reddedilen (yetki/bağlantı) yazma girişimi de kayda geçer: ne denendiği sonradan görülebilsin."""
@@ -621,6 +641,8 @@ class CalibrationMixin:
             if isinstance(exc, ccp_protocol.CCPTimeoutError):
                 problems.append(f"{e.name}: {str(exc) or 'ECU cevap vermedi'}")
                 self._log_event("HATA", f"{e.name} RAM yazma: ECU cevap vermedi")
+                self._note_failed_write(e.name, old_phys, phys, e.unit or "", str(exc) or "ECU cevap vermedi", "watch")
+                self.watch_tab.mark_write_failed(row, str(exc) or "ECU cevap vermedi")
                 self._record_input("Kalibrasyon > Parametre Listesi", "RAM yazımı", "A2L", e.name, phys, ok=False,
                                    detail=str(exc) or "ECU cevap vermedi", unit=e.unit or "")
                 failed_rows.append(row)
@@ -628,15 +650,18 @@ class CalibrationMixin:
             if exc is not None:
                 problems.append(f"{e.name}: {exc}")
                 self._log_event("HATA", f"{e.name} RAM yazma hatası: {exc}")
+                self._note_failed_write(e.name, old_phys, phys, e.unit or "", str(exc), "watch")
+                self.watch_tab.mark_write_failed(row, str(exc))
                 self._record_input("Kalibrasyon > Parametre Listesi", "RAM yazımı", "A2L", e.name, phys, ok=False,
                                    detail=str(exc), unit=e.unit or "")
                 failed_rows.append(row)
                 continue
-            self.watch_tab.commit_written(row, phys)
+            self.watch_tab.commit_written(row, phys, old=old_phys)
+            self._record_cal_sample(e.name, phys, e.unit or "")
             self._log_event("KALIBRASYON", f"{e.name} = {phys} {e.unit or ''} (RAM, Parametre Listesi) yazıldı")
             self.calibration_history.add(
                 self.current_user, self.current_role.value, e.name, old_phys, phys, e.unit or "",
-                persistent=False,
+                persistent=False, source="watch",
             )
             self._record_input("Kalibrasyon > Parametre Listesi", "RAM yazımı", "A2L", e.name, phys,
                                old_value=old_phys, unit=e.unit or "")
@@ -775,8 +800,10 @@ class CalibrationMixin:
         self.calibration_history.add(
             self.current_user, self.current_role.value, obj.name,
             entry.new_value, entry.old_value, obj.unit or "",
-            persistent=entry.persistent,
+            persistent=entry.persistent, source="geri_al",
         )
+        self.change_tracker.applied(obj.name, entry.new_value, entry.old_value, obj.unit or "")
+        self._record_cal_sample(obj.name, entry.old_value, obj.unit or "")
         self._record_input("Kalibrasyon > Geçmiş", "Geri alma (FLAŞ)" if entry.persistent else "Geri alma (RAM)", "A2L",
                            obj.name, entry.old_value, old_value=entry.new_value, unit=obj.unit or "",
                            detail="Geçmişten eski değere geri yazıldı")

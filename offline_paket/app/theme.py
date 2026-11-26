@@ -562,6 +562,19 @@ QLabel#ccpChip {{
     font-weight: 600;
 }}
 
+QLabel#recChip {{
+    background: #FFFFFF;
+    border: 1px solid #D6DEE6;
+    border-radius: 12px;
+    padding: 3px 12px;
+    color: #51616F;
+    font-size: 13px;
+    font-weight: 600;
+}}
+QLabel#recChip[state="rec"] {{ background: #FBE9E7; border-color: #D9473B; color: #B3001B; font-weight: 800; }}
+QLabel#recChip[state="pause"] {{ background: #FFF4DC; border-color: #D9A441; color: #9A6208; }}
+QLabel#recChip[state="error"] {{ background: #B3001B; border-color: #8E1D14; color: #FFFFFF; font-weight: 800; }}
+
 QLabel#ccpChip[state="online"] {{ background: #E6F4EC; border-color: #9AD1B2; color: #1B8A4C; }}
 QLabel#ccpChip[state="connecting"] {{ background: #FFF4DC; border-color: #D9A441; color: #9A6208; }}
 QLabel#ccpChip[state="lost"] {{ background: #FBE9E7; border-color: #E3A29B; color: #C22A1D; }}
