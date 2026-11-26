@@ -4,8 +4,8 @@ from datetime import datetime
 from PySide6.QtCore import QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QGuiApplication, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QFrame, QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QMainWindow,
-    QMessageBox, QPushButton, QScrollArea, QStackedWidget, QTabBar,
+    QFrame, QGraphicsDropShadowEffect, QLabel, QMainWindow,
+    QMessageBox, QPushButton, QScrollArea, QSizePolicy, QStackedWidget, QTabBar,
     QVBoxLayout, QWidget,
 )
 
@@ -50,8 +50,12 @@ from app.ui.mainwin.calibration import CalibrationMixin
 from app.ui.mainwin.connection import ConnectionMixin
 from app.ui.mainwin.dashboard import DashboardMixin
 from app.ui.mainwin.exports import ExportMixin
+from app.ui.mainwin.modas import ModasMixin
 from app.ui.mainwin.panel import PanelMixin
 from app.ui.mainwin.profiles import ProfilesMixin
+from app.ui.modas.pages import PageModel
+from app.ui.modas.ribbon import ModasRibbon
+from app.ui.modas.workspace import ModasSheetStore, ModasWorkspace
 
 
 class _ClickLabel(QLabel):
@@ -64,7 +68,8 @@ class _ClickLabel(QLabel):
         super().mouseReleaseEvent(event)
 
 
-class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, ProfilesMixin, ExportMixin, QMainWindow):
+class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, ProfilesMixin, ExportMixin, ModasMixin,
+                 QMainWindow):
     """Ana pencere: pencere çatısı, sayfalar, sinyal bağlantıları ve kapanış. İş mantığı alanlara bölünmüş
     parçalardadır (bkz. ``app/ui/mainwin``): bağlantı, CCP/kalibrasyon, Ana Sayfa, Kontrol Paneli, profiller."""
 
@@ -151,7 +156,13 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         # değişmedi — yalnızca aralarında geçiş yöntemi değişti, bu yüzden
         # MainWindow'un geri kalanındaki `self.xxx_tab` referansları aynen
         # çalışmaya devam eder.
+        # Modas Sport tarzı çalışma alanı (ilk sayfa) + Ribbon; bkz. app/ui/modas ve app/ui/mainwin/modas.py
+        self.modas_tab = ModasWorkspace(ModasSheetStore(data_path("modas_worksheets.json")))
+        self.modas_ribbon = ModasRibbon()
+        self.page_model = PageModel()
+
         self._nav_pages = [
+            ("📑", "Worksheets", self.modas_tab),
             ("🏠", "Ana Sayfa", self.dashboard_tab),
             ("📶", "CAN Monitor", self.can_monitor_tab),
             ("⚙", "Kalibrasyon", self.kalibrasyon_tab),
@@ -164,16 +175,21 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         # dışarı taşıp erişilemez olmak yerine dikey/yatay kaydırılabilir.
         # Pencere büyükse sayfa alanı doldurur (widgetResizable).
         self._cap_form_widths([p for _i, _l, p in self._nav_pages
-                               if p not in (self.dashboard_tab, self.analiz_tab, self.performance_tab,
+                               if p not in (self.modas_tab, self.dashboard_tab, self.analiz_tab, self.performance_tab,
                                          self.control_panel_tab, self.workspace_tab)])
         self.stack = QStackedWidget()
         self._page_scrolls: dict[QWidget, QScrollArea] = {}
         # Koyu temaya geçirilmiş sayfalar (koyu gövdeye sarılır); diğerleri henüz açık temada.
         self._dark_pages = {self.tanilama_tab, self.session_tab, self.kalibrasyon_tab, self.analiz_tab, self.performance_tab, self.workspace_tab, self.control_panel_tab}
         for _icon, _label, page in self._nav_pages:
-            # Ana Sayfa kaydırılmaz: 16" ekrana tamamen sığar (bkz. DashboardTab)
-            self.stack.addWidget(page if page is self.dashboard_tab else self._make_scrollable_page(page))
+            # Ana Sayfa ve Worksheets kaydırılmaz: Ana Sayfa 16" ekrana sığar (bkz. DashboardTab); Worksheets kendi
+            # MDI alanı / bölücüleriyle pencereyi doldurur.
+            self.stack.addWidget(page if page in (self.dashboard_tab, self.modas_tab) else self._make_scrollable_page(page))
 
+        # Boyut ilkeleri İLK asgari boyut hesabından önce kurulur (aksi halde pencere gizli Ana Sayfa'ya göre büyür).
+        self._stack_policies = {self.stack.widget(i): self.stack.widget(i).sizePolicy() for i in range(self.stack.count())}
+        self.stack.currentChanged.connect(self._on_stack_page_changed)
+        self._on_stack_page_changed(self.stack.currentIndex())
         self._build_ui_chrome()
 
         self.dashboard_tab.set_config(self.dashboard_config_store.load())
@@ -246,6 +262,7 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
 
         self._wire_signals()
         self._install_shortcuts_and_accessibility()
+        self._wire_modas()
         self.watch_tab.set_write_allowed(can_write_calibration(self.current_role))
         for sig in (self.transmit_tab.dbc_loaded, self.a2l_tab.a2l_loaded, self.dashboard_tab.config_saved,
                     self.user_tab.role_applied):
@@ -326,8 +343,7 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         central_layout = QVBoxLayout(central)
         central_layout.setContentsMargins(0, 0, 0, 0)
         central_layout.setSpacing(0)
-        central_layout.addWidget(self._build_top_header())
-        central_layout.addWidget(self._build_action_status_row())
+        central_layout.addWidget(self._build_modas_chrome())
         central_layout.addWidget(self.stack, stretch=1)
 
         self.setCentralWidget(central)
@@ -345,6 +361,15 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self._clock_timer.timeout.connect(self._update_clock)
         self._clock_timer.start()
         self._update_clock()
+
+    def _on_stack_page_changed(self, index: int):
+        """Pencerenin asgari boyutu yalnızca GÖRÜNEN sayfaya göre hesaplanır: QStackedWidget normalde gizli sayfaların
+        da asgari boyutunun en büyüğünü ister (kaydırılmayan Ana Sayfa ~1400×800), bu da Worksheets'i gereksiz büyük açardı.
+        Gizli sayfaların boyut ilkesi Ignored yapılır; sayfa açılınca özgün ilkesine döner ve pencere gerekirse büyür."""
+        for i in range(self.stack.count()):
+            page = self.stack.widget(i)
+            page.setSizePolicy(self._stack_policies[page] if i == index else QSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored))
+        self._schedule_minimum_size_refresh()
 
     def _refresh_minimum_size(self):
         """Pencerenin asgari boyutunu İÇERİĞE göre yeniden hesaplar ve gerekirse pencereyi büyütür.
@@ -393,55 +418,51 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         effect.setColor(QColor(20, 30, 40, alpha))
         widget.setGraphicsEffect(effect)
 
-    def _build_top_header(self) -> QWidget:
-        """Üst şerit: logo + başlık + YATAY sekme çubuğu (sidebar yok) + bağlantı pili.
-        Sekmeler sabittir: kapatılamaz/taşınamaz, "Ana Sayfa" her zaman ilk sekmedir."""
-        header = QFrame()
-        header.setObjectName("topHeaderNavy")
-        outer = QHBoxLayout(header)
-        outer.setContentsMargins(14, 0, 14, 0)
-        outer.setSpacing(14)
-
-        logo = QLabel("⚡")
-        logo.setObjectName("headerLogoBadge")
-        logo.setFixedSize(24, 24)
-        logo.setAlignment(Qt.AlignCenter)
-        outer.addWidget(logo)
-        title = QLabel("ECU CAN Arayüzü")
-        title.setObjectName("headerTitle")
-        outer.addWidget(title)
-
-        self.nav_bar = QTabBar()
+    def _build_modas_chrome(self) -> QWidget:
+        """Üst şerit = Modas Ribbon (bkz. app/ui/modas/ribbon.py). Eski başlık + komut şeridindeki tüm widget'lar
+        (bağlantı hapı, CCP durumu, rol, Ayarlar, Eşleşmeler, Motor Başlat/Durdur/ACİL DURDURMA) aynı adlarla yaşar:
+        durum alanı sekme satırının sağında, Motor grubu HER sekmede görünen sağ bölmede (Acil Durdurma gizlenmez).
+        ``nav_bar`` görünmez bir sayfa modeli olarak kalır (sayfa geçişi: Tools sekmesi, Ctrl+1…7, bağlantı hapı)."""
+        rb = self.modas_ribbon
+        self.nav_bar = QTabBar(self)
         self.nav_bar.setObjectName("topNav")
-        self.nav_bar.setDrawBase(False)
-        self.nav_bar.setExpanding(False)
         self.nav_bar.setMovable(False)
         self.nav_bar.setTabsClosable(False)
-        self.nav_bar.setUsesScrollButtons(False)
-        self.nav_bar.setFocusPolicy(Qt.NoFocus)
         for _icon, label, _page in self._nav_pages:
             self.nav_bar.addTab(label)
         self.nav_bar.setCurrentIndex(0)
         self.nav_bar.currentChanged.connect(self.stack.setCurrentIndex)
-        outer.addWidget(self.nav_bar, 1)
+        self.nav_bar.hide()
+        rb.set_pages([(icon, label) for icon, label, _p in self._nav_pages])
 
         self.header_conn_pill = _ClickLabel("●  Bağlı değil")
         self.header_conn_pill.setObjectName("connPillBad")
         self.header_conn_pill.setCursor(Qt.PointingHandCursor)
         self.header_conn_pill.setToolTip("Tıkla: bağlantı ayarları (CAN Monitor sekmesi)")
         self.header_conn_pill.clicked.connect(self._open_connection_page)
-        outer.addWidget(self.header_conn_pill)
-        return header
 
-    def _build_action_status_row(self) -> QWidget:
-        """Sekmelerin altındaki komut şeridi (TÜM sayfalarda görünür; Acil Durdurma
-        her zaman erişilebilir): Motoru Başlat / Durdur / Acil Durdurma, sağda rol ve
-        ⚙ Eşleşmeler."""
-        row = QFrame()
-        row.setObjectName("actionStatusRow")
-        layout = QHBoxLayout(row)
-        layout.setContentsMargins(14, 4, 14, 4)
-        layout.setSpacing(10)
+        self.ccp_chip = QLabel("CCP bağlı değil")
+        self.ccp_chip.setObjectName("ccpChip")
+        self.ccp_chip.setProperty("state", IDLE)
+        self.ccp_chip.setToolTip("CCP/ECU durumu: bağlı değil → bağlanıyor → çevrimiçi → ECU yok (otomatik yeniden bağlanır)")
+        self.header_role_label = _ClickLabel("")
+        self.header_role_label.setObjectName("headerReadout")
+        self.header_role_label.setTextFormat(Qt.RichText)
+        self.header_role_label.setCursor(Qt.PointingHandCursor)
+        self.header_role_label.setToolTip("Tıkla: kullanıcı ve rol ayarları")
+        self.header_role_label.clicked.connect(self.open_settings)
+        self.settings_button = QPushButton("⚙  Ayarlar")
+        self.settings_button.setFixedHeight(24)
+        self.settings_button.setCursor(Qt.PointingHandCursor)
+        self.settings_button.setToolTip("Kullanıcı / rol ve bağlantı+CCP profilleri")
+        self.settings_button.clicked.connect(self.open_settings)
+        self.mappings_button = QPushButton("⚙  Eşleşmeler")
+        self.mappings_button.setFixedHeight(24)
+        self.mappings_button.setCursor(Qt.PointingHandCursor)
+        self.mappings_button.setToolTip("Sensör, eyleyici, motor komutu ve giriş sinyallerinin CAN (DBC) / A2L eşleşmeleri")
+        self.mappings_button.clicked.connect(self.dashboard_tab.open_mappings)
+        for w in (self.ccp_chip, self.header_role_label, self.settings_button, self.mappings_button, self.header_conn_pill):
+            rb.add_status_widget(w)
 
         dt = self.dashboard_tab
         for tg in (dt.start_toggle, dt.stop_toggle, dt.estop_toggle):
@@ -450,40 +471,11 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
                 sep = QFrame()
                 sep.setObjectName("cmdSep")
                 sep.setFixedHeight(30)
-                layout.addSpacing(6)
-                layout.addWidget(sep)
-                layout.addSpacing(6)
-            layout.addWidget(tg)
-        layout.addWidget(self.dashboard_tab.estop_warn)
-
-        layout.addStretch()
-        self.ccp_chip = QLabel("CCP bağlı değil")
-        self.ccp_chip.setObjectName("ccpChip")
-        self.ccp_chip.setProperty("state", IDLE)
-        self.ccp_chip.setToolTip("CCP/ECU durumu: bağlı değil → bağlanıyor → çevrimiçi → ECU yok (otomatik yeniden bağlanır)")
-        layout.addWidget(self.ccp_chip)
-        layout.addSpacing(8)
-        self.header_role_label = _ClickLabel("")
-        self.header_role_label.setObjectName("headerReadout")
-        self.header_role_label.setTextFormat(Qt.RichText)
-        self.header_role_label.setCursor(Qt.PointingHandCursor)
-        self.header_role_label.setToolTip("Tıkla: kullanıcı ve rol ayarları")
-        self.header_role_label.clicked.connect(self.open_settings)
-        layout.addWidget(self.header_role_label)
-        self.settings_button = QPushButton("⚙  Ayarlar")
-        self.settings_button.setFixedHeight(28)
-        self.settings_button.setCursor(Qt.PointingHandCursor)
-        self.settings_button.setToolTip("Kullanıcı / rol ve bağlantı+CCP profilleri")
-        self.settings_button.clicked.connect(self.open_settings)
-        layout.addWidget(self.settings_button)
-        self.mappings_button = QPushButton("⚙  Eşleşmeler")
-        self.mappings_button.setFixedHeight(28)
-        self.mappings_button.setCursor(Qt.PointingHandCursor)
-        self.mappings_button.setToolTip("Sensör, eyleyici, motor komutu ve giriş sinyallerinin CAN (DBC) / A2L eşleşmeleri")
-        self.mappings_button.clicked.connect(self.dashboard_tab.open_mappings)
-        layout.addWidget(self.mappings_button)
+                rb.add_motor_widget(sep)
+            rb.add_motor_widget(tg)
+        rb.add_motor_note(dt.estop_warn)
         self._update_role_label()
-        return row
+        return rb
 
     ESTOP_SHORTCUT = "Ctrl+Shift+E"
 
@@ -496,7 +488,7 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self._estop_shortcut = QShortcut(QKeySequence(self.ESTOP_SHORTCUT), self)
         self._estop_shortcut.setContext(Qt.ApplicationShortcut)
         self._estop_shortcut.activated.connect(dt.estop_button.click)
-        for i, (_icon, label, _page) in enumerate(self._nav_pages[:9]):      # Ctrl+1..6: sayfa geçişi
+        for i, (_icon, label, _page) in enumerate(self._nav_pages[:9]):      # Ctrl+1..7: sayfa geçişi
             sc = QShortcut(QKeySequence(f"Ctrl+{i + 1}"), self)
             sc.setContext(Qt.ApplicationShortcut)
             sc.activated.connect(lambda idx=i: self.nav_bar.setCurrentIndex(idx))
@@ -512,7 +504,7 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
             self.header_role_label: ("Kullanıcı rolü", "Kullanıcı ve rol ayarlarını açar"),
             self.settings_button: ("Ayarlar", "Kullanıcı, rol ve profiller"),
             self.mappings_button: ("Eşleşmeler", "CAN ve A2L eşleşmeleri"),
-            self.nav_bar: ("Sayfalar", "Ctrl+1 ile Ctrl+6 arası sayfa değiştirir"),
+            self.nav_bar: ("Sayfalar", "Ctrl+1 ile Ctrl+7 arası sayfa değiştirir"),
         }
         for widget, (name, desc) in names.items():
             widget.setAccessibleName(name)
@@ -637,6 +629,7 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
     def _log_event(self, category: str, message: str):
         self.event_log.add(category, message, user=self.current_user, role=self.current_role.value)
         self.dashboard_tab.add_event(self.event_log.entries[-1])
+        self.modas_tab.log_panel.add_entry(self.event_log.entries[-1])
         self.session_tab.refresh_log()
 
     def closeEvent(self, event):
@@ -653,6 +646,10 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
                     det.dock()
             except Exception:  # noqa: BLE001
                 logging.getLogger(__name__).exception("ayrı pencere kapatma hatası")
+        try:
+            self.modas_tab.shutdown()
+        except Exception:  # noqa: BLE001
+            logging.getLogger(__name__).exception("modas shutdown hatası")
         try:
             self.workspace_tab.shutdown()
         except Exception:  # noqa: BLE001

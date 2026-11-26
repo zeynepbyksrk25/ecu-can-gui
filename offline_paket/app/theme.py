@@ -55,6 +55,27 @@ DANGER_BG = "#FBE9E7"
 DANGER_BG2 = "#FDECEA"
 DANGER_LINE = "#E3A29B"
 
+# ---- Modas Sport çalışma alanı (Ribbon + mavi zemin + iç pencereler; bkz. app/ui/modas) ----------------
+MODAS_WORKSPACE = "#A9C3E8"       # mavi çalışma zemini
+MODAS_RIBBON_TABBAR = "#C9D9EE"   # ribbon sekme çubuğu
+MODAS_RIBBON_BG = "#E3ECF8"       # ribbon gövdesi
+MODAS_RIBBON_LINE = "#8FAAD0"     # ribbon kenarlıkları / grup ayracı
+MODAS_RIBBON_HOVER = "#FFF1CE"    # düğme üzerine gelince (turuncu-sarı)
+MODAS_GROUP_LABEL = "#3C5B88"     # grup alt etiketi
+MODAS_ORANGE = "#F6A623"          # etkin WP / RP, basılı düğme
+MODAS_ORANGE_LINE = "#C77C0A"
+MODAS_LED_RED = "#D32F2F"
+MODAS_LED_GREEN = "#2E9E4F"
+MODAS_CAL_BG = "#FFFFFF"          # ayarlanabilir (kalibrasyon) değer: beyaz
+MODAS_MEAS_BG = "#D9DDE3"         # ölçüm (salt okunur): gri
+PENDING_BG = "#FFE8A8"            # yazılmayı bekleyen / değişen değer (Parametre Listesi, Harita, Modas)
+MODAS_WIN_TITLE_BG = "#D4E0F2"    # iç pencere başlığı
+MODAS_WIN_TITLE_INK = "#5F7391"
+MODAS_WIN_LINE = "#7F9CC6"
+MODAS_TABLE_HEAD = "#C3D2EA"
+MODAS_TABLE_ALT = "#EEF3FA"
+MODAS_LIST_SEL = "#F6A623"
+
 
 def paint(css: str) -> str:
     """CSS/QSS metnindeki ``@@AD@@`` yer tutucularını bu modüldeki renk token'larıyla doldurur. Süslü

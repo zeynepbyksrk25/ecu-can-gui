@@ -533,6 +533,7 @@ def test_trend_range_buttons_are_not_clipped_after_loading_a_dbc(qapp, monkeypat
     w = MainWindow()
     try:
         w.show()
+        w.setCurrentWidget(w.dashboard_tab)          # Modas düzeninde açılış sayfası Worksheets; trend Ana Sayfa'dadır
         QTest.qWait(50)
         w.transmit_tab.dbc.load(os.path.join(DATA, "sample.dbc"))
         w.transmit_tab.dbc_loaded.emit()
