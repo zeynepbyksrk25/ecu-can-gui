@@ -8,10 +8,13 @@ Modas penceresi yalnızca arayüzdür; ECU'ya doğrudan dokunmaz.
 from __future__ import annotations
 
 import logging
+import os
+import time
 
-from PySide6.QtCore import QTimer, Qt
+from PySide6.QtCore import QTimer, QUrl, Qt
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtGui import QKeySequence, QShortcut
-from PySide6.QtWidgets import QMenu, QMessageBox, QToolButton
+from PySide6.QtWidgets import QInputDialog, QMenu, QMessageBox, QToolButton
 
 from app import theme
 from app.ccp import codec as ccp_codec
@@ -21,6 +24,7 @@ from app.ui.mainwin.common import _CCP_IO_ERRORS
 from app.ui.modas.pages import RP, WP, _same
 from app.modas_dataset import DatasetStore, compare
 from app.modas_projects import ProjectStore
+from app.modas_templates import BUILTINS, TemplateStore, build_specs
 from app.paths import data_path
 from app.ui.modas.dataset_dialogs import LATER, READ_ECU, WRITE_PC, DatasetChoiceDialog, DiffListDialog
 from app.ui.modas.project_manager import ProjectManagerDialog
@@ -70,6 +74,9 @@ class ModasMixin:
         b["ecu"].clicked.connect(self._open_connection_page)
         b["measure"].clicked.connect(self._modas_on_measure_clicked)
         b["record"].clicked.connect(self._modas_on_record_clicked)
+        b["mark"].clicked.connect(self._modas_add_marker)
+        b["open_record"].clicked.connect(self._modas_open_record_folder)
+        self._modas_marker_count = 0
         b["wp"].clicked.connect(lambda: self._modas_set_page(WP))
         b["rp"].clicked.connect(lambda: self._modas_set_page(RP))
         b["copy_wp_rp"].clicked.connect(self._modas_copy_wp_to_rp)
@@ -84,6 +91,11 @@ class ModasMixin:
         tab.input_value_provider = self._modas_input_value
         tab.input_submitted.connect(self._modas_send_input)
         self.dashboard_tab.sim_inputs.values_changed.connect(tab.refresh_inputs)
+        self.template_store = TemplateStore(data_path("modas_templates.json"))
+        tmenu = QMenu(b["sheet_template"])
+        tmenu.aboutToShow.connect(lambda: self._modas_fill_template_menu(tmenu))
+        b["sheet_template"].setMenu(tmenu)
+        b["sheet_template"].setPopupMode(QToolButton.InstantPopup)
         menu = QMenu(b["add_input"])
         for d in TEST_INPUTS:
             menu.addAction(f"{d.label}" + (f"  [{d.unit}]" if d.unit else "")).triggered.connect(
@@ -138,6 +150,7 @@ class ModasMixin:
             app_sc("F8", self._modas_toggle_page),
             app_sc("F9", lambda: self._modas_on_measure_clicked(toggle=True)),
             app_sc("Ctrl+F9", lambda: self._modas_on_record_clicked(toggle=True)),
+            app_sc("F4", self._modas_add_marker),
             app_sc("F10", rb.toggle_key_tips),
             app_sc("F12", self._modas_save),
             ws_sc("Ctrl+P", lambda: tab.set_format("phys")),
@@ -304,6 +317,12 @@ class ModasMixin:
             self.modas_tab.stop_measurement()
 
     # ---- Kayıt ---------------------------------------------------------------------
+    def _modas_sync_record_buttons(self):
+        b = self.modas_ribbon.buttons
+        b["mark"].setEnabled(self._modas_recording())
+        path = getattr(self, "_last_record_csv", None)
+        b["open_record"].setEnabled(bool(path) and os.path.isdir(os.path.dirname(path)))
+
     def _modas_set_record_checked(self, on: bool):
         b = self.modas_ribbon.buttons["record"]
         b.blockSignals(True)
@@ -311,16 +330,59 @@ class ModasMixin:
         b.blockSignals(False)
         b.setText("Stop" if on else "Start")
         b.setIcon(glyph_icon("■" if on else "●", theme.DANGER))
+        if on:
+            self._modas_marker_count = 0                       # işaretler her kayıtta #1'den başlar
+        else:
+            path = getattr(self, "_last_record_csv", None)
+            if path:
+                self.modas_tab.log_panel.add_text(f"Kayıt kaydedildi: {path}")
+                self.statusBar().showMessage("Kayıt kaydedildi. Ribbon'da 'Open folder' ile klasörü açabilirsiniz.", 6000)
+        self._modas_sync_record_buttons()
 
     def _modas_on_record_clicked(self, _checked: bool = False, toggle: bool = False):
         st = self.session_tab
         recording = not st.start_button.isEnabled()
         want = (not recording) if toggle else self.modas_ribbon.buttons["record"].isChecked()
         if want and not recording:
+            self._modas_prefill_session()
             st.start_button.click()
         elif not want and recording:
             st.stop_button.click()
         self._modas_set_record_checked(not st.start_button.isEnabled())
+
+    def _modas_auto_session_name(self) -> str:
+        """Kayıt adı: ``Proje_Workbase_20260101-120000`` (workbase açık değilse yalnızca zaman damgası)."""
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        wbk = self._modas_workbase
+        return f"{wbk[0].name}_{wbk[1].name}_{stamp}" if wbk is not None else f"Worksheets_{stamp}"
+
+    def _modas_prefill_session(self):
+        """Tek tuşla kayıt: boş bırakılan oturum adı ve operatör otomatik doldurulur (kullanıcının yazdığı değer korunur)."""
+        st = self.session_tab
+        if not st.name_edit.text().strip():
+            st.name_edit.setText(self._modas_auto_session_name())
+        if not st.operator_edit.text().strip() and self.current_user and self.current_user != "bilinmeyen":
+            st.operator_edit.setText(self.current_user)
+
+    def _modas_recording(self) -> bool:
+        return not self.session_tab.start_button.isEnabled()
+
+    def _modas_add_marker(self):
+        """F4: kayıt sürerken olay günlüğüne (Excel / PDF raporda da görünür) zaman damgalı test işareti yazar."""
+        if not self._modas_recording():
+            self.statusBar().showMessage("İşaret için önce kaydı başlatın (Ctrl+F9).", 3000)
+            return
+        self._modas_marker_count += 1
+        n = self._modas_marker_count
+        self.event_log.add("İŞARET", f"Test işareti #{n}", self.current_user, self.current_role.value)
+        self.session_tab.refresh_log()
+        self.modas_tab.log_panel.add_text(f"İşaret #{n} eklendi ({time.strftime('%H:%M:%S')})")
+        self.statusBar().showMessage(f"İşaret #{n} kayda eklendi.", 3000)
+
+    def _modas_open_record_folder(self):
+        path = getattr(self, "_last_record_csv", None)
+        if path and os.path.isdir(os.path.dirname(path)):
+            QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.dirname(path)))
 
     # ======================================================================
     # Yazma (Parametre Listesi ile aynı güvenlik yolu)
@@ -648,6 +710,55 @@ class ModasMixin:
         if ok:
             win.set_value(value)
             self.statusBar().showMessage(f"{d.label} = {value:g} {d.unit} gönderildi.", 3000)
+
+    # ======================================================================
+    # Worksheet şablonları
+    # ======================================================================
+    def _modas_fill_template_menu(self, menu: QMenu):
+        menu.clear()
+        for t in BUILTINS:
+            act = menu.addAction(t.name)
+            act.setToolTip(t.description)
+            act.triggered.connect(lambda _c=False, n=t.name: self._modas_apply_template(n))
+        user = self.template_store.names()
+        if user:
+            menu.addSeparator()
+            for n in user:
+                menu.addAction(n).triggered.connect(lambda _c=False, n=n: self._modas_apply_template(n))
+        menu.addSeparator()
+        menu.addAction("Save worksheet as template…").triggered.connect(self._modas_save_template)
+        if user:
+            sub = menu.addMenu("Delete template")
+            for n in user:
+                sub.addAction(n).triggered.connect(lambda _c=False, n=n: self._modas_delete_template(n))
+
+    def _modas_apply_template(self, name: str):
+        """Şablondan yeni worksheet kurar. Hiçbir şey ECU'ya yazılmaz, ölçüm başlatılmaz."""
+        specs = build_specs(name, self.a2l_tab.db.summary, self.template_store)
+        if specs is None:
+            self.statusBar().showMessage(f"Şablon bulunamadı: {name}", 4000)
+            return
+        if not specs:
+            self.statusBar().showMessage(f"'{name}' için eşleşen etiket yok (A2L yüklü mü?).", 6000)
+            return
+        sheet, built, wanted = self.modas_tab.new_sheet_from_specs(name, specs)
+        self._log_event("KULLANICI", f"Worksheet şablonu uygulandı: {name} ({built}/{wanted} pencere)")
+        note = "" if built == wanted else f" — {wanted - built} etiket A2L'de bulunamadı (A2L yüklenince kurulur)"
+        self.statusBar().showMessage(f"'{sheet.name}' worksheet'i kuruldu: {built} pencere{note}.", 6000)
+        self._modas_update_diff()
+
+    def _modas_save_template(self):
+        name, ok = QInputDialog.getText(self, "Save as template", "Şablon adı:")
+        if not ok or not name.strip():
+            return
+        if not self.template_store.save(name, self.modas_tab.sheet_specs()):
+            QMessageBox.warning(self, "Şablon", "Şablon kaydedilemedi (ad boş ya da hazır şablon adı).")
+            return
+        self.statusBar().showMessage(f"Şablon kaydedildi: {name.strip()}", 4000)
+
+    def _modas_delete_template(self, name: str):
+        if QMessageBox.question(self, "Delete template", f"'{name}' şablonu silinsin mi?") == QMessageBox.Yes:
+            self.template_store.delete(name)
 
     def _selected_var_labels(self) -> list:
         """Variable list'te seçili etiketler (yeni osiloskop bunlarla açılır)."""

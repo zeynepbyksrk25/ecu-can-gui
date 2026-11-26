@@ -213,7 +213,11 @@ class ModasRibbon(QFrame):
         meas = self.big("measure", "Start", "▶", "Ölçümü başlat / durdur   F9", checkable=True)
         lay.addWidget(self._group("Measurement", meas))
         rec = self.big("record", "Start", "●", "Kaydı başlat / durdur   Ctrl+F9 (oturum kaydı)", checkable=True)
-        lay.addWidget(self._group("Recording", rec))
+        mark = self.small("mark", "◆ Mark  F4", "Kayda test işareti (zaman damgalı) ekler   F4")
+        mark.setEnabled(False)
+        folder = self.small("open_record", "▸ Open folder", "Son kaydın klasörünü aç")
+        folder.setEnabled(False)
+        lay.addWidget(self._group("Recording", rec, self._column(mark, folder)))
 
         # Current Project and Workbase
         grid = QWidget()
@@ -288,6 +292,7 @@ class ModasRibbon(QFrame):
         lay.addWidget(self._group(
             "Worksheets",
             self.big("sheet_new", "New", "＋", "Yeni worksheet"),
+            self.big("sheet_template", "Template", "▦", "Hazır test / kalibrasyon dizilimlerinden yeni worksheet; kendi şablonunu kaydet"),
             self.big("sheet_rename", "Rename", "✎", "Aktif worksheet'i yeniden adlandır"),
             self.big("sheet_delete", "Delete", "🗑", "Aktif worksheet'i sil"),
         ))

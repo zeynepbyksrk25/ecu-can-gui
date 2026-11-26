@@ -16,11 +16,12 @@ def _fresh_worksheets():
     """Worksheet düzeni (modas_worksheets.json) testler arasında sızmasın: önceki testin kaydettiği pencereler
     sonraki testin MainWindow'unda canlanmasın."""
     from app.paths import data_path
-    for suffix in ("", ".bak", ".tmp"):
-        try:
-            os.remove(data_path("modas_worksheets.json") + suffix)
-        except OSError:
-            pass
+    for name in ("modas_worksheets.json", "modas_templates.json"):
+        for suffix in ("", ".bak", ".tmp"):
+            try:
+                os.remove(data_path(name) + suffix)
+            except OSError:
+                pass
     yield
 
 

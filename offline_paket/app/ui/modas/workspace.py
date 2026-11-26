@@ -235,6 +235,25 @@ class ModasWorkspace(QWidget):
         self._changed()
         return sheet
 
+    def sheet_specs(self, index: int | None = None) -> list:
+        """Worksheet'in pencere tanımları (şablon olarak saklamak için); ``index`` verilmezse aktif worksheet."""
+        return self._sheet_specs(self._sheets[max(0, self.tabs.currentIndex()) if index is None else index])
+
+    def new_sheet_from_specs(self, name: str, specs: list) -> tuple:
+        """Verilen pencere tanımlarından yeni worksheet kurar; ``(worksheet, kurulan, istenen)`` döner. A2L'de bulunamayan
+        etiketler worksheet'te bekleyen kalır (A2L yüklenince kurulur) ve kaydedilen düzende korunur."""
+        base, i = (name or "Sheet").strip() or "Sheet", 1
+        unique = base
+        while unique in self.sheet_names():
+            i += 1
+            unique = f"{base} {i}"
+        sheet = self._make_sheet(unique)
+        sheet.pending = [dict(s) for s in specs]
+        self._materialize(sheet)
+        self._sync_hub()
+        self._changed()
+        return sheet, len(sheet.windows), len(specs)
+
     def rename_sheet(self, index: int, name: str | None = None) -> bool:
         if not 0 <= index < len(self._sheets):
             return False

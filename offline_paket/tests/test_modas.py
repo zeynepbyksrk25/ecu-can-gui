@@ -978,3 +978,88 @@ def test_ribbon_input_menu_lists_inputs_and_adds_all_flight_conditions(bench):
     next(a for a in menu.actions() if a.text() == "All flight conditions").trigger()
     keys = {x.key for x in w.modas_tab.input_windows()}      # önceki testlerden kalan kayıtlı pencereler olabilir
     assert {"altitude", "alfa", "beta", "ma", "p_total", "p_amb", "t_amb"} <= keys
+
+
+# ------------------------------------------------------------------ Aşama 3c: worksheet şablonları
+def test_template_menu_builds_a_new_worksheet_without_writing_or_measuring(live, monkeypatch, tmp_path):
+    w, ecu, obj, pump = live
+    tab = w.modas_tab
+    assert wait_for(lambda: w.ccp_session.state == ONLINE, pump)
+    n_sheets = len(tab.sheets)
+    menu = w.modas_ribbon.buttons["sheet_template"].menu()
+    menu.aboutToShow.emit()
+    texts = [a.text() for a in menu.actions() if a.text()]
+    assert texts[:4] == ["Test Bench", "Start Sequence", "Monitoring", "Calibration"]
+    before = ecu.read_memory_bytes(obj.address, 4)
+    next(a for a in menu.actions() if a.text() == "Calibration").trigger()
+    assert len(tab.sheets) == n_sheets + 1 and tab.current_sheet().name == "Calibration"
+    labels = [x.label for x in tab.value_windows()]
+    assert obj.name in labels                                             # A2L'deki ayarlanabilir değer pencereye geldi
+    assert not tab.is_measuring and ecu.read_memory_bytes(obj.address, 4) == before   # yazma / ölçüm yok
+    next(a for a in menu.actions() if a.text() == "Test Bench").trigger()
+    assert tab.current_sheet().name == "Test Bench" and len(tab.input_windows(all_sheets=False)) == 7
+    assert len(tab.scope_windows(all_sheets=False)) == 1
+    next(a for a in menu.actions() if a.text() == "Test Bench").trigger()   # tekrar: ad çakışmaz
+    assert tab.current_sheet().name == "Test Bench 2"
+
+
+def test_user_template_saves_current_worksheet_and_reapplies_it(live, monkeypatch):
+    from PySide6.QtWidgets import QInputDialog
+    w, ecu, obj, pump = live
+    tab = w.modas_tab
+    tab.add_input("altitude")
+    tab.add_scope([obj.name])
+    monkeypatch.setattr(QInputDialog, "getText", staticmethod(lambda *a, **k: ("Benim Test", True)))
+    w._modas_save_template()
+    assert w.template_store.names() == ["Benim Test"]
+    menu = w.modas_ribbon.buttons["sheet_template"].menu()
+    menu.aboutToShow.emit()
+    next(a for a in menu.actions() if a.text() == "Benim Test").trigger()
+    cur = tab.current_sheet()
+    assert cur.name == "Benim Test"
+    assert [x.key for x in tab.input_windows(all_sheets=False)] == ["altitude"]
+    assert tab.scope_windows(all_sheets=False)[0].labels() == [obj.name]
+    monkeypatch.setattr(QInputDialog, "getText", staticmethod(lambda *a, **k: ("Calibration", True)))
+    monkeypatch.setattr("app.ui.mainwin.modas.QMessageBox.warning", staticmethod(lambda *a, **k: None))
+    w._modas_save_template()                                              # hazır şablon adı ezilemez
+    assert w.template_store.names() == ["Benim Test"]
+
+
+# ------------------------------------------------------------------ Aşama 3d: tek tuşla kayıt
+def test_record_prefills_name_and_operator_and_f4_marks_only_while_recording(live, monkeypatch):
+    w, ecu, obj, pump = live
+    rb, st = w.modas_ribbon, w.session_tab
+    w.current_user = "Zeynep"
+    pr = w.project_store.create_project(f"Rec{next(_ch)}")
+    wb = w.project_store.save_workbase(pr.name, Workbase(name="Tezgah"))
+    w._modas_workbase = (pr, wb)
+    assert not rb.buttons["mark"].isEnabled() and not rb.buttons["open_record"].isEnabled()
+    w._modas_add_marker()                                              # kayıt yokken işaret eklenmez
+    assert not [e for e in w.event_log.entries if e.category == "İŞARET"]
+    rb.buttons["record"].click()                                       # tek tuş: ad ve operatör otomatik
+    assert st.name_edit.text().startswith(f"{pr.name}_Tezgah_") and st.operator_edit.text() == "Zeynep"
+    assert rb.buttons["mark"].isEnabled() and not st.start_button.isEnabled()
+    w._modas_add_marker()
+    w._modas_add_marker()
+    marks = [e.message for e in w.event_log.entries if e.category == "İŞARET"]
+    assert marks == ["Test işareti #1", "Test işareti #2"]
+    rb.buttons["record"].click()
+    assert st.start_button.isEnabled() and not rb.buttons["mark"].isEnabled()
+    path = w._last_record_csv
+    assert path and os.path.isfile(path) and os.path.basename(path).startswith(st.name_edit.text()[:10])
+    assert rb.buttons["open_record"].isEnabled()
+    assert any("Kayıt kaydedildi" in t for t in w.modas_tab.log_panel.texts())
+    opened = []
+    monkeypatch.setattr("app.ui.mainwin.modas.QDesktopServices.openUrl", staticmethod(lambda url: opened.append(url.toLocalFile())))
+    rb.buttons["open_record"].click()
+    assert opened == [os.path.dirname(path)]
+
+
+def test_record_keeps_a_name_the_user_already_typed(live):
+    w, ecu, obj, pump = live
+    st = w.session_tab
+    st.name_edit.setText("Soğutma testi #3")
+    st.operator_edit.setText("Ayşe")
+    w.modas_ribbon.buttons["record"].click()
+    assert st.name_edit.text() == "Soğutma testi #3" and st.operator_edit.text() == "Ayşe"
+    w.modas_ribbon.buttons["record"].click()
