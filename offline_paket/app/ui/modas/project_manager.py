@@ -9,6 +9,7 @@ Veri işleri ``app.modas_projects.ProjectStore``'dadır (Qt'den bağımsız, tes
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
+from app import theme
 from PySide6.QtWidgets import (
     QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QFrame, QGridLayout, QGroupBox, QHBoxLayout,
     QInputDialog, QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QPushButton, QTreeWidget, QTreeWidgetItem,
@@ -53,7 +54,7 @@ class WorkbaseDialog(QDialog):
                          ("Baudrate:", self.baud), ("Communication hardware:", self.hardware), ("Comment:", self.comment)):
             form.addRow(label, w)
         self.error = QLabel("")
-        self.error.setStyleSheet("color:#C22A1D;")
+        self.error.setStyleSheet(f"color:{theme.DANGER};")
         self.error.setWordWrap(True)
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self.accept)
@@ -176,7 +177,7 @@ class ProjectManagerDialog(QDialog):
             lab.setText(str(v) if v not in ("", None) else "—")
 
     def _msg(self, text: str, error: bool = False):
-        self.status.setStyleSheet("color:#C22A1D;" if error else "")
+        self.status.setStyleSheet(f"color:{theme.DANGER};" if error else "")
         self.status.setText(text)
 
     def selected_project(self):

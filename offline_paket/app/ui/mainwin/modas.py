@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import QMessageBox
 
@@ -18,9 +18,11 @@ from app.ccp import codec as ccp_codec
 from app.ccp import protocol as ccp_protocol
 from app.ccp.worker import IDLE, CONNECTING, LOST, ONLINE
 from app.ui.mainwin.common import _CCP_IO_ERRORS
-from app.ui.modas.pages import RP, WP
+from app.ui.modas.pages import RP, WP, _same
+from app.modas_dataset import DatasetStore, compare
 from app.modas_projects import ProjectStore
 from app.paths import data_path
+from app.ui.modas.dataset_dialogs import LATER, READ_ECU, WRITE_PC, DatasetChoiceDialog, DiffListDialog
 from app.ui.modas.project_manager import ProjectManagerDialog
 from app.ui.modas.ribbon import glyph_icon
 from app.ui.modas.windows import TableWindow, ValueWindow, format_phys
@@ -45,6 +47,9 @@ class ModasMixin:
         self._modas_last_status = None
         self.project_store = ProjectStore(data_path("modas_projects"))
         self._modas_workbase = None                      # (Project, Workbase): açık workbase; Ribbon alanlarına yansır
+        self._dataset_checked = False                    # bu CCP bağlantısında PC↔ECU veri seti kontrolü yapıldı mı
+        self._dataset_dialog_open = False
+        self._dataset_diffs: list = []                   # çözülmemiş (Decide later) PC↔ECU farkları
         self.project_manager = ProjectManagerDialog(self.project_store, self)
         self.project_manager.workbase_opened.connect(self._modas_open_workbase)
         self.project_manager.settings_requested.connect(self.open_settings)
@@ -68,7 +73,8 @@ class ModasMixin:
         b["rp"].clicked.connect(lambda: self._modas_set_page(RP))
         b["copy_wp_rp"].clicked.connect(self._modas_copy_wp_to_rp)
         b["copy_rp_wp"].clicked.connect(self._modas_copy_rp_to_wp)
-        b["read_ecu"].clicked.connect(self._modas_read_all)
+        b["read_ecu"].clicked.connect(self._modas_on_read_clicked)
+        rb.diff_clicked.connect(self._modas_show_diff_list)
         b["write_ecu"].clicked.connect(self._modas_write_pending)
         b["add_label"].clicked.connect(self._modas_add_selected)
         b["remove_label"].clicked.connect(tab.remove_selected)
@@ -135,6 +141,11 @@ class ModasMixin:
         if not hasattr(self, "modas_ribbon"):
             return
         state = self.ccp_session.state
+        if state != ONLINE:
+            self._dataset_checked = False                # bağlantı düştü: yeniden bağlanınca veri seti tekrar kontrol edilir
+        elif not self._dataset_checked and self._modas_workbase is not None:
+            self._dataset_checked = True
+            QTimer.singleShot(0, self._modas_check_dataset)
         status = (state, self.a2l_tab.db.summary is not None, self.current_role)
         if not force and status == getattr(self, "_modas_last_status", None):
             return
@@ -378,6 +389,7 @@ class ModasMixin:
         if self.page_model.active == RP:
             self._modas_set_page(WP)
         n = self.page_model.copy_wp_to_rp(self._modas_snapshot())
+        self._modas_save_dataset()
         self.modas_tab.set_reference(self.page_model.reference)
         self._modas_update_diff()
         self._log_event("KALIBRASYON", f"Worksheets: WP → RP kopyalandı ({n} etiket, yerel referans)")
@@ -386,7 +398,14 @@ class ModasMixin:
     def _modas_copy_rp_to_wp(self):
         if self.page_model.active == RP:
             self._modas_set_page(WP)
-        plan = self.page_model.restore_plan(self._modas_snapshot())
+        self._modas_restore_plan(self.page_model.restore_plan(self._modas_snapshot()))
+
+    def _modas_restore_labels(self, names: list):
+        """Yalnızca verilen etiketleri RP değerine geri yazar (Diff listesi)."""
+        full = self.page_model.restore_plan(self._modas_snapshot())
+        self._modas_restore_plan({n: full[n] for n in names if n in full})
+
+    def _modas_restore_plan(self, plan: dict):
         if not plan:
             self.statusBar().showMessage("WP ile RP aynı: geri yazılacak değer yok.", 4000)
             return
@@ -416,6 +435,132 @@ class ModasMixin:
         self._log_event("KALIBRASYON", f"Worksheets: RP → WP geri yazıldı ({done}/{len(plan)} etiket)")
         self._modas_update_diff()
 
+    def _modas_show_diff_list(self):
+        """Diff: WP ≠ RP etiketleri; seçilenler RP değerine geri alınabilir."""
+        snap = self._modas_snapshot()
+        names = self.page_model.diff_names(snap)
+        rows = [(n, snap[n], self.page_model.reference[n]) for n in names]
+        ok = can_write_calibration(self.current_role) and self.ccp_client is not None
+        reason = "" if ok else ("ECU çevrimdışı." if self.ccp_client is None
+                                else "Yetki yok: Mühendis veya Yönetici rolü gerekir.")
+        dlg = DiffListDialog(rows, ok, reason, self)
+        if dlg.exec() == DiffListDialog.Accepted and dlg.selected_names():
+            self._modas_restore_labels(dlg.selected_names())
+
+    # ======================================================================
+    # PC ↔ ECU veri seti (kılavuz §4): workbase'in kayıtlı veri seti ile ECU karşılaştırılır
+    # ======================================================================
+    def _modas_dataset_store(self):
+        wbk = self._modas_workbase
+        return DatasetStore(wbk[1].path) if wbk is not None and wbk[1].path else None
+
+    def _modas_save_dataset(self, replace: dict | None = None) -> bool:
+        """Workbase açıkken worksheet etiketlerinin WP değerlerini kayıtlı veri sete işler (mevcut diğer etiketler korunur)."""
+        store = self._modas_dataset_store()
+        if store is None:
+            return False
+        merged = dict(store.load() or {})
+        merged.update(self._modas_snapshot() if replace is None else replace)
+        return store.save(merged)
+
+    def _modas_check_dataset(self):
+        """ECU ONLINE olunca bir kez: worksheet etiketlerini oku, kayıtlı veri setle karşılaştır; fark varsa kullanıcıya sor."""
+        store = self._modas_dataset_store()
+        if store is None or self.ccp_client is None:
+            return
+        if self._ccp_busy or self._dataset_dialog_open:
+            QTimer.singleShot(500, self._modas_check_dataset)
+            return
+        pc = store.load()
+        self._modas_read_all()
+        ecu = self._modas_snapshot()
+        if pc is None:                                   # ilk bağlantı: ECU ilk veri seti olur, sorulacak bir şey yok
+            if ecu:
+                store.save(ecu)
+                self._log_event("KALIBRASYON", f"Veri seti ilk kez kaydedildi ({len(ecu)} etiket)")
+            return
+        diffs = compare(pc, ecu)
+        if not diffs:
+            self.statusBar().showMessage("PC ve ECU veri setleri aynı.", 4000)
+            self._dataset_diffs = []
+            self.modas_ribbon.set_dataset_alert(False)
+            return
+        self._dataset_diffs = diffs
+        self.modas_ribbon.set_dataset_alert(True)
+        can_write = can_write_calibration(self.current_role)
+        dlg = DatasetChoiceDialog(diffs, can_write, "" if can_write else
+                                  "Yetki yok: ECU'ya yazmak için Mühendis veya Yönetici rolü gerekir.", self)
+        self._dataset_dialog_open = True
+        try:
+            dlg.exec()
+        finally:
+            self._dataset_dialog_open = False
+        self._modas_apply_dataset_choice(dlg.choice, diffs, pc, ecu)
+
+    def _modas_apply_dataset_choice(self, choice: str, diffs: list, pc: dict, ecu: dict):
+        n = len(diffs)
+        if choice == WRITE_PC and not can_write_calibration(self.current_role):
+            choice = LATER                               # savunma: düğme pasif olsa da yetkisiz yazma yolu yok
+        if choice == WRITE_PC:
+            done = 0
+            for d in diffs:
+                win = next((w for w in self.modas_tab.windows() if w.label == d.name), None)
+                if isinstance(win, ValueWindow):
+                    self._modas_write_value(win, format_phys(d.pc, 9))
+                    done += 1
+                elif isinstance(win, TableWindow):
+                    win.load_grid_as_edit(d.pc)
+                    self._modas_write_table(win)
+                    done += 1
+            left = [d for d in diffs if not self._modas_dataset_written_ok(d)]
+            self._modas_update_diff()
+            self._dataset_diffs = left
+            self.modas_ribbon.set_dataset_alert(bool(left))
+            self._log_event("KALIBRASYON", f"Veri seti: PC → ECU yazıldı ({done}/{n} etiket, kalan fark {len(left)})")
+            self._record_input(PAGE, "Veri seti PC→ECU", "A2L", "worksheet", f"{done}/{n} etiket", ok=not left,
+                               detail="" if not left else f"{len(left)} etiket yazılamadı / doğrulanamadı")
+            self.statusBar().showMessage(f"PC veri seti ECU'ya yazıldı ({done}/{n}).", 5000)
+        elif choice == READ_ECU:
+            self._modas_accept_ecu_dataset(ecu, pc, n)
+        else:
+            self._log_event("KALIBRASYON", f"Veri seti: karar ertelendi ({n} etiket farklı)")
+            self._record_input(PAGE, "Veri seti ertelendi", "A2L", "worksheet", f"{n} etiket farklı", ok=True)
+            self.statusBar().showMessage(
+                f"PC ve ECU veri setleri farklı ({n} etiket): karar ertelendi. 'Read data from ECU' ECU'yu kabul eder.", 8000)
+
+    def _modas_dataset_written_ok(self, d) -> bool:
+        """PC değeri ECU'ya gerçekten yazıldı mı? Değerler ECU'dan DOĞRUDAN (önbelleksiz) okunur; tablolar için
+        güvenli yazma yolu zaten geri okuyup doğruladığından 'değişiklik kalmadı' yeterlidir."""
+        win = next((w for w in self.modas_tab.windows() if w.label == d.name), None)
+        try:
+            if isinstance(win, ValueWindow):
+                return _same(ccp_codec.read_value(self.ccp_client, win.obj).phys, d.pc)
+            if isinstance(win, TableWindow):
+                return not win.is_modified() and _same(win.wp_grid(), d.pc)
+        except Exception:  # noqa: BLE001 - okunamayan etiket "yazılamadı" sayılır
+            return False
+        return False
+
+    def _modas_accept_ecu_dataset(self, ecu: dict, pc: dict | None, n: int = 0):
+        """ECU değerleri kabul edilir: kayıtlı veri set ve RP ECU değerleriyle yenilenir."""
+        self._modas_save_dataset(replace={**(pc or {}), **ecu})
+        self.page_model.copy_wp_to_rp(ecu)
+        self.modas_tab.set_reference(self.page_model.reference)
+        self._dataset_diffs = []
+        self.modas_ribbon.set_dataset_alert(False)
+        self._modas_update_diff()
+        self._log_event("KALIBRASYON", f"Veri seti: ECU → PC kabul edildi ({n} etiket farklıydı)")
+        self._record_input(PAGE, "Veri seti ECU→PC", "A2L", "worksheet", f"{n} etiket", ok=True)
+        self.statusBar().showMessage("ECU veri seti kabul edildi; PC veri seti güncellendi.", 5000)
+
+    def _modas_on_read_clicked(self):
+        """Ribbon 'Read data from ECU': okur; çözülmemiş veri seti farkı varsa bu açık okuma ECU'yu kabul etmektir."""
+        pending = list(self._dataset_diffs)
+        self._modas_read_all()
+        if pending and self.ccp_client is not None:
+            store = self._modas_dataset_store()
+            self._modas_accept_ecu_dataset(self._modas_snapshot(), store.load() if store else None, len(pending))
+
     # ======================================================================
     # Ribbon yardımcıları
     # ======================================================================
@@ -443,7 +588,7 @@ class ModasMixin:
     def _modas_cycle_format(self):
         order = ["phys", "dec", "hex", "bin"]
         w = self.modas_tab.active_window()
-        cur = w.fmt if isinstance(w, ValueWindow) else "phys"
+        cur = w.fmt if isinstance(w, (ValueWindow, TableWindow)) else "phys"
         self.modas_tab.set_format(order[(order.index(cur) + 1) % len(order)])
 
     def _modas_toggle_vars(self):
@@ -461,6 +606,8 @@ class ModasMixin:
 
     def _modas_save(self):
         ok = self.modas_tab.save()
+        if ok and self._modas_workbase is not None:
+            ok = self._modas_save_dataset()                # workbase açıkken PC veri seti de kaydedilir
         self.statusBar().showMessage("Worksheet düzeni kaydedildi." if ok else "Worksheet düzeni kaydedilemedi.", 3000)
 
     def _modas_project_manager(self):

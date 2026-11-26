@@ -363,6 +363,8 @@ class ModasWorkspace(QWidget):
             win.write_requested.connect(self.table_write_requested.emit)
             win.read_requested.connect(lambda w: self.table_read_requested.emit([w]))
             win.set_allowed(self._allowed)
+            if fmt:
+                win.set_format(fmt)
         else:
             win = ValueWindow(obj, "cal" if kind == "value" else "meas")
             win.write_requested.connect(self.value_write_requested.emit)
@@ -442,9 +444,9 @@ class ModasWorkspace(QWidget):
         return show
 
     def set_format(self, fmt: str) -> int:
-        """Seçili değer penceresine (yoksa aktif worksheet'teki tüm değer pencerelerine) biçim uygular."""
+        """Seçili değer / tablo penceresine (yoksa aktif worksheet'teki tüm değer ve tablo pencerelerine) biçim uygular."""
         w = self.active_window()
-        targets = [w] if isinstance(w, ValueWindow) else self.value_windows(all_sheets=False)
+        targets = [w] if isinstance(w, (ValueWindow, TableWindow)) else self.windows(all_sheets=False)
         for t in targets:
             t.set_format(fmt)
         self._changed()

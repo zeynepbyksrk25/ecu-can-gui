@@ -18,6 +18,7 @@ from app.ui.modas.variable_list import VariableListPanel, classify, passes_filte
 from app.ui.modas.windows import TableWindow, ValueWindow, format_phys, format_reading
 from app.ui.modas.workspace import ModasSheetStore, ModasWorkspace
 from app.modas_projects import Workbase
+from PySide6.QtWidgets import QAbstractItemView
 from app.user_roles import Role
 
 DATA = os.path.join(os.path.dirname(__file__), "data")
@@ -554,3 +555,242 @@ def test_opening_a_workbase_sets_ribbon_fields_and_loads_a2l(live, tmp_path):
     rb = w.modas_ribbon
     assert rb.fields["project"].text() == "ProjeX" and rb.fields["workbase"].text() == "Tezgah1"
     assert rb.fields["a2l"].text() == "sample.a2l"
+
+
+# ------------------------------------------------------------------ Aşama 2: tablo biçimi, Diff listesi, veri seti
+def test_table_window_number_formats_are_display_only(qapp):
+    w = TableWindow(make_map())
+    w.set_grid_from_ecu([[1, 2, 3], [255, 4096, 65535]])
+    writes = []
+    w.write_requested.connect(writes.append)
+    w.table.item(0, 0).setText("9")                                   # bekleyen düzenleme (Physical)
+    writes.clear()
+    w.set_format("hex")
+    assert w.table.item(1, 0).text() == "0x00FF" and w.table.item(1, 2).text() == "0xFFFF"
+    assert w.table.item(0, 0).text() == "0x0009"                      # bekleyen değer biçim değişiminde korunur
+    assert not w.is_cell_editable() and w.table.editTriggers() == QAbstractItemView.NoEditTriggers
+    assert w.current_grid() == [[9, 2, 3], [255, 4096, 65535]] and w.is_modified()
+    w.table.item(0, 1).setText("zzz")                                 # ham biçimde metin değişse bile veri/yazma etkilenmez
+    assert writes == [] and w.current_grid()[0][1] == 2
+    w.set_format("bin")
+    assert w.table.item(1, 0).text() == "0000000011111111"
+    w.set_format("dec")
+    assert w.table.item(1, 1).text() == "4096"
+    w.set_format("phys")
+    assert [w.table.item(1, c).text() for c in range(3)] == ["255", "4096", "65535"] and w.table.item(0, 0).text() == "9"
+    assert w.is_cell_editable() and w.state()["fmt"] == "phys"
+    w.table.item(0, 2).setText("7")                                   # Physical'a dönünce yazma yolu yeniden çalışır
+    assert writes == [w] and w.current_grid()[0][2] == 7
+
+
+def test_format_shortcuts_reach_tables_and_info_uses_the_active_table(qapp, monkeypatch):
+    from app.ui.main_window import MainWindow
+    w = MainWindow()
+    tab = w.modas_tab
+    tw = tab.add_label(make_map())
+    tw.set_grid_from_ecu([[1, 2, 3], [4, 5, 6]])
+    sheet = tab.current_sheet()
+    sheet.mdi.setActiveSubWindow(tw)
+
+    def fire(seq):
+        sc = next(s for s in w._modas_shortcuts if s.key().toString() == seq)
+        sc.activated.emit()
+
+    fire("Ctrl+H")
+    assert tw.fmt == "hex" and tw.table.item(0, 0).text() == "0x0001"
+    fire("Ctrl+B")
+    assert tw.fmt == "bin"
+    fire("Ctrl+D")
+    assert tw.fmt == "dec"
+    fire("Ctrl+F")                                                    # döngü: dec → hex
+    assert tw.fmt == "hex"
+    fire("Ctrl+P")
+    assert tw.fmt == "phys" and tw.table.item(0, 0).text() == "1"
+    shown = []
+    monkeypatch.setattr(tab, "show_info", lambda obj: shown.append(obj))
+    fire("Ctrl+I")
+    assert shown and shown[0] is tw.characteristic
+    tw.table.selectAll()                                              # Ctrl+A (QTableWidget yerleşik)
+    assert len(tw.table.selectedIndexes()) == 6
+    w.close()
+
+
+def test_diff_list_dialog_enables_revert_only_with_selection_and_rights(qapp):
+    from app.ui.modas.dataset_dialogs import DiffListDialog
+    d = DiffListDialog([("A", 1.0, 2.0), ("T", [[1, 2]], [[1, 3]])], can_write=True)
+    assert d.table.rowCount() == 2 and d.table.item(1, 1).text() == "1×2 tablo" and not d.btn_revert.isEnabled()
+    d.table.selectRow(1)
+    assert d.btn_revert.isEnabled() and d.selected_names() == ["T"]
+    ro = DiffListDialog([("A", 1.0, 2.0)], can_write=False, deny_reason="Yetki yok")
+    ro.table.selectRow(0)
+    assert not ro.btn_revert.isEnabled()
+
+
+def test_dataset_choice_dialog_blocks_write_without_rights_and_close_means_later(qapp):
+    from app.modas_dataset import DiffEntry
+    from app.ui.modas.dataset_dialogs import LATER, DatasetChoiceDialog
+    diffs = [DiffEntry("A", 1.0, 2.0)]
+    d = DatasetChoiceDialog(diffs, can_write=False, deny_reason="Yetki yok")
+    assert not d.btn_write.isEnabled() and d.btn_read.isEnabled() and d.table.rowCount() == 1
+    d.reject()
+    assert d.choice == LATER
+    assert DatasetChoiceDialog(diffs, can_write=True).btn_write.isEnabled()
+
+
+def test_diff_list_reverts_only_the_selected_labels(live, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+    import app.ui.mainwin.modas as mm
+    from app.ui.modas.dataset_dialogs import DiffListDialog
+    w, ecu, obj, pump = live
+    assert wait_for(lambda: w.ccp_session.state == ONLINE, pump)
+    win = w.modas_tab.add_label(obj)
+    assert wait_for(lambda: win.edit.text() == "12.5", pump)
+    w.modas_ribbon.buttons["measure"].click()
+    win.edit.selectAll()
+    QTest.keyClicks(win.edit, "40")
+    QTest.keyClick(win.edit, Qt.Key_Return)
+    assert wait_for(lambda: w.modas_ribbon.diff_label.text() == "Diff: 1", pump)
+    monkeypatch.setattr(mm.QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.Yes))
+    monkeypatch.setattr(DiffListDialog, "exec", lambda self: (self.table.selectAll(), DiffListDialog.Accepted)[1])
+    w.modas_ribbon.diff_label.clicked.emit()                          # Diff etiketi tıklanınca liste açılır
+    assert struct.unpack("<f", ecu.read_memory_bytes(obj.address, 4))[0] == pytest.approx(12.5)
+    assert wait_for(lambda: w.modas_ribbon.diff_label.text() == "Diff: 0", pump)
+
+
+class _Dataset:
+    """Veri seti testleri için: açık workbase + ECU'da 12.5, kayıtlı PC veri setinde 99."""
+
+    def __init__(self, w, ecu, obj, pump, monkeypatch):
+        from app.modas_dataset import DatasetStore
+        import app.ui.mainwin.modas as mm
+        self.w, self.ecu, self.obj, self.pump = w, ecu, obj, pump
+        self.mm = mm
+        pr = w.project_store.create_project(f"P{next(_ch)}")
+        wb = w.project_store.save_workbase(pr.name, Workbase(name="WB"))
+        self.workbase = (pr, wb)
+        w._modas_workbase = self.workbase
+        self.store = DatasetStore(wb.path)
+        self.calls = []
+        self.choice = None
+
+        def fake_exec(dlg):
+            self.calls.append(len(dlg.diffs))
+            dlg.choice = self.choice
+            return 1
+        monkeypatch.setattr(mm.DatasetChoiceDialog, "exec", fake_exec)
+        assert wait_for(lambda: w.ccp_session.state == ONLINE, pump)
+        self.win = w.modas_tab.add_label(obj)
+        assert wait_for(lambda: self.win.edit.text() == "12.5", pump)
+
+    def ecu_value(self):
+        return struct.unpack("<f", self.ecu.read_memory_bytes(self.obj.address, 4))[0]
+
+    def check(self):
+        self.w._modas_check_dataset()
+        self.pump()
+
+
+def test_dataset_write_pc_to_ecu_uses_the_safe_write_path(live, monkeypatch):
+    from app.ui.modas.dataset_dialogs import WRITE_PC
+    w, ecu, obj, pump = live
+    d = _Dataset(w, ecu, obj, pump, monkeypatch)
+    d.store.save({obj.name: 99.0})
+    d.choice = WRITE_PC
+    d.check()
+    assert d.calls == [1] and d.ecu_value() == pytest.approx(99.0)
+    assert not w._dataset_diffs and not w.modas_ribbon._dataset_alert  # PC = ECU: veri seti uyarısı kalktı
+    assert any(e.object_name == obj.name and e.new_value == pytest.approx(99.0) for e in w.calibration_history.entries)
+    assert d.store.load() == {obj.name: 99.0}                          # PC veri seti değişmedi
+
+
+def test_dataset_read_ecu_adopts_ecu_values_and_updates_the_saved_dataset(live, monkeypatch):
+    from app.ui.modas.dataset_dialogs import READ_ECU
+    w, ecu, obj, pump = live
+    d = _Dataset(w, ecu, obj, pump, monkeypatch)
+    d.store.save({obj.name: 99.0})
+    d.choice = READ_ECU
+    d.check()
+    assert d.ecu_value() == pytest.approx(12.5)                        # ECU'ya dokunulmadı
+    assert d.store.load() == {obj.name: pytest.approx(12.5)}
+    assert w.page_model.reference[obj.name] == pytest.approx(12.5) and not w._dataset_diffs
+    assert w.modas_ribbon.buttons["wp"].property("alert") is False
+
+
+def test_dataset_decide_later_keeps_alert_and_explicit_read_resolves_it(live, monkeypatch):
+    from app.ui.modas.dataset_dialogs import LATER
+    w, ecu, obj, pump = live
+    d = _Dataset(w, ecu, obj, pump, monkeypatch)
+    d.store.save({obj.name: 99.0})
+    d.choice = LATER
+    d.check()
+    assert d.ecu_value() == pytest.approx(12.5) and d.store.load() == {obj.name: 99.0}
+    assert w._dataset_diffs and w.modas_ribbon.buttons["wp"].property("alert") is True
+    w.modas_ribbon.buttons["read_ecu"].click()                         # açık 'Read data from ECU' = ECU'yu kabul et
+    pump()
+    assert not w._dataset_diffs and d.store.load() == {obj.name: pytest.approx(12.5)}
+    assert w.modas_ribbon.buttons["wp"].property("alert") is False
+
+
+def test_dataset_operator_cannot_write_pc_data_even_if_chosen(live, monkeypatch):
+    from app.ui.modas.dataset_dialogs import WRITE_PC
+    w, ecu, obj, pump = live
+    d = _Dataset(w, ecu, obj, pump, monkeypatch)
+    d.store.save({obj.name: 99.0})
+    w.current_role = Role.OPERATOR
+    d.choice = WRITE_PC
+    d.check()
+    assert d.ecu_value() == pytest.approx(12.5)                        # yetkisiz yazma yolu yok
+    assert w._dataset_diffs
+
+
+def test_dataset_check_is_silent_without_workbase_or_saved_dataset_and_triggers_on_online(live, monkeypatch):
+    from app.ui.modas.dataset_dialogs import LATER
+    w, ecu, obj, pump = live
+    d = _Dataset(w, ecu, obj, pump, monkeypatch)
+    d.choice = LATER
+    d.check()                                                          # kayıtlı veri seti yok: sorulmaz, ECU ilk veri seti olur
+    assert d.calls == [] and d.store.load() == {obj.name: pytest.approx(12.5)}
+    d.check()                                                          # aynı veri seti: sorulmaz
+    assert d.calls == []
+    w._modas_workbase = None
+    d.store.save({obj.name: 99.0})
+    d.check()                                                          # workbase yok: hiçbir şey yapılmaz
+    assert d.calls == []
+    # ONLINE geçişi kontrolü bir kez tetikler
+    w._modas_workbase = d.workbase
+    d.store.save({obj.name: 99.0})
+    w._dataset_checked = False
+    w._modas_sync_status(force=True)
+    assert wait_for(lambda: d.calls == [1], pump)
+    w._modas_sync_status(force=True)
+    pump()
+    assert d.calls == [1]                                              # aynı bağlantıda ikinci kez sorulmaz
+
+
+def test_f12_saves_the_dataset_of_the_open_workbase(live, monkeypatch):
+    w, ecu, obj, pump = live
+    d = _Dataset(w, ecu, obj, pump, monkeypatch)
+    assert d.store.load() is None
+    w._modas_save()
+    assert d.store.load() == {obj.name: pytest.approx(12.5)}
+
+
+def test_dataset_write_pc_writes_tables_through_the_backup_and_verify_path(live, monkeypatch):
+    from app.modas_dataset import DatasetStore
+    from app.ui.modas.dataset_dialogs import WRITE_PC
+    import app.ui.mainwin.modas as mm
+    w, ecu, obj, pump = live
+    assert wait_for(lambda: w.ccp_session.state == ONLINE, pump)
+    ch = make_map(addr=0x3000)
+    ecu.write_memory_bytes(ch.address, b"".join(struct.pack(">H", v) for v in (1, 2, 3, 4, 5, 6)))
+    tw = w.modas_tab.add_label(ch)
+    assert wait_for(lambda: tw.current_grid() == [[1, 2, 3], [4, 5, 6]], pump)
+    pr = w.project_store.create_project(f"T{next(_ch)}")
+    wb = w.project_store.save_workbase(pr.name, Workbase(name="WB"))
+    w._modas_workbase = (pr, wb)
+    DatasetStore(wb.path).save({ch.name: [[1, 2, 3], [4, 5, 60]]})
+    monkeypatch.setattr(mm.DatasetChoiceDialog, "exec", lambda dlg: (setattr(dlg, "choice", WRITE_PC), 1)[1])
+    w._modas_check_dataset()
+    assert wait_for(lambda: struct.unpack(">H", ecu.read_memory_bytes(ch.address + 10, 2))[0] == 60, pump)
+    assert not w._dataset_diffs and not tw.is_modified()
+    assert any("Tablo yazıldı" in t for t in w.modas_tab.log_panel.texts())

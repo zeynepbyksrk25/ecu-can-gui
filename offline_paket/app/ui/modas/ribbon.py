@@ -9,7 +9,7 @@ Ribbon yalnızca düğmeleri kurar ve ``buttons[anahtar]`` olarak sunar; davran�
 
 from __future__ import annotations
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QIcon, QKeySequence, QPainter, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QButtonGroup, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QStackedWidget, QTabBar, QToolButton,
@@ -71,9 +71,22 @@ class _Group(QFrame):
         outer.addWidget(label)
 
 
+class _ClickLabel(QLabel):
+    clicked = Signal()
+
+    def mouseReleaseEvent(self, event):  # noqa: N802
+        if event.button() == Qt.LeftButton and self.rect().contains(event.position().toPoint()):
+            self.clicked.emit()
+        super().mouseReleaseEvent(event)
+
+
 class ModasRibbon(QFrame):
+    diff_clicked = Signal()
+
     def __init__(self):
         super().__init__()
+        self._diff_n = 0
+        self._dataset_alert = False
         self.setObjectName("modasRibbon")
         self.setStyleSheet(MODAS_QSS)
         self.buttons: dict[str, QToolButton] = {}
@@ -232,9 +245,12 @@ class ModasRibbon(QFrame):
         grp.addButton(rp)
         self._page_group = grp
         copy_fwd = self.small("copy_wp_rp", "COPY  WP ▶ RP", "WP'deki değerleri referans (RP) olarak sakla")
-        self.diff_label = QLabel("Diff: 0")
+        self.diff_label = _ClickLabel("Diff: 0")
         self.diff_label.setObjectName("modasDiff")
         self.diff_label.setAlignment(Qt.AlignCenter)
+        self.diff_label.setCursor(Qt.PointingHandCursor)
+        self.diff_label.setToolTip("WP ile RP arasındaki farklı etiketleri listele (tıkla)")
+        self.diff_label.clicked.connect(self.diff_clicked.emit)
         copy_back = self.small("copy_rp_wp", "COPY  WP ◀ RP", "Referans (RP) değerlerini ECU RAM'ine (WP) geri yaz")
         mid = self._column(copy_fwd, self.diff_label, copy_back)
         read = self.small("read_ecu", "⇩ Read data from ECU", "Çalışma alanındaki tüm etiketleri ECU'dan oku")
@@ -340,12 +356,22 @@ class ModasRibbon(QFrame):
         b.setProperty("ecuState", state)
 
     def set_diff(self, n: int):
+        self._diff_n = n
         self.diff_label.setText(f"Diff: {n}")
         self.diff_label.setProperty("diff", n > 0)
         self.diff_label.style().unpolish(self.diff_label)
         self.diff_label.style().polish(self.diff_label)
+        self._apply_alert()
+
+    def set_dataset_alert(self, on: bool):
+        """PC ↔ ECU veri seti farkı çözülmediyse (Decide later) WP / RP düğmeleri kırmızı kalır (PDF §4)."""
+        self._dataset_alert = bool(on)
+        self._apply_alert()
+
+    def _apply_alert(self):
+        on = self._diff_n > 0 or self._dataset_alert
         for key in ("wp", "rp"):                       # PDF §4: fark varsa WP / RP düğmeleri kırmızı gösterilir
-            self.buttons[key].setProperty("alert", n > 0)
+            self.buttons[key].setProperty("alert", on)
             self.buttons[key].style().unpolish(self.buttons[key])
             self.buttons[key].style().polish(self.buttons[key])
 

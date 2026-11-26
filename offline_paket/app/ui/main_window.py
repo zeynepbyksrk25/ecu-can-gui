@@ -625,6 +625,10 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
             event.ignore()
             self.statusBar().showMessage("CCP işlemi sürüyor; bitince kapatabilirsiniz.", 5000)
             return
+        try:
+            self._modas_save_dataset()                   # workbase açıkken PC veri seti (son WP değerleri) kaydedilir
+        except Exception:  # noqa: BLE001 - kapanışı engellemesin
+            logging.getLogger(__name__).exception("Veri seti kapanışta kaydedilemedi")
         # Ayrı penceredeki Trend geri yerleşsin; aksi halde uygulama
         # son pencere kapanana kadar çıkmaz.
         for det in (getattr(self.dashboard_tab.trend, "detacher", None),):
