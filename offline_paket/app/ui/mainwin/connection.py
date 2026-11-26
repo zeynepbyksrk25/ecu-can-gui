@@ -44,15 +44,20 @@ class ConnectionMixin:
         self._dismiss_loss_box()
         self.periodic_manager = PeriodicManager(lambda: self.connection.bus, on_sent=self.connection.note_tx)
         self.connection_tab.set_connected(True)
-        self.monitor_tab.set_bitrate(bitrate if interface != "virtual" else None)
+        self.backend_mode = {"pcan": "REAL", "sim_udp": "MIL"}.get(interface, "VIRTUAL")
+        self.monitor_tab.set_bitrate(bitrate if interface not in ("virtual", "sim_udp") else None)
+        self.dashboard_tab.set_signal_source({"REAL": "PCAN", "MIL": "Simulink MIL"}.get(self.backend_mode, "Sanal"))
         self.rx_timer.start()
         self._panel_conn_state()
         self._log_event(
             "BAGLANTI",
             f"CAN hattına {'yeniden ' if reconnected else ''}bağlanıldı ({interface}, {channel}, {bitrate} bps)"
+            if interface != "sim_udp" else
+            f"MIL / Simulink UDP'ye {'yeniden ' if reconnected else ''}bağlanıldı ({channel}); fiziksel CAN hattı DEĞİL, "
+            "bitrate yok; model verisi heartbeat ile izlenir"
         )
         self._conn_state.update(connected=True, lost=False, interface=f"{interface}/{channel}",
-                                version=f"{bitrate} bps")
+                                version=f"{bitrate} bps" if interface != "sim_udp" else "UDP (bitrate yok)")
         self._update_connection_display()
 
         # can.Bus() hata firlatmamis olmasi, donanimin GERCEKTEN saglikli
@@ -65,6 +70,8 @@ class ConnectionMixin:
         # CAN'a bağlanınca CCP'yi de otomatik bağla (kutu işaretliyse; ya da
         # bağlantı koptuğunda CCP açıktıysa yeniden kurulumda). Manuel
         # CCP Bağlan / Kes düğmeleri ayrıca çalışmaya devam eder.
+        if interface == "sim_udp":
+            return                      # MIL: CCP/A2L adres alanı yok; kalibrasyon MIL parametre kanalından (ayrı aşama)
         if self.ccp_tab.auto_connect_enabled() or self._resume_ccp_after_reconnect:
             self._resume_ccp_after_reconnect = False
             self._auto_ccp_connect()

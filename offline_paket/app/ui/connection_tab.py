@@ -14,12 +14,22 @@ import os
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QHBoxLayout, QLabel, QPushButton, QWidget,
+    QCheckBox, QComboBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QWidget,
 )
 
 BAUDRATES = [100_000, 125_000, 250_000, 500_000, 800_000, 1_000_000]
 DEFAULT_BAUDRATE = 500_000
-DEFAULT_CHANNELS = {"pcan": "PCAN_USBBUS1", "virtual": "test", "udp_multicast": "239.0.0.1"}
+DEFAULT_CHANNELS = {"pcan": "PCAN_USBBUS1", "virtual": "test", "udp_multicast": "239.0.0.1",
+                    "sim_udp": "25001:127.0.0.1:25000"}
+# Çalışma modları (docs/GOREV.md 11.2): arayüz adı -> mod
+MODE_BY_INTERFACE = {"pcan": "REAL", "sim_udp": "MIL", "virtual": "VIRTUAL", "udp_multicast": "VIRTUAL"}
+MODES = [("REAL", "REAL ECU (PCAN-USB)", "pcan"), ("MIL", "MIL / Simulink (UDP)", "sim_udp"),
+         ("VIRTUAL", "VIRTUAL / TEST (donanımsız)", "virtual")]
+MODE_HINTS = {
+    "REAL": "Gerçek ECU: PCAN-USB üzerinden fiziksel CAN hattı.",
+    "MIL": "Model-in-the-Loop: Simulink ile UDP üzerinden CAN çerçeveleri. Fiziksel CAN hattı DEĞİL; bitrate/bus durumu yok.",
+    "VIRTUAL": "Sanal kanal: donanım ve MATLAB gerekmez (test).",
+}
 
 
 def default_interface() -> str:
@@ -27,9 +37,15 @@ def default_interface() -> str:
     return iface if iface in DEFAULT_CHANNELS else "pcan"
 
 
+def mode_of(interface: str) -> str:
+    return MODE_BY_INTERFACE.get(interface, "REAL")
+
+
 def normalize_interface(interface: str, channel: str) -> tuple:
     """Eski profillerdeki 'virtual/udp_multicast' değerleri canlı kullanımda PCAN'a çevrilir
     (ortam değişkeniyle geliştirme arayüzü seçilmişse olduğu gibi bırakılır)."""
+    if interface == "sim_udp":                      # MIL profili: kullanıcı seçimi, ortam değişkeni ezmez
+        return "sim_udp", channel if channel and ":" in channel else DEFAULT_CHANNELS["sim_udp"]
     wanted = default_interface()
     if wanted != "pcan":
         return wanted, DEFAULT_CHANNELS[wanted]
@@ -54,6 +70,7 @@ class ConnectionTab(QWidget):
     connect_requested = Signal(str, str, int)   # interface, channel, bitrate
     disconnect_requested = Signal()
     settings_changed = Signal()
+    mode_changed = Signal(str)                  # "REAL" | "MIL" | "VIRTUAL" (kullanıcı değiştirdi)
 
     def __init__(self):
         super().__init__()
@@ -67,6 +84,17 @@ class ConnectionTab(QWidget):
         self.status_dot.setProperty("state", "bad")
         self.status_label = QLabel("Bağlı değil")
         self.status_label.setObjectName("rowName")
+
+        self.mode_combo = QComboBox()
+        for mode, label, _iface in MODES:
+            self.mode_combo.addItem(label, mode)
+        self.mode_combo.setToolTip("Çalışma modu. Bağlıyken değiştirilemez: önce bağlantıyı kesin.")
+        self.mode_combo.setCurrentIndex(max(0, self.mode_combo.findData(mode_of(self._interface))))
+        self.mode_combo.currentIndexChanged.connect(self._on_mode_combo)
+        self.mil_channel_edit = QLineEdit(DEFAULT_CHANNELS["sim_udp"])
+        self.mil_channel_edit.setToolTip("MIL UDP kanalı: yerel_port:uzak_host:uzak_port (GUI dinler, model dinler)")
+        self.mil_channel_edit.setMaximumWidth(190)
+        self.mil_channel_edit.editingFinished.connect(self._on_mil_channel)
 
         self.baudrate_combo = QComboBox()
         for rate in BAUDRATES:
@@ -95,7 +123,11 @@ class ConnectionTab(QWidget):
         lay.addWidget(self.status_dot)
         lay.addWidget(self.status_label)
         lay.addSpacing(6)
-        lay.addWidget(QLabel("Baudrate"))
+        lay.addWidget(QLabel("Mod"))
+        lay.addWidget(self.mode_combo)
+        lay.addWidget(self.mil_channel_edit)
+        self.baudrate_label = QLabel("Baudrate")
+        lay.addWidget(self.baudrate_label)
         lay.addWidget(self.baudrate_combo)
         lay.addWidget(self.adapter_combo)
         lay.addWidget(self.connect_button)
@@ -103,11 +135,59 @@ class ConnectionTab(QWidget):
         lay.addWidget(self.auto_connect_check)
         lay.addWidget(self.health_label, 1)
 
+        self._apply_mode_visibility()
         self.connect_button.clicked.connect(self._on_connect_clicked)
         self.disconnect_button.clicked.connect(self.disconnect_requested.emit)
         self.refresh_adapters()
 
     # ---- arayüz/kanal (görünmez; yalnız değerleri okunur) ---------------------
+    @property
+    def mode(self) -> str:
+        return mode_of(self._interface)
+
+    def _apply_mode_visibility(self):
+        mil = self.mode == "MIL"
+        self.mil_channel_edit.setVisible(mil)
+        self.baudrate_combo.setVisible(not mil)             # MIL'de gerçek bitrate yok
+        self.baudrate_label.setVisible(not mil)
+        self.mode_combo.setToolTip(MODE_HINTS[self.mode] + "\nBağlıyken değiştirilemez: önce bağlantıyı kesin.")
+
+    def set_mode(self, mode: str, emit: bool = False):
+        """Modu uygular (bağlıyken reddedilir). Arayüz/kanal moda göre ayarlanır."""
+        if self._connected:
+            return False
+        iface = next((i for m, _l, i in MODES if m == mode), None)
+        if iface is None:
+            return False
+        self._interface = iface
+        self._channel = (self.mil_channel_edit.text().strip() or DEFAULT_CHANNELS["sim_udp"]) if iface == "sim_udp" \
+            else DEFAULT_CHANNELS[iface]
+        idx = self.mode_combo.findData(mode)
+        if idx >= 0 and self.mode_combo.currentIndex() != idx:
+            self.mode_combo.blockSignals(True)
+            self.mode_combo.setCurrentIndex(idx)
+            self.mode_combo.blockSignals(False)
+        self._apply_mode_visibility()
+        if iface == "pcan":
+            self.refresh_adapters()
+        else:
+            self.adapter_combo.setVisible(False)
+        if emit:
+            self.mode_changed.emit(mode)
+            self._changed()
+        return True
+
+    def _on_mode_combo(self, _i):
+        if not self.set_mode(self.mode_combo.currentData(), emit=True):
+            self.mode_combo.blockSignals(True)
+            self.mode_combo.setCurrentIndex(self.mode_combo.findData(self.mode))
+            self.mode_combo.blockSignals(False)
+
+    def _on_mil_channel(self):
+        if self.mode == "MIL" and not self._connected:
+            self._channel = self.mil_channel_edit.text().strip() or DEFAULT_CHANNELS["sim_udp"]
+            self._changed()
+
     def current_interface(self) -> str:
         return self._interface
 
@@ -151,7 +231,12 @@ class ConnectionTab(QWidget):
         self.status_label.setText(text)
 
     def _adapter_name(self) -> str:
-        return {"pcan": "PCAN-USB", "virtual": "Sanal kanal", "udp_multicast": "UDP"}[self._interface]
+        return {"pcan": "PCAN-USB", "virtual": "Sanal kanal", "udp_multicast": "UDP",
+                "sim_udp": "MIL / Simulink UDP"}[self._interface]
+
+    def _status_suffix(self) -> str:
+        return " · bitrate yok (fiziksel hat değil)" if self._interface == "sim_udp" \
+            else f" · {self.current_bitrate() / 1000:g} kbit/s"
 
     def set_connected(self, connected: bool):
         self._connected = connected
@@ -159,8 +244,10 @@ class ConnectionTab(QWidget):
         self.disconnect_button.setEnabled(connected)
         self.baudrate_combo.setEnabled(not connected)
         self.adapter_combo.setEnabled(not connected)
+        self.mode_combo.setEnabled(not connected)
+        self.mil_channel_edit.setEnabled(not connected)
         if connected:
-            self._set_state("ok", f"Bağlı · {self._adapter_name()} · {self.current_bitrate() / 1000:g} kbit/s")
+            self._set_state("ok", f"Bağlı · {self._adapter_name()}{self._status_suffix()}")
         else:
             self._set_state("bad", "Bağlı değil")
             self.health_label.setText("")
@@ -170,11 +257,17 @@ class ConnectionTab(QWidget):
         if lost:
             self._set_state("bad", "Bağlantı KOPTU — yeniden bağlanılıyor…")
         elif self.disconnect_button.isEnabled():
-            self._set_state("ok", f"Bağlı · {self._adapter_name()} · {self.current_bitrate() / 1000:g} kbit/s")
+            self._set_state("ok", f"Bağlı · {self._adapter_name()}{self._status_suffix()}")
 
     def apply_profile_values(self, interface: str, channel: str, bitrate: int):
         """Bir konfigürasyon profili uygulanırken değerleri doldurur (bağlıyken çağrılmaz)."""
         self._interface, self._channel = normalize_interface(interface, channel)
+        self.mode_combo.blockSignals(True)
+        self.mode_combo.setCurrentIndex(max(0, self.mode_combo.findData(self.mode)))
+        self.mode_combo.blockSignals(False)
+        if self._interface == "sim_udp":
+            self.mil_channel_edit.setText(self._channel)
+        self._apply_mode_visibility()
         idx = self.baudrate_combo.findData(bitrate)
         if idx >= 0:
             self.baudrate_combo.setCurrentIndex(idx)
@@ -189,7 +282,7 @@ class ConnectionTab(QWidget):
         self.health_label.style().polish(self.health_label)
         if self.disconnect_button.isEnabled():
             self._set_state("ok" if ok else "warn",
-                            f"Bağlı · {self._adapter_name()} · {self.current_bitrate() / 1000:g} kbit/s")
+                            f"Bağlı · {self._adapter_name()}{self._status_suffix()}")
 
     # ---- kalıcı ayarlar -------------------------------------------------------
     def attach_settings(self, path: str):
@@ -203,6 +296,10 @@ class ConnectionTab(QWidget):
         idx = self.baudrate_combo.findData(raw.get("bitrate"))
         if idx >= 0:
             self.baudrate_combo.setCurrentIndex(idx)
+        if raw.get("mode") in ("MIL", "VIRTUAL") and default_interface() == "pcan":
+            if raw.get("mil_channel"):
+                self.mil_channel_edit.setText(str(raw["mil_channel"]))
+            self.set_mode(raw["mode"])
         if raw.get("channel") and self._interface == "pcan":
             self._channel = raw["channel"]
             self.refresh_adapters()
@@ -219,6 +316,7 @@ class ConnectionTab(QWidget):
         try:
             with open(self._settings_path, "w", encoding="utf-8") as f:
                 json.dump({"bitrate": self.current_bitrate(), "channel": self._channel,
-                           "auto_connect": self.auto_connect_check.isChecked()}, f, indent=2)
+                           "auto_connect": self.auto_connect_check.isChecked(), "mode": self.mode,
+                           "mil_channel": self.mil_channel_edit.text().strip()}, f, indent=2)
         except OSError:
             pass

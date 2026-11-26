@@ -21,8 +21,13 @@ Her madde bitince `[x]` yapılır; yanına test sonucu ve bilinen eksikler yazı
   - **AVL Concerto uyumluluğu DOĞRULANMADI** (gerçek Concerto yok).
 
 ## Simulink MIL
-- [ ] MIL 1 – Haberleşme (UDP CAN backend)
-- [ ] MIL 2 – Dashboard ve kontrol
+- [x] MIL 1 – Haberleşme (UDP CAN backend)
+  - Yeni: `app/sim_protocol.py`, `app/sim_bus.py` (`SimulinkUdpBus(can.BusABC)`: DLC/ID/boyut doğrulama, hatalı paket reddi+sayaç, sıra no ile kayıp tespiti, heartbeat/timeout, model sonradan başlayabilir), `tests/fake_simulink.py`, `docs/MIL_PROTOKOL.md`, `simulink/`. `CanConnection` `sim_udp` arayüzü; Bağlantı sayfasında Mod seçici (REAL/MIL/VIRTUAL; MIL'de bitrate gizli, "fiziksel hat değil" notu; bağlıyken mod değişmez; mod değişince açık kayıt kapanır).
+  - Testler: `tests/test_sim_protocol.py`, `tests/test_sim_bus.py` (DBC çift yönlü, extended ID, kayıp, timeout/toparlanma, UI).
+  - **Gerçek MATLAB/Simulink ile doğrulanmadı** (yalnızca sahte model).
+- [x] MIL 2 – Dashboard ve kontrol
+  - Kontrol Paneli/Dashboard aynı CanConnection+DBC yolunu kullandığı için MIL'de çalışır; sinyal kaynağı etiketi "Simulink MIL" trend tablosunda. Test: `tests/test_mil_integration.py` (model çıkışı→Dashboard, Kontrol yazımı→model DBC ölçekli, link kaybı görünür).
+  - Eksik: ACK ile doğrulama (modelde uygulanan değer ayrımı) ve alt/üst sınır denetimi mevcut Kontrol Paneli sınırlarına bırakıldı; modelden "uygulanan değer" geri bildirim mesajı protokolde yok.
 - [ ] MIL 3 – Kalibrasyon
 - [ ] MIL 4 – Model kontrolü
 - [ ] MIL 5 – Kayıt ve analiz

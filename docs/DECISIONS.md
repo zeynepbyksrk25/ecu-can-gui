@@ -10,3 +10,6 @@ Soru sorulmadan alınan her karar: tarih/aşama – karar – gerekçe – alter
 - 2026-11-26 / A3 – Mevcut `test_write_error_stops_recording` asenkron yazma nedeniyle bekleme döngüsüne uyarlandı (davranış aynı, zamanlama değişti).
 - 2026-11-26 / A4 – ASC için python-can `ASCWriter/ASCReader` yeniden kullanıldı (standart yapı + geri okuma testi). `.log`: varsayılan ASC içerikli, ayrıca candump biçimi; hedef yazılımda doğrulanmadı.
 - 2026-11-26 / A4 – MDF4 sürümü 4.10, sinyal başına ayrı kanal grubu. Concerto MDF sürüm desteği açık kaynaklardan teyit edilemedi → "doğrulanmadı".
+- 2026-11-26 / MIL1 – UDP paketi sabit boyutlu ikili (magic/sürüm/tür/sıra/sim_time + yük); gerekçe: Simulink'te kolay paketleme, doğrulama. Alternatif: JSON/protobuf (Simulink'te ağır).
+- 2026-11-26 / MIL1 – Bus bağlantı sağlığı heartbeat'ten; `link_state` "waiting/timeout" → mevcut izleme "bus_warning" (kopma değil uyarı), çünkü model sonradan başlayabilir (11.10).
+- 2026-11-26 / MIL1 – MIL'de otomatik CCP bağlantısı atlanır (A2L adres alanı yok); kalibrasyon MIL3'te parametre kanalı ile.

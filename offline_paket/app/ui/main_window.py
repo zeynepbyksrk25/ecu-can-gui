@@ -98,6 +98,7 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self._unhealthy_since: float | None = None
         self._conn_lost = False
         self._last_connect_params: tuple | None = None   # (interface, channel, bitrate)
+        self.backend_mode = "REAL"                       # REAL | MIL | VIRTUAL (bağlantı sayfasından seçilir)
         self._resume_ccp_after_reconnect = False
         self._loss_box: QMessageBox | None = None
         self._watch_fail_streak = 0
@@ -241,6 +242,7 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self.a2l_tab.a2l_loaded.connect(self._rebuild_record_index)
         self.session_tab.session_started.connect(self._on_session_record_start)
         self.session_tab.session_stopped.connect(self._on_session_record_stop)
+        self.connection_tab.mode_changed.connect(self._on_backend_mode_changed)
         self.session_tab.record_pause_requested.connect(self._on_record_pause)
         self.session_tab.record_resume_requested.connect(self._on_record_resume)
         self.session_tab.marker_requested.connect(self._on_record_marker)
@@ -637,6 +639,14 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self.user_tab.profile_save_requested.connect(self._on_profile_save)
         self.user_tab.profile_apply_requested.connect(self._on_profile_apply)
         self.user_tab.profile_delete_requested.connect(self._on_profile_delete)
+
+    def _on_backend_mode_changed(self, mode: str):
+        """Mod değişince (yalnızca bağlı değilken mümkün) açık kayıt güvenle kapatılır; REAL/MIL kayıtları karışmaz."""
+        self.backend_mode = mode
+        self.dashboard_tab.set_signal_source({"REAL": "PCAN", "MIL": "Simulink MIL"}.get(mode, "Sanal"))
+        if self.session_recorder.is_active:
+            self.session_tab._on_stop()
+            self._log_event("OTURUM", f"Mod {mode} olarak değişti: açık kayıt güvenle kapatıldı")
 
     def _log_event(self, category: str, message: str):
         self.event_log.add(category, message, user=self.current_user, role=self.current_role.value)
