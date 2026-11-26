@@ -9,7 +9,7 @@ import time
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QDialog, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox,
+    QCheckBox, QDialog, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox,
     QPushButton, QSplitter, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget, QAbstractItemView,
 )
 
@@ -54,6 +54,11 @@ class AnalysisWindow(QDialog):
             it.setFlags(it.flags() | Qt.ItemIsUserCheckable)
             it.setCheckState(Qt.Unchecked)
             self.sig_list.addItem(it)
+        self.sim_axis_check = QCheckBox("Simülasyon zamanı ekseni (MIL)")
+        self.sim_axis_check.setEnabled(sd.has_sim_time())
+        self.sim_axis_check.setToolTip("Eksen = modelin simülasyon zamanı (mil:sim_time). Gerçek alım zamanı ile "
+                                       "karıştırılmaz; eşleme yoksa/yeniden başlatma varsa kapalıdır.")
+        self.sim_axis_check.toggled.connect(lambda _c: self.apply_selection())
         self.add_button = QPushButton("Seçilenleri grafiğe uygula")
         self.add_button.clicked.connect(self.apply_selection)
         self.info = QLabel(self._info_text())
@@ -61,7 +66,7 @@ class AnalysisWindow(QDialog):
         left = QWidget()
         lv = QVBoxLayout(left)
         lv.setContentsMargins(0, 0, 0, 0)
-        for w in (self.info, self.filter_edit, self.sig_list, self.add_button):
+        for w in (self.info, self.filter_edit, self.sig_list, self.sim_axis_check, self.add_button):
             lv.addWidget(w)
         self.trend = TrendPanel()
         self.trend.btn_pick.setVisible(False)            # sinyal seçimi soldaki listeden
@@ -95,14 +100,21 @@ class AnalysisWindow(QDialog):
 
     def apply_selection(self):
         sd = self.sd
+        sim = self.sim_axis_check.isChecked() and sd.has_sim_time()
         t0 = sd.meta.get("start_unix") or 0.0
         specs = []
         for sid in self.selected_ids():
             tu = sd.t_unix[sid]
+            if sim:
+                tu = sd.to_sim_time(tu)
             specs.append({"key": sid, "label": sid.split(":", 1)[-1], "unit": sd.unit(sid), "source": sd.source(sid),
                           "t": list(tu), "v": list(sd.values[sid])})
         events = []
         for _tr, tu, kind, text in sd.events:
+            if sim:
+                tu = float(sd.to_sim_time([tu])[0])
+                if tu != tu:
+                    continue
             col = event_color(kind)
             if col:
                 events.append((tu, f"{kind}: {text}" if text else kind, col))

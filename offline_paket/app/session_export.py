@@ -52,6 +52,24 @@ class SessionData:
     def arrays(self, sid: str):
         return np.frombuffer(self.t_rel[sid], dtype=float), np.frombuffer(self.values[sid], dtype=float)
 
+    def has_sim_time(self) -> bool:
+        return "mil:sim_time" in self.values and len(self.values["mil:sim_time"]) >= 2
+
+    def to_sim_time(self, t_unix) -> "np.ndarray | None":
+        """Gerçek (alım) zamanını simülasyon zamanına çevirir (``mil:sim_time`` eşlemesiyle doğrusal ara değer).
+        Eşleme yoksa / simülasyon zamanı geriye gitmişse (yeniden başlatma) ``None`` — uydurma dönüşüm yapılmaz.
+        Eşleme aralığı dışındaki zamanlar NaN olur."""
+        if not self.has_sim_time():
+            return None
+        wall = np.frombuffer(self.t_unix["mil:sim_time"], dtype=float)
+        sim = np.frombuffer(self.values["mil:sim_time"], dtype=float)
+        if np.any(np.diff(sim) < 0) or np.any(np.diff(wall) <= 0):
+            return None
+        t = np.asarray(t_unix, dtype=float)
+        out = np.interp(t, wall, sim)
+        out[(t < wall[0]) | (t > wall[-1])] = np.nan
+        return out
+
     def asc_path(self) -> str | None:
         p = self.root + ".asc"
         return p if os.path.exists(p) else None

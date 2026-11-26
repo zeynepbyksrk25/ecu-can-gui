@@ -2,6 +2,7 @@
 import json
 import os
 import time
+from PySide6.QtCore import Qt
 
 import pytest
 
@@ -186,3 +187,50 @@ def test_model_panel_lifecycle_events_recorded_and_hidden_outside_mil(mil):
     assert w.model_ctl is None
     w.connection_tab.mode_combo.setCurrentIndex(w.connection_tab.mode_combo.findData("REAL"))
     assert not panel.isVisibleTo(w.dashboard_tab)
+
+
+def test_mil_session_records_sim_time_axis_and_analysis_uses_it(mil, tmp_path):
+    from app import session_export as sx
+    from app.ui.session_browser import AnalysisWindow
+    w, model = mil
+    dbc = w.transmit_tab.dbc
+    w.simulink_model_name = "EngModel"
+    w.session_tab.name_edit.setText("simt")
+    w.session_tab._on_start()
+    cid, data, ext = dbc.encode("ENG_STATUS", {"rpm": 1000.0, "tt2_c": 50.0, "tt2_fault": 0})
+    for i in range(12):
+        data_i = dbc.encode("ENG_STATUS", {"rpm": 1000.0 + i, "tt2_c": 50.0, "tt2_fault": 0})[1]
+        model.send_frame(cid, data_i, ext, sim_time=10.0 + i * 0.5)      # model 2x hızlı: 0.5 sim-sn / ~60 ms
+        time.sleep(0.06)
+    time.sleep(0.3)
+    path = w.session_recorder.path
+    w.session_tab._on_stop()
+    sd = sx.load_session(path)
+    assert sd.has_sim_time() and sd.meta["simulink_model"] == "EngModel"
+    t, v = sd.arrays("dbc:ENG_STATUS.rpm")
+    wall = sd.t_unix["dbc:ENG_STATUS.rpm"]
+    sim = sd.to_sim_time(wall)
+    assert sim[0] == pytest.approx(10.0, abs=0.6) and sim[-1] > sim[0] + 4          # sim zamanı ayrı eksen
+    assert (wall[-1] - wall[0]) < 3                                                  # gerçek süre çok kısa
+    win = AnalysisWindow(sd)
+    win.sig_list.item(sd.signals().index("dbc:ENG_STATUS.rpm")).setCheckState(Qt.Checked)
+    win.sim_axis_check.setChecked(True)
+    ser = win.trend._series["dbc:ENG_STATUS.rpm"]
+    assert 9 < ser.t[0] < 12 and ser.t[-1] > 14                                      # eksen simülasyon zamanında
+    win.close()
+
+
+def test_sim_time_mapping_refuses_restart_and_missing(tmp_path):
+    from app import session_export as sx
+    from app.session_recorder import SessionRecorder
+    rec = SessionRecorder()
+    rec.start(str(tmp_path), "yok")
+    rec.record("a", 1.0)
+    rec.stop()
+    assert sx.load_session(rec.path).to_sim_time([1.0]) is None                     # eşleme yok → uydurma yok
+    rec.start(str(tmp_path), "restart")
+    t0 = rec._t0
+    for st, wt in ((0.0, 0.0), (5.0, 1.0), (0.1, 2.0), (1.0, 3.0)):                 # sim zamanı geri gitti (model yeniden başladı)
+        rec.record("mil:sim_time", st, t0 + wt)
+    rec.stop()
+    assert sx.load_session(rec.path).to_sim_time([t0 + 1.5]) is None

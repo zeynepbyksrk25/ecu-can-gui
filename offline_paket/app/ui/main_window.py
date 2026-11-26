@@ -98,6 +98,8 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self._unhealthy_since: float | None = None
         self._conn_lost = False
         self._last_connect_params: tuple | None = None   # (interface, channel, bitrate)
+        self.latest_signals: dict = {}                   # senaryo için son DBC sinyal değerleri
+        self.latest_signals_enabled = False
         self.backend_mode = "REAL"                       # REAL | MIL | VIRTUAL (bağlantı sayfasından seçilir)
         self._resume_ccp_after_reconnect = False
         self._loss_box: QMessageBox | None = None

@@ -141,6 +141,7 @@ class CalibrationMixin:
             self.model_ctl.close()
         bus = self.connection.bus
         be = mc.UdpControlBackend(bus) if backend == "udp" else mc.MatlabEngineBackend()
+        self.simulink_model_name = model
         self.model_ctl = mc.ModelController(be, bus=bus)
         self._model_events_seen = 0
         self.model_ctl.connect(model)

@@ -36,6 +36,7 @@ from pathlib import Path
 HEADER = ["time", "signal", "value", "unix_time"]
 EVENT_HEADER = ["time", "unix_time", "kind", "text"]
 FLUSH_EVERY_S = 1.0          # çökmede en çok bu kadar saniyelik veri kaybolur
+SIM_TIME_EVERY_S = 0.05     # MIL: simülasyon zamanı eşlemesi en fazla bu sıklıkta (wall-clock) yazılır
 RECORD_QUEUE_MAX = 500_000   # yazma iş parçacığının kuyruğu (taşarsa düşen sayılır; sessiz kayıp yok)
 META_VERSION = 1
 
@@ -95,6 +96,7 @@ class SessionRecorder:
         self._t0 = 0.0
         self._started_mono = 0.0
         self._ended_mono = 0.0
+        self._last_sim_rec = 0.0
         self._paused = False
         self._paused_total = 0.0
         self._paused_at: float | None = None
@@ -339,6 +341,13 @@ class SessionRecorder:
             if self._paused:
                 self.paused_skipped += 1
             return False
+        sim_t = getattr(msg, "sim_time", None)          # MIL: simülasyon zamanı AYRI sinyal (wall-clock ile karışmaz)
+        if sim_t is not None and rx:
+            now = getattr(msg, "timestamp", None) or time.time()
+            if now - self._last_sim_rec >= SIM_TIME_EVERY_S:
+                self._last_sim_rec = now
+                self.register_signal("mil:sim_time", "s", "Simulink MIL", "simulation_time")
+                self.record("mil:sim_time", sim_t, now)
         return self._put((_FRAME, msg, bool(rx)))
 
     # ---- yazma iş parçacığı --------------------------------------------------------------------

@@ -269,12 +269,31 @@ class ConnectionMixin:
             except queue.Empty:
                 break
             n += 1
+            if self.latest_signals_enabled:
+                self._note_latest_signals(msg)
             self.monitor_tab.add_message(msg, direction="RX")
             self.control_panel_tab.on_can_frame(msg.arbitration_id, bytes(msg.data))
             self.performance_tab.on_can_frame(msg.arbitration_id, bytes(msg.data))
             self.workspace_tab.on_can_frame(msg.arbitration_id, bytes(msg.data))
             self._dash_on_can_frame(msg.arbitration_id, bytes(msg.data))
         self._drain_tx_queue()
+
+    def _note_latest_signals(self, msg):
+        """Senaryo çalışırken: her DBC mesajının son çözülmüş sinyal değerleri (MESAJ.SINYAL -> (değer, zaman))."""
+        dbc = self.transmit_tab.dbc
+        if not getattr(dbc, "is_loaded", False):
+            return
+        m = dbc.get_message_by_frame_id(msg.arbitration_id)
+        if m is None:
+            return
+        try:
+            vals = m.decode(bytes(msg.data), decode_choices=False)
+        except Exception:  # noqa: BLE001 - bozuk/kısa kare: yok say
+            return
+        t = getattr(msg, "timestamp", None) or time.time()
+        for k, v in vals.items():
+            if isinstance(v, (int, float)):
+                self.latest_signals[f"{m.name}.{k}"] = (float(v), t)
 
     def _drain_tx_queue(self):
         """Gönderilen kareleri (elle, periyodik, Kontrol Paneli, güvenlik tekrarları; hangi iş parçacığı

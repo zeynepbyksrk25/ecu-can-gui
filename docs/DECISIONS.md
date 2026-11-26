@@ -15,3 +15,5 @@ Soru sorulmadan alınan her karar: tarih/aşama – karar – gerekçe – alter
 - 2026-11-26 / MIL1 – MIL'de otomatik CCP bağlantısı atlanır (A2L adres alanı yok); kalibrasyon MIL3'te parametre kanalı ile.
 - 2026-11-26 / MIL3 – Kalibrasyon için MATLAB Engine yerine UDP parametre kanalı seçildi (MATLAB gerektirmez, model çalışırken ACK'li, zaman aşımı/NAK net); Engine yalnızca yaşam döngüsü komutlarında isteğe bağlı. Mevcut CcpSession.adopt() + CCPClient-benzeri istemci: ikinci kalibrasyon altyapısı kurulmadı.
 - 2026-11-26 / MIL4 – Backend 'stopped' durumu READY/ERROR iken yok sayılır (başlatılmamış model Simulink'te de stopped).
+- 2026-11-26 / MIL5 – Simülasyon zamanı kayıt CSV'sine yeni sütun yerine `mil:sim_time` sinyali (en çok 50 ms'de bir) olarak yazılır; gerekçe: CSV biçimi/okuyucular geri uyumlu, wall-clock ile karışmaz.
+- 2026-11-26 / MIL6 – Senaryoda karar yalnızca `requirement` kimlikli adımlardan; yoksa SKIPPED ve 'TAMAMLANDI (otomatik karar yok)'. Gerekçe: GOREV 11.9 uydurma limit yasağı.

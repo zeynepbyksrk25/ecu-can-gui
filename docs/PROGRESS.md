@@ -36,8 +36,13 @@ Her madde bitince `[x]` yapılır; yanına test sonucu ve bilinen eksikler yazı
   - Yeni: `app/sim_bridge/matlab_ctl.py` (ModelController: NOT CONNECTED…ERROR durum makinesi, ayrı komut iş parçacığı, MatlabEngineBackend (isteğe bağlı bağımlılık; yoksa açık hata) + UdpControlBackend, hız = Simulink pacing), `app/ui/sim_model_panel.py` (Ana Sayfa; yalnızca MIL; Start/Pause/Resume/Stop/Reset, hız, MIL Acil Dur [gerçek motor acil durdurmasının yerine geçmez], model durumu ve UDP durumu ayrı). Model olayları kayda `MODEL` olarak yazılır.
   - Testler: `tests/test_matlab_ctl.py`, `tests/test_mil_integration.py`.
   - **MATLAB Engine yolu gerçek MATLAB/Simulink ile doğrulanmadı** (sahte engine).
-- [ ] MIL 5 – Kayıt ve analiz
-- [ ] MIL 6 – Otomatik test
+- [x] MIL 5 – Kayıt ve analiz
+  - MIL kayıtları: `mil:sim_time` ayrı sinyal (alım zamanıyla karışmaz), model Start/Pause/Stop olayları (`MODEL`), model adı+mod üst veride; analiz penceresinde "Simülasyon zamanı ekseni" (`SessionData.to_sim_time`; eşleme yoksa/model yeniden başlamışsa uydurma dönüşüm yok → kapalı). Kalibrasyon event marker mevcut.
+  - Testler: `tests/test_mil_integration.py` (sim time kaydı/analizi).
+- [x] MIL 6 – Otomatik test
+  - Yeni: `app/sim_bridge/scenario.py` (JSON adımlar: model/speed/set/wait/delay/marker/check/monitor; zaman aşımı=TIMEOUT; gereksinimsiz check/monitor = SKIPPED, hiçbir limit uydurulmaz; adım hatasında güvenli dur; metin+JSON rapor), `app/ui/scenario_panel.py` (Tanılama ve Oturum sayfası; GUI iş parçacığı köprüsü), `simulink/scenarios/ornek_motor_start.json` (limitsiz örnek).
+  - Testler: `tests/test_scenario.py`, `tests/test_scenario_ui.py`.
+  - Eksik: sensör arızası/sınır dışı değer/iletişim kaybı senaryoları için hazır dosya yok (adım türleri yeterli; gereksinim limitleri kullanıcıdan gelmeli).
 
 ## İyileştirme turları
 (boş)
