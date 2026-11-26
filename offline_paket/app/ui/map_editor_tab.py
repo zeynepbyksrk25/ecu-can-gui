@@ -806,7 +806,7 @@ class MapDocument(QWidget):
                     item.setBackground(color)
                     item.setForeground(HEAT_MODIFIED_FG if modified else QColor(theme.INK))
                 else:
-                    item.setBackground(MODIFIED_BG if modified else QColor(theme.SURFACE))
+                    item.setBackground(MODIFIED_BG if modified else QColor(theme.MODAS_CAL_BG))
                     item.setForeground(MODIFIED_FG if modified else QColor(theme.INK))
                 font = item.font()
                 font.setBold(modified)
