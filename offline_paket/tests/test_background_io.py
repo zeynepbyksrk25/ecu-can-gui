@@ -390,7 +390,7 @@ def test_estop_shortcut_is_application_wide_and_buttons_have_accessible_names(wi
     win._estop_shortcut.activated.emit()
     assert sent, "kısayol Acil Durdurma'yı göndermeli"
     dt = win.dashboard_tab
-    for w in (dt.start_button, dt.stop_button, dt.estop_button, win.header_conn_pill, win.ccp_chip, win.nav_bar):
+    for w in (dt.start_button, dt.stop_button, dt.estop_button, win.header_conn_pill, win.ccp_chip):
         assert w.accessibleName(), w
     assert "Ctrl+Shift+E" in dt.estop_button.toolTip()
 

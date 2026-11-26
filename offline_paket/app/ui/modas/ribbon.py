@@ -284,19 +284,18 @@ class ModasRibbon(QFrame):
         self._tools_layout.addStretch(1)
         self._page_buttons: list[QToolButton] = []
         self._pages_btn_group = QButtonGroup(self)
-        self._pages_btn_group.setExclusive(True)
+        self._pages_btn_group.setExclusive(False)
 
     def set_pages(self, pages: list):
-        """Tools sekmesindeki sayfa düğmeleri: ``[(simge, ad), ...]`` (sıra = ``MainWindow._nav_pages``)."""
+        """Tools sekmesindeki araç düğmeleri: ``[(simge, ad), ...]`` (sıra = ``MainWindow._nav_pages``)."""
         for i, (icon, label) in enumerate(pages):
-            b = self.big(f"page_{i}", label, icon, f"{label}   Ctrl+{i + 1}", checkable=True)
+            b = self.big(f"page_{i}", label, icon, f"{label}   Ctrl+{i + 1}")
             self._pages_btn_group.addButton(b, i)
             self._tools_group.body.addWidget(b)
             self._page_buttons.append(b)
 
     def select_page(self, index: int):
-        if 0 <= index < len(self._page_buttons):
-            self._page_buttons[index].setChecked(True)
+        return None             # araç düğmeleri kalıcı seçili durum taşımaz (pencereyi açıp öne getirir)
 
     # ---- Windows ----------------------------------------------------------------
     def _build_windows(self):

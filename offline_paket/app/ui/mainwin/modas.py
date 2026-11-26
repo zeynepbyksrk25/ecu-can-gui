@@ -19,6 +19,8 @@ from app.ccp import protocol as ccp_protocol
 from app.ccp.worker import IDLE, CONNECTING, LOST, ONLINE
 from app.ui.mainwin.common import _CCP_IO_ERRORS
 from app.ui.modas.pages import RP, WP
+from app.modas_projects import ProjectStore
+from app.paths import data_path
 from app.ui.modas.project_manager import ProjectManagerDialog
 from app.ui.modas.ribbon import glyph_icon
 from app.ui.modas.windows import TableWindow, ValueWindow, format_phys
@@ -41,9 +43,10 @@ class ModasMixin:
         tab, rb = self.modas_tab, self.modas_ribbon
         b = rb.buttons
         self._modas_last_status = None
-        self.project_manager = ProjectManagerDialog(self)
-        self.project_manager.load_a2l_requested.connect(self.a2l_tab._on_load)
-        self.project_manager.connection_requested.connect(self._open_connection_page)
+        self.project_store = ProjectStore(data_path("modas_projects"))
+        self._modas_workbase = None                      # (Project, Workbase): açık workbase; Ribbon alanlarına yansır
+        self.project_manager = ProjectManagerDialog(self.project_store, self)
+        self.project_manager.workbase_opened.connect(self._modas_open_workbase)
         self.project_manager.settings_requested.connect(self.open_settings)
 
         # çalışma alanı → MainWindow
@@ -82,9 +85,7 @@ class ModasMixin:
         b["toggle_vars"].clicked.connect(lambda on: tab.toggle_variable_list(on))
         b["toggle_log"].clicked.connect(lambda on: tab.toggle_log(on))
         b["project_manager"].clicked.connect(self._modas_project_manager)
-        rb._pages_btn_group.idClicked.connect(self.nav_bar.setCurrentIndex)
-        self.nav_bar.currentChanged.connect(rb.select_page)
-        rb.select_page(self.nav_bar.currentIndex())
+        rb._pages_btn_group.idClicked.connect(lambda i: self.open_tool(self._nav_pages[i][2]))
 
         self._install_modas_shortcuts()
         self._modas_sync_permissions()
@@ -146,14 +147,15 @@ class ModasMixin:
         for key in ("measure", "read_ecu", "write_ecu", "copy_rp_wp"):
             rb.buttons[key].setEnabled(online)
         summary = self.a2l_tab.db.summary
-        rb.set_field("project", getattr(summary, "project_name", "") if summary else "")
+        wbk = self._modas_workbase
+        rb.set_field("project", wbk[0].name if wbk else (getattr(summary, "project_name", "") if summary else ""))
         path = getattr(summary, "path", "") if summary else ""
         rb.set_field("a2l", path.replace("\\", "/").rsplit("/", 1)[-1] if path else "")
         try:
             iface = f"{self.connection_tab.current_interface()} / {self.connection_tab.current_channel()}"
         except Exception:  # noqa: BLE001 - sekme henüz hazır değilse alan boş kalır
             iface = ""
-        rb.set_field("workbase", iface)
+        rb.set_field("workbase", wbk[1].name if wbk else iface)
 
     def _modas_sync_permissions(self):
         self.modas_tab.set_allowed(can_write_calibration(self.current_role))
@@ -462,16 +464,34 @@ class ModasMixin:
         self.statusBar().showMessage("Worksheet düzeni kaydedildi." if ok else "Worksheet düzeni kaydedilemedi.", 3000)
 
     def _modas_project_manager(self):
-        s = self.a2l_tab.db.summary
-        self.project_manager.set_info({
-            "A2L dosyası": getattr(s, "path", "") if s else "",
-            "Proje": getattr(s, "project_name", "") if s else "",
-            "Modül": getattr(s, "module_name", "") if s else "",
-            "Ölçüm / kalibrasyon nesnesi": f"{len(s.measurements)} / {len(s.characteristics)}" if s else "",
-            "CAN arayüzü": self.connection_tab.current_interface(),
-            "CAN kanalı": self.connection_tab.current_channel(),
-            "CCP durumu": self.ccp_session.status_text(),
-            "Kullanıcı / rol": f"{self.current_user} / {self.current_role.value}",
-            "Worksheet düzeni": self.modas_tab.store.path or "",
-        })
+        self.project_manager.refresh()
         self.project_manager.exec()
+
+    def _modas_open_workbase(self, project, wb):
+        """Workbase açma (kılavuz §2): A2L yüklenir, iletişim ayarları uygulanır, ECU'ya bağlanmayı dener.
+        Hata olursa workbase yine açık sayılır; neden Log'a ve durum çubuğuna yazılır (sessiz hata yok)."""
+        self._modas_workbase = (project, wb)
+        self._log_event("KULLANICI", f"Workbase açıldı: {project.name} / {wb.name}")
+        if wb.a2l:
+            try:
+                self.a2l_tab.load_path(wb.a2l)
+            except ValueError as exc:
+                self._log_event("HATA", f"Workbase A2L yüklenemedi: {exc}")
+                QMessageBox.warning(self, "A2L yüklenemedi", str(exc))
+        if wb.protocol != "CCP":
+            self._log_event("HATA", f"{wb.protocol} protokolü bu sürümde desteklenmiyor; yalnızca CCP (CAN) kullanılır.")
+            self.statusBar().showMessage(f"{wb.protocol} desteklenmiyor — yalnızca CCP.", 6000)
+        elif not self.connection.is_connected:
+            iface, channel = "pcan", self.connection_tab.current_channel()
+            self.connection_tab.apply_profile_values(iface, channel, wb.baudrate)
+            iface, channel = self.connection_tab.current_interface(), self.connection_tab.current_channel()
+            try:
+                self.connection.connect(iface, channel, wb.baudrate)
+            except Exception as exc:  # noqa: BLE001 - donanım/sürücü hatası kullanıcıya gösterilir
+                self.connection_tab.set_health(False, f"Bağlanılamadı: {exc}")
+                self._log_event("HATA", f"Workbase bağlantısı kurulamadı: {exc}")
+                self.statusBar().showMessage(f"CAN bağlantısı kurulamadı: {exc}", 8000)
+            else:
+                self._after_connected(iface, channel, wb.baudrate)
+        self._modas_last_status = None
+        self._modas_sync_status(force=True)

@@ -120,10 +120,11 @@ def test_sensors_have_no_manual_switch_or_lock(tab):
 def test_home_tab_cannot_be_closed_or_moved(qapp):
     from app.ui.main_window import MainWindow
     w = MainWindow()
-    # Modas düzeni: ilk sayfa Worksheets; Ana Sayfa (Motor paneli) ikinci sayfa olarak Tools sekmesinden açılır
-    assert w.nav_bar.tabText(0) == "Worksheets" and w.nav_bar.tabText(1) == "Ana Sayfa"
-    assert not w.nav_bar.tabsClosable() and not w.nav_bar.isMovable()
-    assert w.stack.widget(0) is w.modas_tab and w.stack.widget(1) is w.dashboard_tab   # kaydırma sarmalayıcısı yok
+    # Tek pencere: ana pencere yalnızca Worksheets (Modas); Test Bench (eski Ana Sayfa) araç penceresi olarak açılır
+    assert not hasattr(w, "nav_bar") and not hasattr(w, "stack")
+    assert w.centralWidget().layout().itemAt(1).widget() is w.modas_tab
+    tool = w.open_tool("Test Bench")
+    assert tool is not None and tool.isAncestorOf(w.dashboard_tab) and w.dashboard_tab.window() is tool
 
 
 def test_sensor_health_lists_faulty_sensor_with_reason(tab):

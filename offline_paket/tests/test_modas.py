@@ -17,6 +17,7 @@ from app.ui.modas import pages
 from app.ui.modas.variable_list import VariableListPanel, classify, passes_filter
 from app.ui.modas.windows import TableWindow, ValueWindow, format_phys, format_reading
 from app.ui.modas.workspace import ModasSheetStore, ModasWorkspace
+from app.modas_projects import Workbase
 from app.user_roles import Role
 
 DATA = os.path.join(os.path.dirname(__file__), "data")
@@ -344,8 +345,7 @@ def test_chrome_is_a_ribbon_with_modas_tabs_and_estop_always_visible(qapp):
     qapp.processEvents()
     rb = w.modas_ribbon
     assert [rb.tabs.tabText(i) for i in range(rb.tabs.count())] == ["Start", "Label", "Worksheets", "Tools", "Windows"]
-    assert w.nav_bar.tabText(0) == "Worksheets" and w.stack.currentWidget() is w.modas_tab
-    assert not w.nav_bar.isVisible()                                   # sayfa modeli görünmez; geçiş Tools sekmesinden
+    assert w.centralWidget().layout().itemAt(1).widget() is w.modas_tab    # tek ana pencere: sayfa yığını yok
     dt = w.dashboard_tab
     for tg in (dt.start_toggle, dt.stop_toggle, dt.estop_toggle):
         assert rb.motor_group.isAncestorOf(tg)
@@ -359,16 +359,19 @@ def test_chrome_is_a_ribbon_with_modas_tabs_and_estop_always_visible(qapp):
     w.close()
 
 
-def test_tools_tab_switches_pages_and_keeps_old_pages_reachable(qapp):
+def test_tools_tab_opens_tool_windows_and_keeps_old_pages_reachable(qapp):
     from app.ui.main_window import MainWindow
     w = MainWindow()
-    labels = [w.nav_bar.tabText(i) for i in range(w.nav_bar.count())]
-    assert labels == ["Worksheets", "Ana Sayfa", "CAN Monitor", "Kalibrasyon", "Analiz", "Kontrol Paneli", "Tanılama ve Oturum"]
+    assert [l for _i, l, _p in w._nav_pages] == ["Worksheets", "Test Bench", "CAN Trace", "Calibration Tools", "Analysis",
+                                                  "Control Panel", "Diagnostics"]
     rb = w.modas_ribbon
     rb.buttons["page_3"].click()
-    assert w.nav_bar.currentIndex() == 3 and w.current_page() is w.kalibrasyon_tab
+    win = w._tool_windows[w.kalibrasyon_tab]
+    assert win.isVisible() and w.kalibrasyon_tab.window() is win and win is not w
     w._open_connection_page()
-    assert w.nav_bar.currentIndex() == 2 and rb.buttons["page_2"].isChecked()
+    assert w._tool_windows[w.can_monitor_tab].isVisible()
+    win.close()                                                        # kapatma gizler, sayfa arka planda canlı kalır
+    assert not win.isVisible() and w.kalibrasyon_tab.window() is win
     w.close()
 
 
@@ -485,26 +488,21 @@ def test_record_button_follows_the_session_and_project_manager_lists_info(live):
     assert not w.session_tab.start_button.isEnabled() and rb.buttons["record"].text() == "Stop"
     rb.buttons["record"].click()
     assert w.session_tab.start_button.isEnabled() and rb.buttons["record"].text() == "Start"
-    s = w.a2l_tab.db.summary
-    w.project_manager.set_info({"A2L dosyası": s.path, "Proje": s.project_name})
-    assert w.project_manager.info_text()["Proje"] == s.project_name
+    assert w.project_manager.store is w.project_store
 
 
-def test_minimum_size_follows_the_visible_page(qapp):
-    """Gizli Ana Sayfa'nın (kaydırılmaz, ~1400×800) asgari boyutu Worksheets'i büyütmemeli; sayfa açılınca geçerli olmalı."""
+def test_tool_windows_do_not_inflate_the_main_window(qapp):
+    """Araç pencereleri (Test Bench ~1400×800 …) ayrı pencerelerdedir; ana Worksheets penceresinin asgari boyutunu büyütmez."""
     from app.ui.main_window import MainWindow
     w = MainWindow()
     w.resize(1500, 800)
     w.show()
     QTest.qWait(500)
     home = (w.minimumWidth(), w.minimumHeight())
-    assert home[1] <= 700, "Worksheets açılış asgari yüksekliği Ana Sayfa'ya göre şişmiş"
+    assert home[1] <= 700, "Worksheets açılış asgari yüksekliği şişmiş"
     w.setCurrentWidget(w.dashboard_tab)
     QTest.qWait(500)
-    assert w.minimumHeight() > home[1]
-    w.setCurrentWidget(w.modas_tab)
-    QTest.qWait(500)
-    assert w.minimumHeight() == home[1]
+    assert (w.minimumWidth(), w.minimumHeight()) == home
     w.close()
 
 
@@ -513,3 +511,46 @@ def test_variable_list_uses_distinct_kind_icons(qapp):
     keys = {k: kind_icon(k).pixmap(16, 16).toImage().bits().tobytes() for k in ("value", "meas", "curve", "map", "text")}
     assert len(set(keys.values())) == 5                            # her tür farklı çizilir
     assert not kind_icon("value").isNull() and not kind_icon("bilinmeyen").isNull()   # bilinmeyen tür ölçüm simgesine düşer
+
+
+def test_project_manager_creates_and_opens_a_workbase(qapp, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QDialog
+    from app.modas_projects import ProjectStore, Workbase
+    from app.ui.modas.project_manager import ProjectManagerDialog, WorkbaseDialog
+    st = ProjectStore(str(tmp_path / "root"))
+    st.create_project("Motor1")
+    dlg = ProjectManagerDialog(st)
+    assert dlg.selected_project().name == "Motor1" and not dlg.btn_open.isEnabled()
+    a2l = tmp_path / "x.a2l"
+    a2l.write_text("a")
+    # "New" penceresi: geçersiz değer penceresi AÇIK bırakır ve nedenini yazar; düzeltilince kaydeder
+    wd = WorkbaseDialog(Workbase(name=""))
+    wd.name.setText("a/b")
+    wd.a2l[1].setText(str(a2l))
+    wb = wd.value()
+    from app.modas_projects import ProjectError
+    try:
+        st.save_workbase("Motor1", wb)
+        raise AssertionError("geçersiz ad kabul edildi")
+    except ProjectError:
+        pass
+    wd.name.setText("WB_A")
+    st.save_workbase("Motor1", wd.value())
+    dlg.refresh(select_project="Motor1", select_workbase="WB_A")
+    assert dlg.btn_open.isEnabled() and dlg.workbase_info[1]["A2L file"].text() == str(a2l)
+    got = []
+    dlg.workbase_opened.connect(lambda p, b: got.append((p.name, b.name)))
+    dlg._open_workbase()
+    assert got == [("Motor1", "WB_A")] and dlg.result() == QDialog.Accepted
+
+
+def test_opening_a_workbase_sets_ribbon_fields_and_loads_a2l(live, tmp_path):
+    w, ecu, obj, pump = live
+    st = w.project_store
+    pr = st.create_project("ProjeX")
+    a2l = os.path.join(DATA, "sample.a2l")
+    wb = st.save_workbase("ProjeX", Workbase(name="Tezgah1", a2l=a2l, baudrate=500000))
+    w._modas_open_workbase(pr, wb)                                  # zaten bağlı (live): yeniden bağlanmaz
+    rb = w.modas_ribbon
+    assert rb.fields["project"].text() == "ProjeX" and rb.fields["workbase"].text() == "Tezgah1"
+    assert rb.fields["a2l"].text() == "sample.a2l"

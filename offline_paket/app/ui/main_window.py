@@ -4,8 +4,8 @@ from datetime import datetime
 from PySide6.QtCore import QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QGuiApplication, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QFrame, QGraphicsDropShadowEffect, QLabel, QMainWindow,
-    QMessageBox, QPushButton, QScrollArea, QSizePolicy, QStackedWidget, QTabBar,
+    QApplication, QFrame, QGraphicsDropShadowEffect, QLabel, QMainWindow,
+    QMessageBox, QPushButton, QScrollArea, QSizePolicy,
     QVBoxLayout, QWidget,
 )
 
@@ -66,6 +66,23 @@ class _ClickLabel(QLabel):
         if event.button() == Qt.LeftButton and self.rect().contains(event.position().toPoint()):
             self.clicked.emit()
         super().mouseReleaseEvent(event)
+
+
+class _ToolWindow(QWidget):
+    """Bağımsız araç penceresi (Modas 'Tools'): eski sayfanın widget'ını sarar; kapatılınca gizlenir, silinmez
+    (sayfa arka planda canlı kalır)."""
+
+    def __init__(self, title: str, body: QWidget, owner: QWidget):
+        super().__init__(owner, Qt.Window)
+        self.setWindowTitle(f"{title} — OpenECU")
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.addWidget(body)
+        self.resize(1180, 780)
+
+    def closeEvent(self, event):  # noqa: N802
+        event.ignore()
+        self.hide()
 
 
 class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, ProfilesMixin, ExportMixin, ModasMixin,
@@ -148,47 +165,32 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         # Profil artık üst sekme değil: komut şeridindeki "⚙ Ayarlar" penceresi (rol + profiller)
         self.settings_dialog = SettingsDialog(self.user_tab, self)
 
-        # ---- Sol kenar çubuğu navigasyonu + sayfa yığını (QStackedWidget).
-        # Eskiden burada üstte bir QTabWidget sekme çubuğu vardı; kullanıcı
-        # referans tasarıma göre bunu soldaki dikey navigasyona taşımamızı
-        # istedi. Sayfa widget'larının KENDİSİ (dashboard_tab, vb.) hiç
-        # değişmedi — yalnızca aralarında geçiş yöntemi değişti, bu yüzden
-        # MainWindow'un geri kalanındaki `self.xxx_tab` referansları aynen
-        # çalışmaya devam eder.
+        # ---- Tek ana pencere (Modas). Eski sayfa widget'ları değişmedi; aşağıdaki takma adlar `self.xxx_tab`
+        # referanslarının çalışmasını sağlar. Sayfalar artık yığın değil, Tools sekmesinden açılan araç pencereleridir.
         # Modas Sport tarzı çalışma alanı (ilk sayfa) + Ribbon; bkz. app/ui/modas ve app/ui/mainwin/modas.py
         self.modas_tab = ModasWorkspace(ModasSheetStore(data_path("modas_worksheets.json")))
         self.modas_ribbon = ModasRibbon()
         self.page_model = PageModel()
 
+        # Tek ana pencere = Modas (ribbon + worksheet'ler). Diğer eski sayfalar ARAÇ PENCERELERİ olarak (Tools sekmesi)
+        # ayrı, bağımsız pencerelerde açılır; sayfa yığını / üst sayfa sekmeleri yoktur.
         self._nav_pages = [
             ("📑", "Worksheets", self.modas_tab),
-            ("🏠", "Ana Sayfa", self.dashboard_tab),
-            ("📶", "CAN Monitor", self.can_monitor_tab),
-            ("⚙", "Kalibrasyon", self.kalibrasyon_tab),
-            ("📈", "Analiz", self.analiz_tab),
-            ("🎛", "Kontrol Paneli", self.control_panel_tab),
-            ("🛡", "Tanılama ve Oturum", self.tanilama_tab),
+            ("🧪", "Test Bench", self.dashboard_tab),
+            ("📶", "CAN Trace", self.can_monitor_tab),
+            ("⚙", "Calibration Tools", self.kalibrasyon_tab),
+            ("📈", "Analysis", self.analiz_tab),
+            ("🎛", "Control Panel", self.control_panel_tab),
+            ("🛡", "Diagnostics", self.tanilama_tab),
         ]
-        # Her sayfa kendi QScrollArea'sı içinde yaşar: pencere sayfa
-        # içeriğinden KÜÇÜKSE (düşük çözünürlüklü laptop vb.) içerik aşağıdan
-        # dışarı taşıp erişilemez olmak yerine dikey/yatay kaydırılabilir.
-        # Pencere büyükse sayfa alanı doldurur (widgetResizable).
+        self._tool_pages = {label: page for _i, label, page in self._nav_pages[1:]}
+        self._tool_windows: dict = {}
         self._cap_form_widths([p for _i, _l, p in self._nav_pages
                                if p not in (self.modas_tab, self.dashboard_tab, self.analiz_tab, self.performance_tab,
                                          self.control_panel_tab, self.workspace_tab)])
-        self.stack = QStackedWidget()
         self._page_scrolls: dict[QWidget, QScrollArea] = {}
         # Koyu temaya geçirilmiş sayfalar (koyu gövdeye sarılır); diğerleri henüz açık temada.
         self._dark_pages = {self.tanilama_tab, self.session_tab, self.kalibrasyon_tab, self.analiz_tab, self.performance_tab, self.workspace_tab, self.control_panel_tab}
-        for _icon, _label, page in self._nav_pages:
-            # Ana Sayfa ve Worksheets kaydırılmaz: Ana Sayfa 16" ekrana sığar (bkz. DashboardTab); Worksheets kendi
-            # MDI alanı / bölücüleriyle pencereyi doldurur.
-            self.stack.addWidget(page if page in (self.dashboard_tab, self.modas_tab) else self._make_scrollable_page(page))
-
-        # Boyut ilkeleri İLK asgari boyut hesabından önce kurulur (aksi halde pencere gizli Ana Sayfa'ya göre büyür).
-        self._stack_policies = {self.stack.widget(i): self.stack.widget(i).sizePolicy() for i in range(self.stack.count())}
-        self.stack.currentChanged.connect(self._on_stack_page_changed)
-        self._on_stack_page_changed(self.stack.currentIndex())
         self._build_ui_chrome()
 
         self.dashboard_tab.set_config(self.dashboard_config_store.load())
@@ -305,10 +307,30 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         return scroll
 
     def current_page(self) -> QWidget | None:
-        """Şu an görünen sayfanın KENDİ widget'ı (QScrollArea / koyu gövde sarmalayıcısı değil)."""
-        scroll = self.stack.currentWidget()
-        inner = scroll.widget() if isinstance(scroll, QScrollArea) else scroll
-        return getattr(inner, "inner", inner)
+        """Etkin araç penceresinin sayfa widget'ı; araç penceresi etkin değilse ana pencerenin Worksheets sayfası."""
+        active = QApplication.activeWindow()
+        for page, win in self._tool_windows.items():
+            if win is active:
+                return page
+        return self.modas_tab
+
+    def open_tool(self, label_or_page) -> QWidget | None:
+        """Araç penceresini (Test Bench, CAN Trace, Calibration Tools …) açar / öne getirir. Pencere ilk açılışta kurulur;
+        sayfa widget'ı arka planda her zaman canlıdır (CAN/CCP besleme kodu bundan etkilenmez)."""
+        page = self._tool_pages.get(label_or_page, label_or_page)
+        if page is self.modas_tab or page not in self._tool_pages.values():
+            self.activateWindow()
+            self.raise_()
+            return None
+        win = self._tool_windows.get(page)
+        if win is None:
+            label = next(l for l, p in self._tool_pages.items() if p is page)
+            win = _ToolWindow(label, self._make_scrollable_page(page), self)
+            self._tool_windows[page] = win
+        win.show()
+        win.raise_()
+        win.activateWindow()
+        return win
 
     def _apply_initial_geometry(self):
         """İlk pencere boyutu EKRANA sığmalı: sabit 1600x950, 1366x768 gibi
@@ -340,7 +362,7 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         central_layout.setContentsMargins(0, 0, 0, 0)
         central_layout.setSpacing(0)
         central_layout.addWidget(self._build_modas_chrome())
-        central_layout.addWidget(self.stack, stretch=1)
+        central_layout.addWidget(self.modas_tab, stretch=1)
 
         self.setCentralWidget(central)
         self.statusBar().setSizeGripEnabled(False)
@@ -357,15 +379,6 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self._clock_timer.timeout.connect(self._update_clock)
         self._clock_timer.start()
         self._update_clock()
-
-    def _on_stack_page_changed(self, index: int):
-        """Pencerenin asgari boyutu yalnızca GÖRÜNEN sayfaya göre hesaplanır: QStackedWidget normalde gizli sayfaların
-        da asgari boyutunun en büyüğünü ister (kaydırılmayan Ana Sayfa ~1400×800), bu da Worksheets'i gereksiz büyük açardı.
-        Gizli sayfaların boyut ilkesi Ignored yapılır; sayfa açılınca özgün ilkesine döner ve pencere gerekirse büyür."""
-        for i in range(self.stack.count()):
-            page = self.stack.widget(i)
-            page.setSizePolicy(self._stack_policies[page] if i == index else QSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored))
-        self._schedule_minimum_size_refresh()
 
     def _refresh_minimum_size(self):
         """Pencerenin asgari boyutunu İÇERİĞE göre yeniden hesaplar ve gerekirse pencereyi büyütür.
@@ -418,17 +431,8 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         """Üst şerit = Modas Ribbon (bkz. app/ui/modas/ribbon.py). Eski başlık + komut şeridindeki tüm widget'lar
         (bağlantı hapı, CCP durumu, rol, Ayarlar, Eşleşmeler, Motor Başlat/Durdur/ACİL DURDURMA) aynı adlarla yaşar:
         durum alanı sekme satırının sağında, Motor grubu HER sekmede görünen sağ bölmede (Acil Durdurma gizlenmez).
-        ``nav_bar`` görünmez bir sayfa modeli olarak kalır (sayfa geçişi: Tools sekmesi, Ctrl+1…7, bağlantı hapı)."""
+        Araç pencereleri: Tools sekmesi, Ctrl+1…7, bağlantı hapı (bkz. ``open_tool``)."""
         rb = self.modas_ribbon
-        self.nav_bar = QTabBar(self)
-        self.nav_bar.setObjectName("topNav")
-        self.nav_bar.setMovable(False)
-        self.nav_bar.setTabsClosable(False)
-        for _icon, label, _page in self._nav_pages:
-            self.nav_bar.addTab(label)
-        self.nav_bar.setCurrentIndex(0)
-        self.nav_bar.currentChanged.connect(self.stack.setCurrentIndex)
-        self.nav_bar.hide()
         rb.set_pages([(icon, label) for icon, label, _p in self._nav_pages])
 
         self.header_conn_pill = _ClickLabel("●  Bağlı değil")
@@ -487,7 +491,7 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         for i, (_icon, label, _page) in enumerate(self._nav_pages[:9]):      # Ctrl+1..7: sayfa geçişi
             sc = QShortcut(QKeySequence(f"Ctrl+{i + 1}"), self)
             sc.setContext(Qt.ApplicationShortcut)
-            sc.activated.connect(lambda idx=i: self.nav_bar.setCurrentIndex(idx))
+            sc.activated.connect(lambda _c=False, pg=_page: self.open_tool(pg))
         dt.estop_hint = f"Kısayol: {self.ESTOP_SHORTCUT}"
         dt.update_estop_tooltip()
         names = {
@@ -495,23 +499,19 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
             dt.stop_button: ("Motoru durdur", "Motor Stop sinyaline ON=1, OFF=0 yazar"),
             dt.estop_button: ("Acil durdurma", f"Acil Durdurma komutunu hemen gönderir. Kısayol {self.ESTOP_SHORTCUT}"),
             dt.estop_warn: ("Acil durdurma eşlenmemiş uyarısı", "Eşleşmeler penceresini açar"),
-            self.header_conn_pill: ("CAN bağlantı durumu", "CAN Monitor sayfasını açar"),
+            self.header_conn_pill: ("CAN bağlantı durumu", "CAN Trace penceresini açar"),
             self.ccp_chip: ("CCP durumu", "CCP oturumunun durumu"),
             self.header_role_label: ("Kullanıcı rolü", "Kullanıcı ve rol ayarlarını açar"),
             self.settings_button: ("Ayarlar", "Kullanıcı, rol ve profiller"),
             self.mappings_button: ("Eşleşmeler", "CAN ve A2L eşleşmeleri"),
-            self.nav_bar: ("Sayfalar", "Ctrl+1 ile Ctrl+7 arası sayfa değiştirir"),
         }
         for widget, (name, desc) in names.items():
             widget.setAccessibleName(name)
             widget.setAccessibleDescription(desc)
 
     def _open_connection_page(self):
-        """Bağlantı hapına tıklanınca CAN Monitor (bağlantı şeridi) sekmesine geç."""
-        for i, (_icon, label, _page) in enumerate(self._nav_pages):
-            if label == "CAN Monitor":
-                self.nav_bar.setCurrentIndex(i)
-                return
+        """Bağlantı hapına / ECU düğmesine tıklanınca CAN Trace (bağlantı şeridi) araç penceresini aç."""
+        self.open_tool("CAN Trace")
 
     def open_settings(self):
         """Ayarlar penceresi (kullanıcı/rol + profiller)."""
@@ -563,12 +563,8 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
                         w.setMaximumWidth(max_w)
 
     def setCurrentWidget(self, widget):
-        """Eski QTabWidget tabanlı kodun `self.setCurrentWidget(...)`
-        çağrılarının değişmeden çalışmaya devam etmesi için ince bir uyumluluk
-        katmanı: hem sayfa yığınını hem de üst sekme çubuğunu günceller."""
-        index = self.stack.indexOf(self._page_scrolls.get(widget, widget))
-        if index != -1:
-            self.nav_bar.setCurrentIndex(index)
+        """Eski sayfa-geçişi çağrılarının uyumluluk katmanı: Worksheets ana pencereyi, diğer sayfalar araç penceresini açar."""
+        self.open_tool(widget)
 
     def _wire_signals(self):
         self.connection_tab.connect_requested.connect(self._on_connect)
