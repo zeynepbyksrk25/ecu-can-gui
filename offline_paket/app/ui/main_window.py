@@ -130,7 +130,6 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self.kalibrasyon_tab = KalibrasyonTab(self.a2l_tab)   # A2L ilk iç sekme (a2l_tab takma adı korunur)
         self.ccp_tab = self.kalibrasyon_tab.ccp
         self.watch_tab = self.kalibrasyon_tab.watch
-        self.map_editor_tab = self.kalibrasyon_tab.map_editor
         self.history_tab = self.kalibrasyon_tab.history
 
         self.workspace_tab = WorkspaceTab(WorkspaceLayoutStore(data_path("workspace_layouts.json")))
@@ -206,9 +205,6 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         # A2L yüklenince nesne tarayıcısı orada da güncellenir.
         self.ccp_tab.a2l_db = self.a2l_tab.db
         self.a2l_tab.a2l_loaded.connect(self.ccp_tab.refresh_objects)
-
-        self.map_editor_tab.a2l_db = self.a2l_tab.db
-        self.a2l_tab.a2l_loaded.connect(self.map_editor_tab.refresh_objects)
 
         self.watch_tab.a2l_db = self.a2l_tab.db
         self.a2l_tab.a2l_loaded.connect(self.watch_tab.refresh_objects)
@@ -590,7 +586,7 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self.ccp_tab.read_requested.connect(self._on_ccp_read)
         self.ccp_tab.write_requested.connect(self._on_ccp_write)
 
-        self.ccp_tab.open_in_map_editor_requested.connect(self._open_in_map_editor)
+        self.ccp_tab.open_in_modas_requested.connect(self._open_in_modas)
 
         self.transmit_tab.dbc_loaded.connect(self._panel_sources_changed)
         self.transmit_tab.dbc_loaded.connect(lambda *_: self.tx_scheduler.refresh_frames())
@@ -609,11 +605,6 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self.control_panel_tab.set_allowed(can_override_actuator(self.current_role))
         self.watch_tab.read_requested.connect(self._on_watch_read)
         self.watch_tab.write_requested.connect(self._on_watch_write)
-
-        self.map_editor_tab.read_requested.connect(self._on_map_read)
-        self.map_editor_tab.write_requested.connect(self._on_map_write)
-        self.map_editor_tab.read_all_requested.connect(self._on_map_read_all)
-        self.map_editor_tab.write_all_requested.connect(self._on_map_write_all)
 
         self.diagnostics_tab.test_requested.connect(self._on_diag_test_requested)
         self.diagnostics_tab.diag_requested.connect(self._on_diag_requested)

@@ -193,7 +193,6 @@ class CalibrationMixin:
         self.ccp_tab.set_session_state(state, self.ccp_session.status_text())
         self.watch_tab.set_live_state(state, self.ccp_session.status_text())
         self.watch_tab.set_connected(state in (ONLINE, LOST))
-        self.map_editor_tab.set_online(online)
         self._panel_conn_state()
         self._update_ccp_chip()
 
@@ -333,12 +332,11 @@ class CalibrationMixin:
         """Reddedilen (yetki/bağlantı) yazma girişimi de kayda geçer: ne denendiği sonradan görülebilsin."""
         self._record_input(page, kind, "A2L", target or "(seçili nesne)", value, ok=False, detail=detail)
 
-    # ---- Harita Editörü (CURVE/MAP/ARRAY okuma-yazma; çoklu tablo) ----------
-    def _open_in_map_editor(self, characteristic):
-        """CCP sekmesindeki dizi/tablo nesnesini Harita Editörü'nde açar."""
-        self.map_editor_tab.open_characteristic(characteristic)
-        inner = self.kalibrasyon_tab.inner_tabs
-        inner.setCurrentWidget(self.map_editor_tab)
+    # ---- Tablolar (CURVE/MAP/ARRAY okuma-yazma; Worksheets/Modas pencereleri) ----------
+    def _open_in_modas(self, characteristic):
+        """CCP sekmesindeki dizi/tablo nesnesini Worksheets (Modas) sayfasında tablo penceresi olarak açar."""
+        self.modas_tab.add_label(characteristic)
+        self.setCurrentWidget(self.modas_tab)
 
     def _require_ccp(self, action_text: str) -> bool:
         if self.ccp_client is None:
@@ -403,7 +401,7 @@ class CalibrationMixin:
 
     def _save_table_backup(self, characteristic, old_grid) -> str:
         """Tablo yazımından önceki ECU içeriğini data_dir()/tablo_yedekleri altına JSON olarak yazar
-        (Harita Editörü > "Yedekten Yükle…" ile geri getirilir). Başarısızsa '' döner."""
+        (Worksheets > tablo penceresi sağ tık > "Yedekten Yükle…" ile geri getirilir). Başarısızsa '' döner."""
         from app.ccp import table_backup
         return table_backup.save(data_path("tablo_yedekleri"), characteristic, old_grid)
 
@@ -445,7 +443,7 @@ class CalibrationMixin:
             if isinstance(old_grid, Exception):
                 doc.set_write_result(False, f"Yazma hatası: {old_grid}")
                 self._log_event("HATA", f"{characteristic.name} tablo yazma hatası: {old_grid}")
-                self._record_input("Kalibrasyon > Harita Editörü", "Tablo yazımı (RAM)", "A2L", characteristic.name,
+                self._record_input("Worksheets > Tablo", "Tablo yazımı (RAM)", "A2L", characteristic.name,
                                    f"{len(grid)}×{len(grid[0]) if grid else 0} tablo", ok=False, detail=str(old_grid),
                                    unit=characteristic.unit or "")
                 failed += 1
@@ -453,7 +451,7 @@ class CalibrationMixin:
             backup = self._save_table_backup(characteristic, old_grid)
             rows, cols = len(grid), len(grid[0]) if grid else 0
             changed = self._count_changed_cells(old_grid, grid)
-            self._record_input("Kalibrasyon > Harita Editörü", "Tablo yazımı (RAM)", "A2L", characteristic.name,
+            self._record_input("Worksheets > Tablo", "Tablo yazımı (RAM)", "A2L", characteristic.name,
                                f"{rows}×{cols} tablo", old_value=f"{rows}×{cols} tablo",
                                detail=f"{changed} hücre değişti" + (f"; önceki içerik yedeği: {backup}" if backup else ""),
                                unit=characteristic.unit or "")
@@ -476,52 +474,6 @@ class CalibrationMixin:
 
     def _write_map_doc(self, doc) -> bool:
         return self._write_map_docs([doc])[0] == 1
-
-    def _on_map_read(self):
-        doc = self.map_editor_tab.current_document()
-        if doc is None:
-            return
-        if not self._require_ccp("Harita okumadan"):
-            return
-        self._read_map_doc(doc)
-
-    def _on_map_write(self):
-        doc = self.map_editor_tab.current_document()
-        if doc is None:
-            return
-        if not self._require_ccp("Harita yazmadan"):
-            return
-        if not can_write_calibration(self.current_role):
-            doc.set_write_result(False, "Yetki yok: harita yazmak için Mühendis veya Yönetici rolü gerekir.")
-            self._record_denied_write("Kalibrasyon > Harita Editörü", "Tablo yazımı (RAM)",
-                                      "Yetki yok: Mühendis veya Yönetici rolü gerekir", doc.characteristic.name)
-            return
-        self._write_map_doc(doc)
-
-    def _on_map_read_all(self):
-        docs = self.map_editor_tab.documents()
-        if not docs or not self._require_ccp("Tabloları okumadan"):
-            return
-        ok = self._read_map_docs(docs)
-        self._log_event("KALIBRASYON", f"{ok}/{len(docs)} tablo ECU'dan okundu")
-
-    def _on_map_write_all(self):
-        docs = self.map_editor_tab.documents()
-        if not docs or not self._require_ccp("Tabloları yazmadan"):
-            return
-        if not can_write_calibration(self.current_role):
-            for d in docs:
-                d.set_write_result(False, "Yetki yok: harita yazmak için Mühendis veya Yönetici rolü gerekir.")
-                self._record_denied_write("Kalibrasyon > Harita Editörü", "Tablo yazımı (RAM)",
-                                          "Yetki yok: Mühendis veya Yönetici rolü gerekir", d.characteristic.name)
-            return
-        modified = [d for d in docs if d.is_modified()]
-        skipped = len(docs) - len(modified)
-        written, failed = self._write_map_docs(modified)
-        self._log_event(
-            "KALIBRASYON",
-            f"Toplu tablo yazma: {written} yazıldı, {skipped} değişmediği için atlandı, {failed} başarısız"
-        )
 
     # ---- Parametre Listesi (çoklu parametre izleme/yazma) --------------------
     def _read_phys_best_effort(self, e):

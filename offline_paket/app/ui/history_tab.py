@@ -4,8 +4,8 @@ rol, zaman ve tür (RAM/FLAŞ) bilgisiyle listeler; seçili bir kaydı eski
 değerine geri yazmaya izin verir. RAM kayıtları RAM'e, FLAŞ kayıtları
 (kalıcı yazım sonrası bile) tekrar FLAŞ'a geri yazılır — hangi yolun
 kullanılacağına MainWindow, kaydın `persistent` alanına bakarak karar
-verir. Harita/grid geri alma burada değil, Harita Editörü'ndeki Geri
-Al/Yinele ile yapılır.
+verir. Harita/grid geri alma burada değil, Worksheets tablo penceresindeki
+Ctrl+R / "Yedekten Yükle…" ile yapılır.
 """
 
 import time

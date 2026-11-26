@@ -16,7 +16,7 @@ import math
 from PySide6.QtCore import QSize, QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QIcon, QPixmap
 from PySide6.QtWidgets import (
-    QAbstractButton, QAbstractItemView, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMdiSubWindow,
+    QAbstractButton, QAbstractItemView, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMdiSubWindow, QMenu,
     QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
@@ -348,6 +348,8 @@ class TableWindow(ModasSub):
                 it.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 self.table.setItem(r, c, it)
         self.table.itemChanged.connect(self._on_item_changed)       # hücreler tamamlandıktan SONRA bağlanır
+        self.table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self._on_context_menu)
         v.addWidget(self.table, 1)
         self.setWidget(body)
         self.resize(min(720, 90 + 64 * self.cols), min(460, 96 + 22 * self.rows))
@@ -578,6 +580,47 @@ class TableWindow(ModasSub):
         if changed and self.is_writable() and self.is_modified():
             self.write_requested.emit(self)
         return changed
+
+    def _on_context_menu(self, pos):
+        menu = QMenu(self.table)
+        editable = self.is_cell_editable()
+        act_restore = menu.addAction("Seçili değerleri geri yükle  (Ctrl+R)")
+        act_restore.setEnabled(editable and self._original is not None and bool(self._selected()))
+        act_backup = menu.addAction("Yedekten Yükle…")
+        act_backup.setEnabled(editable)
+        chosen = menu.exec(self.table.viewport().mapToGlobal(pos))
+        if chosen is act_restore:
+            self.restore_selection()
+        elif chosen is act_backup:
+            self.restore_from_backup()
+
+    def restore_from_backup(self) -> bool:
+        """Tablonun, ECU'ya yazılmadan önce otomatik alınan yedeklerinden birini hücrelere DÜZENLEME olarak yükler.
+        ECU'ya yazılmaz: kullanıcı onaylayınca (Enter / Write) normal güvenli yazma yolu çalışır."""
+        from PySide6.QtWidgets import QMessageBox
+        from app.ccp import table_backup
+        from app.paths import data_path
+        ch = self.characteristic
+        backups = table_backup.list_backups(data_path("tablo_yedekleri"), ch)
+        if not backups:
+            QMessageBox.information(self.window(), "Yedek yok", f"{ch.name} için kayıtlı bir yedek yok. Yedekler, tablo "
+                                                                 "ECU'ya yazılmadan hemen önce otomatik alınır.")
+            return False
+        label, ok = QInputDialog.getItem(self.window(), "Yedekten yükle", f"{ch.name}: yedek seçin (en yenisi üstte)",
+                                         [b.label for b in backups], 0, False)
+        if not ok:
+            return False
+        chosen = next(b for b in backups if b.label == label)
+        try:
+            grid = table_backup.load(chosen.path, ch, mapio.grid_shape(ch))
+        except ValueError as exc:
+            QMessageBox.warning(self.window(), "Yedek yüklenemedi", str(exc))
+            return False
+        self.load_grid_as_edit(grid)
+        # set_write_result KULLANILMAZ: başarıda tabloyu "ECU ile aynı" sayıp değişiklik işaretini silerdi.
+        self.info.setText(self._info_text() + f"<br><span style='color:{theme.WARN_INK}'>Yedek yüklendi "
+                          f"({label.split('  ')[0]}); ECU'ya HENÜZ yazılmadı. Yazmak için Enter / Write data to ECU.</span>")
+        return True
 
     def ask_operand(self, title: str) -> float | None:
         value, ok = QInputDialog.getDouble(self, title, "Değer:", 1.0, -1e12, 1e12, 6)

@@ -10,7 +10,7 @@ RECORD_LAYOUT genelde eksen noktalarını da bu bloğun İÇİNE, fonksiyon
 değerlerinden ÖNCE yerleştirir; bu modül o durumu hesaba katmıyor, yani
 STD_AXIS eksenli bir harita için okunan/yazılan ofset kayabilir. Gerçek
 ECU'ya karşı kullanmadan önce PCAN-View trace'iyle doğrulanmalı — bkz.
-CCPTab/MapEditorTab'daki uyarı etiketleri.
+CCPTab ve Worksheets tablo penceresindeki uyarı etiketleri.
 """
 
 import logging

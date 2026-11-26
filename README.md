@@ -16,7 +16,7 @@ worksheet sekmeleri. Motor Başlat / Durdur / **Acil Durdurma** grubu Ribbon'un 
 | **Worksheets** (açılış) | Modas çalışma alanı: A2L etiketlerini Variable list'ten sürükleyip bırakın → *değer penceresi* (beyaz = ayarlanabilir kalibrasyon, gri = ölçüm) ya da *eğri/harita tablosu*; WP/RP, `Diff`, Measurement (`F9`), Recording (`Ctrl+F9`), Read/Write data |
 | **Ana Sayfa** | Motor Başlat / Durdur / **Acil Durdurma** (`Ctrl+Shift+E`), göstergeler, canlı grafik, eyleyici override |
 | **CAN Monitor** | Bağlantı, canlı izleme (DBC çözümlemeli), çerçeve gönderme, CSV kaydı |
-| **Kalibrasyon** | A2L tarayıcı, CCP bağlantısı, Parametre Listesi, Harita Editörü (yedekten yükleme dahil), geçmiş |
+| **Kalibrasyon** | A2L tarayıcı, CCP bağlantısı, Parametre Listesi, Worksheets (Modas Sport tarzı harita pencereleri, yedekten yükleme dahil), geçmiş |
 | **Analiz** | Çalışma Alanı (çoklu sinyal grafiği, matematik sinyalleri), Performans |
 | **Kontrol Paneli** | Uçak girişleri / sensör override değerleri, senaryolar |
 | **Tanılama ve Oturum** | CCP testi, DIAG_SERVICE, olay günlüğü, oturum kaydı, PDF rapor, **Excel (.xlsx) kayıt dosyası** |

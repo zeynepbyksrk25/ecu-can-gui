@@ -44,7 +44,7 @@ HEADERS = ["Adres", "Hex", "Değer (Value)", "İsim (Name)", "Birim", "Tip", "A�
 
 OK_BG = QColor("#DDF3E5")        # yazma doğrulandı (kısa süre)
 OK_FG = QColor("#1B6B3E")
-PENDING_BG = QColor(theme.PENDING_BG)   # yazılmayı bekleyen değer (map_editor MODIFIED_BG ile aynı)
+PENDING_BG = QColor(theme.PENDING_BG)   # yazılmayı bekleyen değer (Modas tablo hücresi ile aynı)
 PENDING_FG = QColor("#7A4F00")
 INVALID_BG = QColor("#FBDCD8")   # ayrıştırılamayan sayı
 INVALID_FG = QColor("#A8241A")
@@ -167,7 +167,7 @@ class A2LPickerDialog(QDialog):
 
         self.count_label = QLabel("")
         hint = QLabel("İpucu: Dizi/tablo (ARRAY / CURVE / MAP) nesneleri burada "
-                      "listelenmez; onlar için Harita Editörü'nü kullanın.")
+                      "listelenmez; onlar için Worksheets (Modas) sayfasını kullanın.")
         hint.setWordWrap(True)
         hint.setStyleSheet(f"color: {theme.MUTED}; font-size: 11px;")
 

@@ -96,7 +96,7 @@ def test_kalibrasyon_dark_and_aliases():
     w = MainWindow()
     assert w.kalibrasyon_tab in w._dark_pages
     k = w.kalibrasyon_tab
-    assert k.inner_tabs.count() == 5 and k.watch is not None and k.map_editor is not None
+    assert k.inner_tabs.count() == 4 and k.watch is not None and not hasattr(k, "map_editor")
     w.close()
 
 

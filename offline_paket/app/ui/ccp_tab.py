@@ -29,7 +29,7 @@ class CCPTab(QWidget):
     disconnect_requested = Signal()
     read_requested = Signal()                   # o an seçili nesneyi oku
     write_requested = Signal(bool)               # persistent mi (Kalıcı Kaydet)?
-    open_in_map_editor_requested = Signal(object)  # dizi/tablo nesnesini Harita Editörü'nde aç
+    open_in_modas_requested = Signal(object)  # dizi/tablo nesnesini Worksheets (Modas) sayfasında aç
 
     def __init__(self):
         super().__init__()
@@ -245,7 +245,7 @@ class CCPTab(QWidget):
         self.array_hint_label.setWordWrap(True)
         self.array_hint_label.setStyleSheet(f"color: {theme.WARN_INK};")
         self.array_hint_label.setVisible(False)
-        self.open_map_button = QPushButton("Harita Editörü'nde Aç (tüm elemanları gör/düzenle)")
+        self.open_map_button = QPushButton("Worksheets'te Aç (tüm elemanları gör/düzenle)")
         self.open_map_button.setVisible(False)
         self.open_map_button.clicked.connect(self._on_open_map_clicked)
 
@@ -333,7 +333,7 @@ class CCPTab(QWidget):
 
     def _on_open_map_clicked(self):
         if self._selected is not None and self._selected[0] == "characteristic":
-            self.open_in_map_editor_requested.emit(self._selected[1])
+            self.open_in_modas_requested.emit(self._selected[1])
 
     def _on_item_clicked(self, item: QTreeWidgetItem, _column: int):
         # Seçim değişince flaş "etkinleştir" kutusu sıfırlanır: önceki nesne
@@ -362,7 +362,7 @@ class CCPTab(QWidget):
             self.array_hint_label.setText(
                 f"Bu nesne tek değer DEĞİL: {obj.kind} ({rows} satır × {cols} sütun = "
                 f"{rows * cols} eleman). Bu panel yalnızca İLK elemanı okur/yazar; "
-                "tüm elemanları görmek ve düzenlemek için Harita Editörü'nü kullanın."
+                "tüm elemanları görmek ve düzenlemek için Worksheets (Modas) sayfasını kullanın."
             )
         if kind == "measurement":
             self.sel_kind.setText(f"MEASUREMENT ({obj.datatype})")

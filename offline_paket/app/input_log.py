@@ -1,6 +1,6 @@
 """Kullanıcının TÜM sayfalarda yaptığı girişlerin/değişikliklerin yapılandırılmış kaydı.
 
-Ana Sayfa (eyleyici, motor komutu, uçuş koşulu), Kontrol Paneli, Kalibrasyon (Parametre Listesi, Harita Editörü,
+Ana Sayfa (eyleyici, motor komutu, uçuş koşulu), Kontrol Paneli, Kalibrasyon (Parametre Listesi, Worksheets tabloları,
 CCP, geçmişten geri alma) hangi sayfada olursa olsun her giriş buraya bir satır olarak eklenir: ne zaman, hangi sayfa,
 hangi hedef (CAN sinyali / A2L adı), eski ve yeni değer, başarılı mı, kim/hangi rol. Excel raporunun "Girişler (tüm
 sayfalar)" sayfası bu kayıttan üretilir.

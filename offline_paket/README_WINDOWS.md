@@ -81,7 +81,7 @@ Sürücü kurulduktan sonra adaptörü takıp Aygıt Yöneticisi'nde
 |---|---|
 | **Ana Sayfa** | Annunciator lamba şeridi (RED STOP LAMP/MIL LAMP/vb.), Motor Komutları, 9 ibre göstergeli Motor Parametreleri (RPM/İtki/PLA/Tt5/Başlangıç Yakıt Basıncı/Ana Yakıt Basıncı/FT/Ps2/Ps3), Sensör Durumu ve Arıza Tablosu, gömülü canlı grafik, **Eyleyiciler** (manuel override anahtarları — MATLAB/Simulink ile donanım testi için). Aşağıdaki "Ayarlar" bölümüne bakın — bu sekmenin çalışması için DBC/A2L eşlemelerini bir kere girmeniz gerekir. |
 | **CAN Monitor** | Bağlantı (arayüz/kanal/baudrate — arayüz seçimi "▸ Gelişmiş ayarlar" arkasında, varsayılan arayüz `virtual` — **gerçek test için `pcan` seçin**), İzleme (gelen/giden CAN trafiği), Gönderim (manuel/periyodik mesaj + DBC yükleme — Ana Sayfa'daki motor komutları ve eyleyici override'ları da aynı DBC'yi kullanır), Log (CAN trafiğini CSV'ye kaydetme) — tek sekmede birleşik |
-| **Kalibrasyon** | İç sekmeler (5): **A2L** (A2L dosyası yükleyip Measurement/Characteristic nesnelerini gezme; kalibrasyonun ilk adımı), **CCP** (canlı değer okuma, RAM'e geçici yazma, **Yönetici rolüyle flaşa kalıcı yazma**), **Harita Editörü** (1D/2D kalibrasyon tabloları, geri al/yinele, ısı haritası), **Parametre Listesi** (adres/hex ile serbest satırlar, toplu yaz/oku), **Geçmiş** (RAM ve FLAŞ yazımlarının eski/yeni değerleri, geri alma — FLAŞ kaydı uygulama kapansa bile kalıcıdır) |
+| **Kalibrasyon** | İç sekmeler (4): **A2L** (A2L dosyası yükleyip Measurement/Characteristic nesnelerini gezme; kalibrasyonun ilk adımı), **CCP** (canlı değer okuma, RAM'e geçici yazma, **Yönetici rolüyle flaşa kalıcı yazma**), **Parametre Listesi** (adres/hex ile serbest satırlar, toplu yaz/oku), **Geçmiş** (RAM ve FLAŞ yazımlarının eski/yeni değerleri, geri alma — FLAŞ kaydı uygulama kapansa bile kalıcıdır) |
 | **Tanılama ve Oturum** | CCP bağlantı testi + ham DIAG_SERVICE isteği, CAN bağlantı sağlığı, test oturumu (başlat/bitir, PDF test raporu) ve TEK olay günlüğü ("Tümü / Yalnız hatalar" süzgeci) — birleşik |
 | **⚙ Ayarlar** (komut şeridi; sekme değil) | Rol seçimi (Operatör/Mühendis/Yönetici), bağlantı+CCP ayarlarını profil olarak kaydetme ve Eşleşmeler. "Rol: …" etiketine tıklayarak da açılır |
 
@@ -179,9 +179,9 @@ uygulamada donanımla doğrulanmamıştır**. Bu yüzden:
 - **Parametre Listesi'nde değer yazma:** Değer hücresine yazıp **Enter** ile RAM'e yazılır. Bunun için rolün
   **Mühendis veya Yönetici** olması gerekir (sağ üstteki ⚙ Ayarlar > rol). **Operatör** rolünde Değer hücreleri
   kilitlidir ve ipucu satırı nedenini söyler; değerler yine canlı izlenir.
-- **Tablo yedeğinden geri yükleme:** Harita Editörü > **Yedekten Yükle…** seçili tablonun, ECU'ya yazılmadan
-  önce otomatik alınmış yedeklerinden birini tabloya getirir (aynı nesne, adres ve boyut doğrulanır). ECU'ya
-  YAZILMAZ; "ECU'ya Yaz" ile ayrıca yazarsınız ve tek adımda Geri Al ile vazgeçilebilir.
+- **Tablo yedeğinden geri yükleme:** Worksheets'te tablo penceresine sağ tık > **Yedekten Yükle…** tablonun, ECU'ya yazılmadan
+  önce otomatik alınmış yedeklerinden birini hücrelere getirir (aynı nesne, adres ve boyut doğrulanır). ECU'ya
+  YAZILMAZ; Enter / Write data to ECU ile ayrıca yazarsınız. Seçili hücreleri ECU'daki değere döndürmek için Ctrl+R.
 - **Windows zamanlayıcı çözünürlüğü:** uygulama açılışta sistem zamanlayıcısını 1 ms'ye çeker; 10 ms'lik
   periyodik gönderim ~15,6 ms'e yuvarlanmaz. (Gerçek PCAN ile ölçülüp doğrulanmalıdır.)
 - **CCP koruma (GET_SEED / UNLOCK):** `CCPClient.get_seed`, `unlock`, `unlock_resource(kaynak, anahtar_fonksiyonu)`
@@ -259,7 +259,7 @@ haberleşmeyi test edebilirsiniz.
   komut dizilimi standarda göre uygulandı ama gerçek donanımla test edilmedi.
 - **Diagnostics ekranı** ECU'ya özel arıza kodu formatını "bilmediği"
   için ham DIAG_SERVICE istek/cevabı gösterir, yorumlamaz.
-- **STD_AXIS/COM_AXIS eksenli haritalar**: Harita Editörü'nde fonksiyon
+- **STD_AXIS/COM_AXIS eksenli haritalar**: Worksheets tablo penceresinde fonksiyon
   değerlerinin bellek adresi sadece FIX_AXIS eksenler için doğrulanmıştır;
   diğer eksen tipleri için ekranda uyarı gösterilir.
 - **Kullanıcı rolleri kimlik doğrulama değildir** (şifre yok) — amaç,
@@ -289,7 +289,7 @@ haberleşmeyi test edebilirsiniz.
 - **Bağlantı izleme**: adaptör çekilirse ~3 sn teyit edilir, "Bağlantı KOPTU" gösterilir,
   adaptör geri gelince otomatik yeniden bağlanır (CCP de devam eder).
 - **Kalibrasyon**: "Parametre Listesi" (Adres / Hex / Değer / Ad, sınırsız sayıda satır, toplu
-  yaz/oku) ve "Harita Editörü" (birden çok eğri/harita/dizi aynı anda sekmelerde, 1×16 gibi diziler dahil).
+  yaz/oku) ve Worksheets (Modas Sport tarzı; eğri/harita/dizi her biri kendi iç penceresinde, 1×16 gibi diziler dahil).
 - **Duyarlı arayüz**: sayfalar kaydırılabilir, pencere ekrana sığacak şekilde açılır,
   göstergeler orantılı ölçeklenir.
 - **Kalıcı dosyalar** sabit kullanıcı klasöründe: Belgelerim\OpenECU_M220_Veri (exe nereden açılırsa açılsın aynı; eski exe-yanı dosyalar ilk açılışta oraya kopyalanır):
@@ -298,9 +298,7 @@ haberleşmeyi test edebilirsiniz.
   `workspace_layouts.json`, `openecu.log` (hata günlüğü); CAN kayıtları `can_loglari\`, tablo yazım yedekleri
   `tablo_yedekleri\`. Her JSON için bir `.bak` yedeği tutulur; bozulan dosya `*.corrupt-<zaman>` olarak saklanır.
 - **Simge**: `app_icon.ico` (exe'ye `--icon` ile gömülür).
-- **Lookup (Harita Editörü)**: üstte grafik (seçili hücre kırmızı nokta, GİZLE düğmesi), gri eksen
-  başlıklı değer tablosu, ONLINE/OFFLINE rozeti ve "Ayrıntıları göster" ile hücre başına
-  Adres / Hex / Değer / Ad / Tip / Birim listesi (Değer sütunu düzenlenebilir).
+- **Tablolar (Worksheets)**: Modas Sport tarzı tablo penceresi (X üstte, Y solda, köşede Y\X, hücrelerde Z).
   Parametre Listesi'ne "Açıklama" (A2L) sütunu eklendi.
 
 ## Ana Sayfa – kompakt yerleşim
@@ -397,7 +395,7 @@ yalnızca sizin açıkça başlattığınız kalibrasyon işlemleridir (RAM'e Ya
 Oturum Excel dosyasının sayfaları:
 **Özet** (oturum adı, operatör, süre, olay / hata sayıları, **sayfa başına giriş sayıları**, RAM ve FLAŞ yazım sayıları) ·
 **Girişler (tüm sayfalar)** — hangi sayfada ne yaptıysanız hepsi: Ana Sayfa (eyleyici değeri, switch, motor komutu,
-uçuş koşulu), Kontrol Paneli, Kalibrasyon (Parametre Listesi, CCP, Harita Editörü, geri alma); tarih/saat, sayfa,
+uçuş koşulu), Kontrol Paneli, Kalibrasyon (Parametre Listesi, CCP, Worksheets tabloları, geri alma); tarih/saat, sayfa,
 tür, hedef (sinyal/parametre), eski ve yeni değer, **başarılı mı / başarısız mı** (reddedilen denemeler dahil),
 kullanıcı, rol · **Kalibrasyon yazımları** (RAM / FLAŞ, eski ve yeni değer) · **Olay günlüğü** · **Sinyal özeti**
 (her sinyalin örnek sayısı, ilk/son, min/maks/ortalama) · **Parametre kaydı** (her değer kendi geliş zamanıyla:

@@ -1,6 +1,6 @@
 """Modas çalışma alanının MainWindow tarafı: ölçüm turu, değer/tablo okuma-yazma, WP/RP, Ribbon düğmeleri, kısayollar.
 
-Güvenlik: yazma yolları Parametre Listesi / Harita Editörü ile AYNIDIR — rol denetimi (Mühendis/Yönetici), CCP bağlı olma,
+Güvenlik: yazma yolları Parametre Listesi ile AYNIDIR — rol denetimi (Mühendis/Yönetici), CCP bağlı olma,
 ``encode_for_write`` doğrulaması, yazma sonrası geri okuma, tablo yedeği + geri alma, giriş kaydı ve kalibrasyon geçmişi.
 Modas penceresi yalnızca arayüzdür; ECU'ya doğrudan dokunmaz.
 """
@@ -274,7 +274,7 @@ class ModasMixin:
         self._modas_set_record_checked(not st.start_button.isEnabled())
 
     # ======================================================================
-    # Yazma (Parametre Listesi / Harita Editörü ile aynı güvenlik yolu)
+    # Yazma (Parametre Listesi ile aynı güvenlik yolu)
     # ======================================================================
     def _modas_write_value(self, win: ValueWindow, text: str):
         obj = win.obj
