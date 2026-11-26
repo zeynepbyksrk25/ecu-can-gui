@@ -210,3 +210,51 @@ def test_dbc_units_and_source_registered_in_meta(tmp_path):
     sig = json.load(open(rec.meta_path, encoding="utf-8"))["signals"]
     assert sig["dbc:ENG_STATUS.rpm"] == {"unit": "rpm", "source": "CAN", "timebase": "acquisition_wall_clock"}
     assert sig["dbc:ENG_STATUS.tt2_c"]["unit"] == "degC"
+
+
+def test_record_and_freeze_shortcuts(qapp, tmp_path, monkeypatch):
+    monkeypatch.setenv("OPENECU_VERI_KLASORU", str(tmp_path))
+    import app.paths as paths
+    monkeypatch.setattr(paths, "_cached", None)
+    from app.ui.main_window import MainWindow
+    w = MainWindow()
+    try:
+        keys = {sc.key().toString(): sc for sc in w._rec_shortcuts}
+        assert set(keys) == {"Ctrl+Shift+R", "Ctrl+Shift+P", "Ctrl+Shift+M", "Ctrl+Shift+F"}
+        keys["Ctrl+Shift+R"].activated.emit()
+        assert w.session_recorder.is_active
+        keys["Ctrl+Shift+P"].activated.emit()
+        assert w.session_recorder.is_paused
+        keys["Ctrl+Shift+M"].activated.emit()
+        keys["Ctrl+Shift+F"].activated.emit()
+        assert w.dashboard_tab.trend.btn_freeze.isChecked()
+        keys["Ctrl+Shift+R"].activated.emit()
+        assert not w.session_recorder.is_active
+    finally:
+        w.close()
+
+
+def test_start_failure_leaves_recorder_clean_and_reusable(tmp_path):
+    blocker = tmp_path / "dosya"
+    blocker.write_text("x")
+    rec = SessionRecorder()
+    with pytest.raises(OSError):
+        rec.start(str(blocker / "alt"), "x")              # klasör oluşturulamaz
+    with pytest.raises(OSError):
+        rec.start("", "x")
+    assert rec.state == "DURDU" and not rec.is_active and rec.record("s", 1.0) is False
+    path = rec.start(str(tmp_path / "ok"), "x")
+    rec.record("s", 1.0)
+    rec.stop()
+    assert len(_rows(path)) == 2
+
+
+def test_stop_without_start_and_double_stop_are_safe(tmp_path):
+    rec = SessionRecorder()
+    rec.stop()
+    rec.start(str(tmp_path), "x")
+    rec.stop()
+    rec.stop()
+    rec.pause()
+    rec.resume()
+    assert rec.add_marker("x") is False and rec.record_event("A", "b") is False

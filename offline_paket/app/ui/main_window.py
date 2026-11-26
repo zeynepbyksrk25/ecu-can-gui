@@ -528,6 +528,25 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
             sc = QShortcut(QKeySequence(f"Ctrl+{i + 1}"), self)
             sc.setContext(Qt.ApplicationShortcut)
             sc.activated.connect(lambda idx=i: self.nav_bar.setCurrentIndex(idx))
+        # Kayıt / trend kısayolları (uygulama kapsamlı, üç tuşlu: yanlışlıkla basılmasın)
+        st = self.session_tab
+
+        def app_sc(seq: str, fn):
+            sc = QShortcut(QKeySequence(seq), self)
+            sc.setContext(Qt.ApplicationShortcut)
+            sc.activated.connect(fn)
+            return sc
+        self._rec_shortcuts = [
+            app_sc("Ctrl+Shift+R", lambda: st._on_start() if st.start_button.isEnabled() else st._on_stop()),
+            app_sc("Ctrl+Shift+P", lambda: st.pause_button.click() if st.pause_button.isEnabled() else None),
+            app_sc("Ctrl+Shift+M", lambda: st.marker_button.click() if st.marker_button.isEnabled() else None),
+            app_sc("Ctrl+Shift+F", lambda: dt.trend.btn_freeze.toggle()),
+        ]
+        st.start_button.setToolTip("Kaydı başlatır (Ctrl+Shift+R)")
+        st.stop_button.setToolTip("Kaydı bitirir (Ctrl+Shift+R)")
+        st.pause_button.setToolTip("Kaydı duraklatır / sürdürür (Ctrl+Shift+P)")
+        st.marker_button.setToolTip("Kayda ve trende olay işareti ekler (Ctrl+Shift+M)")
+        dt.trend.btn_freeze.setToolTip(dt.trend.btn_freeze.toolTip() + " (Ctrl+Shift+F)")
         dt.estop_hint = f"Kısayol: {self.ESTOP_SHORTCUT}"
         dt.update_estop_tooltip()
         names = {

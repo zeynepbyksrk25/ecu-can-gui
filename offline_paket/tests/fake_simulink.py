@@ -21,6 +21,7 @@ class FakeSimulink:
         self.seq = 0
         self.received_frames = []     # GUI'den gelen (id, data, extended)
         self.received_cmds = []
+        self.heartbeats_rx = 0
         self.params = {}               # indeks -> model değeri (parametre kanalı)
         self.tunable_running = set()   # çalışırken yazılabilen indeksler
         self.reject_range = {}         # indeks -> (min, max): dışındaki değer NAK
@@ -58,6 +59,8 @@ class FakeSimulink:
                 self.received_frames.append((p.can_id, p.data, p.extended))
             elif p.type == proto.T_PARAM and not self.ignore_params:
                 self._on_param(p)
+            elif p.type == proto.T_HEARTBEAT:
+                self.heartbeats_rx += 1
             elif p.type == proto.T_CONTROL:
                 self.received_cmds.append((p.command, p.arg))
                 self.state = {proto.CMD_START: proto.MS_RUNNING, proto.CMD_PAUSE: proto.MS_PAUSED,

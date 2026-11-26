@@ -89,8 +89,11 @@ class SimulinkUdpBus(can.BusABC):
         if msg.is_error_frame:
             raise can.CanOperationError("Hata karesi MIL'de gönderilemez")
         data = bytes(msg.data)
-        pkt = proto.encode_can(self._next_seq(), self.sim_time, msg.arbitration_id, data,
-                               bool(msg.is_extended_id), bool(msg.is_remote_frame))
+        try:
+            pkt = proto.encode_can(self._next_seq(), self.sim_time, msg.arbitration_id, data,
+                                   bool(msg.is_extended_id), bool(msg.is_remote_frame))
+        except proto.ProtocolError as exc:
+            raise can.CanOperationError(f"MIL çerçevesi geçersiz: {exc}") from exc
         self._send_raw(pkt)
 
     def _recv_internal(self, timeout):

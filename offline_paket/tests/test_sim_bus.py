@@ -177,3 +177,41 @@ def test_main_window_mil_connect_records_mode_and_no_ccp(qapp, tmp_path, monkeyp
         if w.connection.is_connected:
             w._on_disconnect()
         w.close()
+
+
+def test_gui_sends_heartbeat_so_model_knows_gui_is_alive():
+    bus = SimulinkUdpBus(channel="0:127.0.0.1:1", heartbeat=True)
+    model = FakeSimulink(0, bus.local_port)
+    bus.remote_port = model.port
+    try:
+        assert _wait(lambda: model.heartbeats_rx >= 2, 3.0)
+    finally:
+        bus.shutdown()
+        model.close()
+
+
+def test_shutdown_is_idempotent_and_send_after_shutdown_errors():
+    bus = SimulinkUdpBus(channel="0:127.0.0.1:9", heartbeat=False)
+    bus.shutdown()
+    bus.shutdown()
+    with pytest.raises(can.CanError):
+        bus.send(can.Message(arbitration_id=0x100, data=b"\x01", is_extended_id=False))
+
+
+def test_param_request_times_out_without_model():
+    bus = SimulinkUdpBus(channel="0:127.0.0.1:9", heartbeat=False)
+    try:
+        t0 = time.time()
+        with pytest.raises(TimeoutError):
+            bus.param_request(proto.OP_READ, 1, timeout=0.1, retries=1)
+        assert time.time() - t0 < 1.0
+    finally:
+        bus.shutdown()
+
+
+def test_error_frames_and_oversized_payloads_are_rejected_on_send(pair):
+    bus, model = pair
+    with pytest.raises(can.CanError):
+        bus.send(can.Message(is_error_frame=True, arbitration_id=0, data=b""))
+    with pytest.raises(can.CanError):
+        bus.send(can.Message(arbitration_id=0x900, data=b"\x01", is_extended_id=False))   # standart ID > 0x7FF
