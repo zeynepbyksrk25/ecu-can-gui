@@ -23,6 +23,12 @@ Kontrol yükü (8 bayt; toplam 24) GUI -> model:
     17   3     ayrılmış
     20   4     argüman (float32; hız çarpanı, 0 = en hızlı)
 
+Parametre yükü (12 bayt; toplam 28) kalibrasyon kanalı:
+    16   2     parametre indeksi (manifest)
+    18   1     işlem (1=yaz, 2=oku isteği, 3=değer/ACK, 4=NAK)
+    19   1     durum (NAK: 1=çalışırken yazılamaz, 2=bilinmeyen indeks, 3=aralık dışı)
+    20   8     değer (double; Simulink tarafı değeri)
+
 Alıcı HATALI paketi (boyut/magic/sürüm/tür/DLC>8/ID aralığı) reddeder ve sayar; paket asla "yarım" yorumlanmaz.
 CAN çerçevesi fiziksel bir hat DEĞİLDİR: bitrate/bus durumu yoktur.
 """
@@ -34,13 +40,17 @@ from dataclasses import dataclass
 
 MAGIC = 0x4543
 VERSION = 1
-T_CAN, T_HEARTBEAT, T_CONTROL = 1, 2, 3
+T_CAN, T_HEARTBEAT, T_CONTROL, T_PARAM = 1, 2, 3, 4
 HEADER = struct.Struct("<HBBId")            # 16 bayt
 CAN_BODY = struct.Struct("<IBB8s")          # 14 bayt
 HB_BODY = struct.Struct("<B3x")             # 4 bayt
 CTRL_BODY = struct.Struct("<B3xf")          # 8 bayt
+PARAM_BODY = struct.Struct("<HBBd")         # 12 bayt
 SIZES = {T_CAN: HEADER.size + CAN_BODY.size, T_HEARTBEAT: HEADER.size + HB_BODY.size,
-         T_CONTROL: HEADER.size + CTRL_BODY.size}
+         T_CONTROL: HEADER.size + CTRL_BODY.size, T_PARAM: HEADER.size + PARAM_BODY.size}
+(OP_WRITE, OP_READ, OP_VALUE, OP_NAK) = range(1, 5)
+# NAK durum kodları
+(ST_OK, ST_NOT_TUNABLE_RUNNING, ST_UNKNOWN_INDEX, ST_OUT_OF_RANGE) = range(4)
 
 (MS_UNKNOWN, MS_READY, MS_RUNNING, MS_PAUSED, MS_STOPPED, MS_ERROR) = range(6)
 MODEL_STATE_NAMES = {MS_UNKNOWN: "UNKNOWN", MS_READY: "READY", MS_RUNNING: "RUNNING", MS_PAUSED: "PAUSED",
@@ -65,6 +75,10 @@ class Packet:
     model_state: int = MS_UNKNOWN
     command: int = 0
     arg: float = 0.0
+    index: int = 0
+    op: int = 0
+    status: int = 0
+    value: float = 0.0
 
 
 def encode_can(seq: int, sim_time: float, can_id: int, data: bytes, extended: bool = False, rtr: bool = False) -> bytes:
@@ -84,6 +98,13 @@ def encode_heartbeat(seq: int, sim_time: float, model_state: int) -> bytes:
 
 def encode_control(seq: int, command: int, arg: float = 0.0) -> bytes:
     return HEADER.pack(MAGIC, VERSION, T_CONTROL, seq & 0xFFFFFFFF, 0.0) + CTRL_BODY.pack(command, float(arg))
+
+
+def encode_param(seq: int, op: int, index: int, value: float = 0.0, status: int = ST_OK) -> bytes:
+    """Parametre kanalı (kalibrasyon): ``op``=1 yaz, 2 oku isteği (GUI→model); 3 değer/ACK, 4 NAK (model→GUI).
+    ``value`` modelin kullandığı (Simulink) değer; ACK'te modelde UYGULANAN değerdir."""
+    return (HEADER.pack(MAGIC, VERSION, T_PARAM, seq & 0xFFFFFFFF, 0.0)
+            + PARAM_BODY.pack(index, op, status, float(value)))
 
 
 def decode(buf: bytes) -> Packet:
@@ -111,6 +132,13 @@ def decode(buf: bytes) -> Packet:
     if typ == T_HEARTBEAT:
         (state,) = HB_BODY.unpack_from(buf, HEADER.size)
         return Packet(typ, seq, sim_time, model_state=state if state in MODEL_STATE_NAMES else MS_UNKNOWN)
+    if typ == T_PARAM:
+        index, op, status, value = PARAM_BODY.unpack_from(buf, HEADER.size)
+        if op not in (OP_WRITE, OP_READ, OP_VALUE, OP_NAK):
+            raise ProtocolError(f"geçersiz parametre işlemi {op}")
+        if not math.isfinite(value):
+            raise ProtocolError("parametre değeri sonlu değil")
+        return Packet(typ, seq, sim_time, index=index, op=op, status=status, value=value)
     cmd, arg = CTRL_BODY.unpack_from(buf, HEADER.size)
     if cmd < CMD_START or cmd > CMD_SPEED or not math.isfinite(arg):
         raise ProtocolError(f"geçersiz komut {cmd}")

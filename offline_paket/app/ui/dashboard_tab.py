@@ -254,6 +254,9 @@ class DashboardTab(QWidget):
 
         right = QVBoxLayout()
         right.setSpacing(10)
+        from app.ui.sim_model_panel import SimModelPanel
+        self.sim_panel = SimModelPanel()          # yalnızca MIL modunda görünür
+        right.addWidget(self.sim_panel, 0)
         right.addWidget(self._build_gauges_card(), 11)
         self.signal_source = "CAN"   # g: sinyallerinin kaynağı (MIL modunda "Simulink MIL"); trend tablosunda gösterilir
         self.trend = TrendPanel()

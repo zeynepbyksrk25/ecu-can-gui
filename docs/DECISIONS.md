@@ -13,3 +13,5 @@ Soru sorulmadan alınan her karar: tarih/aşama – karar – gerekçe – alter
 - 2026-11-26 / MIL1 – UDP paketi sabit boyutlu ikili (magic/sürüm/tür/sıra/sim_time + yük); gerekçe: Simulink'te kolay paketleme, doğrulama. Alternatif: JSON/protobuf (Simulink'te ağır).
 - 2026-11-26 / MIL1 – Bus bağlantı sağlığı heartbeat'ten; `link_state` "waiting/timeout" → mevcut izleme "bus_warning" (kopma değil uyarı), çünkü model sonradan başlayabilir (11.10).
 - 2026-11-26 / MIL1 – MIL'de otomatik CCP bağlantısı atlanır (A2L adres alanı yok); kalibrasyon MIL3'te parametre kanalı ile.
+- 2026-11-26 / MIL3 – Kalibrasyon için MATLAB Engine yerine UDP parametre kanalı seçildi (MATLAB gerektirmez, model çalışırken ACK'li, zaman aşımı/NAK net); Engine yalnızca yaşam döngüsü komutlarında isteğe bağlı. Mevcut CcpSession.adopt() + CCPClient-benzeri istemci: ikinci kalibrasyon altyapısı kurulmadı.
+- 2026-11-26 / MIL4 – Backend 'stopped' durumu READY/ERROR iken yok sayılır (başlatılmamış model Simulink'te de stopped).

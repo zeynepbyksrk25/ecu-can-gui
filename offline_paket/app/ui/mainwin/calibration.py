@@ -1,11 +1,12 @@
 """CCP oturumu ve kalibrasyon: arka plan CCP işleri, tek değer / harita / Parametre Listesi
 okuma-yazma, tanılama ve geçmişten geri alma."""
 import contextlib
+import os
 import threading
 
 from PySide6.QtCore import QEventLoop, QTimer, Qt
 from PySide6.QtWidgets import (
-    QApplication, QMessageBox,
+    QApplication, QFileDialog, QMessageBox,
 )
 
 from app.ccp import codec as ccp_codec
@@ -129,6 +130,103 @@ class CalibrationMixin:
             return
         with cm:
             yield
+
+    # ---- MIL model yaşam döngüsü (Start/Pause/Resume/Stop/Reset, hız) -------------------------
+    def _on_model_connect(self, model: str, backend: str):
+        from app.sim_bridge import matlab_ctl as mc
+        if getattr(self, "backend_mode", "") != "MIL" or not self.connection.is_connected:
+            QMessageBox.information(self, "Model", "Önce MIL modunda UDP bağlantısını açın (CAN Monitor sekmesi).")
+            return
+        if self.model_ctl is not None:
+            self.model_ctl.close()
+        bus = self.connection.bus
+        be = mc.UdpControlBackend(bus) if backend == "udp" else mc.MatlabEngineBackend()
+        self.model_ctl = mc.ModelController(be, bus=bus)
+        self._model_events_seen = 0
+        self.model_ctl.connect(model)
+        self._log_event("MODEL", f"Model denetimi bağlanıyor ({be.name}{', ' + model if model else ''})")
+
+    def _on_model_command(self, cmd: str, arg: float):
+        ctl = self.model_ctl
+        if ctl is None:
+            return
+        ok = ctl.set_speed(arg) if cmd == "speed" else ctl.command(cmd, arg)
+        if not ok:
+            self.statusBar().showMessage(f"Model komutu '{cmd}' bu durumda ({ctl.state}) geçersiz.", 4000)
+
+    def _update_model_panel(self):
+        """Panel durumu + model olaylarının kayda/olay günlüğüne aktarımı (250 ms; yalnızca GÖSTERGE)."""
+        ctl = self.model_ctl
+        panel = self.dashboard_tab.sim_panel
+        if getattr(self, "backend_mode", "") != "MIL":
+            if ctl is not None:
+                ctl.close()
+                self.model_ctl = None
+            return
+        from app.sim_bridge import matlab_ctl as mc
+        snap = ctl.snapshot() if ctl is not None else {
+            "state": mc.NOT_CONNECTED, "error": "", "sim_time": 0.0, "speed": 1.0,
+            "udp": self.connection.bus.link_state()[0] if self.connection.is_connected else "—", "udp_text": ""}
+        panel.update_from(snap, ctl.allowed if ctl is not None else (lambda _c: False))
+        if ctl is not None:
+            while self._model_events_seen < len(ctl.events):
+                t, text = ctl.events[self._model_events_seen]
+                self._model_events_seen += 1
+                self.session_recorder.record_event("MODEL", f"{text} (sim_zamanı={snap['sim_time']:.3f})", t)
+                self.event_log.add("MODEL", text, user=self.current_user, role=self.current_role.value)
+
+    # ---- MIL kalibrasyon: A2L <-> Simulink parametre eşleme --------------------------------
+    def _init_sim_manifest(self):
+        from app.persist import load_json
+        self.sim_manifest = None
+        self.sim_manifest_path = ""
+        raw = load_json(data_path("mil_manifest.json"), {}, dict)
+        path = raw.get("path", "")
+        if path:
+            self._load_sim_manifest(path, quiet=True)
+
+    def _load_sim_manifest(self, path: str, quiet: bool = False) -> bool:
+        from app.sim_bridge.parameters import ManifestError, load_manifest
+        try:
+            self.sim_manifest = load_manifest(path)
+        except ManifestError as exc:
+            self.sim_manifest = None
+            if not quiet:
+                QMessageBox.warning(self, "Parametre eşleme", str(exc))
+            self.connection_tab.manifest_label.setText("eşleme geçersiz")
+            return False
+        self.sim_manifest_path = path
+        self.connection_tab.manifest_label.setText(
+            f"{len(self.sim_manifest.params)} parametre · {os.path.basename(path)}")
+        return True
+
+    def _on_sim_manifest_requested(self):
+        from app.persist import atomic_write_json
+        path, _ = QFileDialog.getOpenFileName(self, "A2L-Simulink parametre eşleme (JSON)", "", "JSON (*.json)")
+        if not path or not self._load_sim_manifest(path):
+            return
+        atomic_write_json(data_path("mil_manifest.json"), {"path": path})
+        self._log_event("KALIBRASYON", f"MIL parametre eşlemesi yüklendi: {path}")
+        self._apply_sim_params()
+
+    def _apply_sim_params(self, *_args):
+        """MIL'de ve eşleme + A2L hazırken Kalibrasyon sayfasını model parametre kanalına bağlar: mevcut CCP
+        oturumu (önbellekli okuma, geçmiş, harita editörü) aynen kullanılır; yalnızca istemci farklıdır."""
+        if getattr(self, "backend_mode", "") != "MIL" or not self.connection.is_connected:
+            return
+        summary = self.a2l_tab.db.summary
+        manifest = getattr(self, "sim_manifest", None)
+        if summary is None or manifest is None:
+            self.statusBar().showMessage("MIL kalibrasyon: A2L ve parametre eşleme dosyası yükleyin.", 6000)
+            return
+        from app.sim_bridge.param_client import SimParamClient
+        bus = self.connection.bus
+        client = SimParamClient(bus, manifest, summary.characteristics, lambda: getattr(bus, "model_state", 0))
+        self.ccp_client = client
+        names = client.mapped_names()
+        self._log_event("KALIBRASYON", f"MIL kalibrasyon kanalı hazır: {len(names)} eşlenmiş A2L parametresi"
+                                       + (f"; eşlemesi olmayan {len(client.unmapped)} A2L parametresi okunamaz/yazılamaz"
+                                          if client.unmapped else ""))
 
     # ---- CCP (kalibrasyon) ------------------------------------------------
     def _on_ccp_connect(self, cro_id: int, dto_id: int, station_address: int):

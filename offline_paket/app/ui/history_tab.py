@@ -105,7 +105,7 @@ class HistoryTab(QWidget):
                 self.table.setItem(row, 5, QTableWidgetItem(old_text))
                 self.table.setItem(row, 6, QTableWidgetItem(f"{e.new_value:g} {e.unit}".strip()))
                 delta = QTableWidgetItem(format_delta(e.old_value, e.new_value, e.unit))
-                delta.setForeground(QColor("#C62828"))
+                delta.setForeground(QColor(theme.DANGER))
                 self.table.setItem(row, 7, delta)
             ok_item = QTableWidgetItem("ECU'ya yazıldı" if e.write_ok else "BAŞARISIZ (uygulanmadı)")
             if not e.write_ok:

@@ -99,3 +99,90 @@ def test_mil_recording_keeps_wall_clock_and_marks_mode(mil):
     meta = json.load(open(path[:-4] + ".meta.json", encoding="utf-8"))
     assert meta["mode"] == "MIL" and meta["connection"]["interface"] == "sim_udp"
     assert meta["frames"] == 5 or meta["frames"] >= 5
+
+
+def test_mil_calibration_via_manifest_changes_model_and_history(mil, tmp_path):
+    """MIL'de Kalibrasyon: A2L + manifest → model parametresi yazılır, geçmişe/izleyiciye yansır."""
+    import json as _json
+    w, model = mil
+    from app.user_roles import Role
+    w.current_role = Role.ENGINEER
+    w.a2l_tab.db.load(os.path.join(DATA, "sample.a2l"))
+    summary = w.a2l_tab.db.summary
+    ch = next(c for c in summary.characteristics if c.kind == "SCALAR" and not c.read_only and c.address is not None)
+    manifest = {"version": 1, "parameters": [{"a2l": ch.name, "simulink": "Model/Param", "index": 7,
+                                              "datatype": "double", "tunable_running": True}]}
+    mp = tmp_path / "manifest.json"
+    mp.write_text(_json.dumps(manifest), encoding="utf-8")
+    model.params = {7: 1.0}
+    assert w._load_sim_manifest(str(mp))
+    w._apply_sim_params()
+    assert w.ccp_client is not None
+    from app.ui.watch_tab import WatchEntry
+    e = WatchEntry(ch.name, "characteristic", ch.address, ch.datatype, unit=ch.unit or "", read_only=False,
+                   byte_order=ch.byte_order, compu_method=ch.compu_method)
+    w.watch_tab.add_manual_entry(e)
+    from app.ccp import codec
+    w.watch_tab._entries[0].pending_text = "3"
+    w._on_watch_write([0])
+    assert model.params[7] == pytest.approx(3.0, abs=0.01)
+    assert w.calibration_history.entries[-1].object_name == ch.name and w.calibration_history.entries[-1].write_ok
+    # model çalışırken tunable olmayan parametre reddedilir ve geçmişe BAŞARISIZ olarak girer
+    manifest["parameters"][0]["tunable_running"] = False
+    mp.write_text(_json.dumps(manifest), encoding="utf-8")
+    w._load_sim_manifest(str(mp))
+    w._apply_sim_params()
+    model.state = 2   # RUNNING (heartbeat ile bus'a yansıt)
+    model.send_heartbeat()
+    end = time.time() + 2
+    while time.time() < end and w.connection.bus.model_state != 2:
+        time.sleep(0.02)
+    w.watch_tab._entries[0].pending_text = "5"
+    w._on_watch_write([0])
+    assert model.params[7] == pytest.approx(3.0, abs=0.01)
+    assert w.calibration_history.entries[-1].write_ok is False
+
+
+def test_model_panel_lifecycle_events_recorded_and_hidden_outside_mil(mil):
+    w, model = mil
+    panel = w.dashboard_tab.sim_panel
+    assert panel.isVisibleTo(w.dashboard_tab) and w.model_ctl is None
+    w.session_tab.name_edit.setText("model")
+    w.session_tab._on_start()
+    panel.connect_requested.emit("", "udp")
+    end = time.time() + 3
+    while time.time() < end and (w.model_ctl is None or w.model_ctl.state != "READY"):
+        time.sleep(0.02)
+    w._update_model_panel()
+    assert panel.state_chip.text() == "READY" and panel.buttons["start"].isEnabled() and not panel.buttons["stop"].isEnabled()
+    panel.buttons["start"].click()
+    end = time.time() + 3
+    while time.time() < end and not model.received_cmds:
+        time.sleep(0.02)
+    assert model.received_cmds[0][0] == 1
+    model.state = 2
+    model.sim_time = 12.0
+    model.send_heartbeat()
+    end = time.time() + 3
+    while time.time() < end and not (w.model_ctl.state == "RUNNING" and w.model_ctl.sim_time == 12.0):
+        time.sleep(0.02)
+    w._update_model_panel()
+    assert panel.state_chip.text() == "RUNNING" and "12.000" in panel.time_label.text()
+    assert panel.udp_chip.text() == "UDP: ok"
+    panel.estop_button.click()
+    end = time.time() + 3
+    while time.time() < end and len(model.received_cmds) < 2:
+        time.sleep(0.02)
+    assert model.received_cmds[-1][0] == 4                       # stop (MIL acil dur)
+    time.sleep(0.4)
+    w._update_model_panel()
+    path = w.session_recorder.path
+    w.session_tab._on_stop()
+    import csv
+    ev = list(csv.reader(open(path[:-4] + ".events.csv", encoding="utf-8")))
+    texts = [r[3] for r in ev if r[2] == "MODEL"]
+    assert any("Model start" in t for t in texts) and any("Model stop" in t for t in texts)
+    w._on_disconnect()
+    assert w.model_ctl is None
+    w.connection_tab.mode_combo.setCurrentIndex(w.connection_tab.mode_combo.findData("REAL"))
+    assert not panel.isVisibleTo(w.dashboard_tab)

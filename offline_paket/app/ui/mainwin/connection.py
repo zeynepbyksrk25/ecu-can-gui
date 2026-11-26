@@ -71,7 +71,8 @@ class ConnectionMixin:
         # bağlantı koptuğunda CCP açıktıysa yeniden kurulumda). Manuel
         # CCP Bağlan / Kes düğmeleri ayrıca çalışmaya devam eder.
         if interface == "sim_udp":
-            return                      # MIL: CCP/A2L adres alanı yok; kalibrasyon MIL parametre kanalından (ayrı aşama)
+            self._apply_sim_params()    # MIL: CCP yok; kalibrasyon MIL parametre kanalından (manifest + A2L)
+            return
         if self.ccp_tab.auto_connect_enabled() or self._resume_ccp_after_reconnect:
             self._resume_ccp_after_reconnect = False
             self._auto_ccp_connect()
@@ -111,6 +112,9 @@ class ConnectionMixin:
         self._drain_tx_queue()               # son gönderilen kareler de izleme/kayıtta görünsün
         self.rx_timer.stop()
         self.health_timer.stop()
+        if getattr(self, "model_ctl", None) is not None:       # MIL: model denetimi bağlantıyla birlikte kapanır
+            self.model_ctl.close()
+            self.model_ctl = None
         self.connection.disconnect()
         self.connection_tab.set_connected(False)
         self._panel_conn_state()

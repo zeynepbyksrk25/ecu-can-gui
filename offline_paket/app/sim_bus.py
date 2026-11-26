@@ -77,6 +77,8 @@ class SimulinkUdpBus(can.BusABC):
         self.last_rx_gap = 0.0
         self._thread = threading.Thread(target=self._rx_loop, name="sim-udp-rx", daemon=True)
         self._thread.start()
+        self._param_lock = threading.Lock()            # aynı anda tek parametre işlemi
+        self._param_wait: dict = {}                    # indeks -> [Event, sonuç]
         self._hb_thread = None
         if heartbeat:
             self._hb_thread = threading.Thread(target=self._hb_loop, name="sim-udp-hb", daemon=True)
@@ -113,6 +115,23 @@ class SimulinkUdpBus(can.BusABC):
     # ---- kontrol / durum ------------------------------------------------------------------
     def send_control(self, command: int, arg: float = 0.0):
         self._send_raw(proto.encode_control(self._next_seq(), command, arg))
+
+    def param_request(self, op: int, index: int, value: float = 0.0, timeout: float = 0.5, retries: int = 1):
+        """Parametre yaz/oku; modelden (op, durum, değer) yanıtını bekler. Yanıt gelmezse ``TimeoutError``.
+        Yazmada dönen değer modelde UYGULANAN değerdir (ACK)."""
+        with self._param_lock:
+            ev = threading.Event()
+            slot = [ev, None]
+            self._param_wait[index] = slot
+            try:
+                for _ in range(retries + 1):
+                    ev.clear()
+                    self._send_raw(proto.encode_param(self._next_seq(), op, index, value))
+                    if ev.wait(timeout):
+                        return slot[1]
+                raise TimeoutError(f"Model parametre {index} için yanıt vermedi")
+            finally:
+                self._param_wait.pop(index, None)
 
     def link_state(self) -> tuple[str, str]:
         """("waiting"|"ok"|"timeout", açıklama). Fiziksel bus durumu YOKTUR."""
@@ -180,6 +199,12 @@ class SimulinkUdpBus(can.BusABC):
             self._last_rx_mono = mono
             self.rx_packets += 1
             self.sim_time = p.sim_time
+            if p.type == proto.T_PARAM:
+                w = self._param_wait.get(p.index)
+                if w is not None and p.op in (proto.OP_VALUE, proto.OP_NAK):
+                    w[1] = (p.op, p.status, p.value)
+                    w[0].set()
+                continue
             if p.type == proto.T_HEARTBEAT:
                 self.model_state = p.model_state
                 continue

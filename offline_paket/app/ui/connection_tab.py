@@ -70,6 +70,7 @@ class ConnectionTab(QWidget):
     connect_requested = Signal(str, str, int)   # interface, channel, bitrate
     disconnect_requested = Signal()
     settings_changed = Signal()
+    manifest_requested = Signal()               # MIL: A2L<->Simulink parametre eşleme dosyası seç
     mode_changed = Signal(str)                  # "REAL" | "MIL" | "VIRTUAL" (kullanıcı değiştirdi)
 
     def __init__(self):
@@ -95,6 +96,12 @@ class ConnectionTab(QWidget):
         self.mil_channel_edit.setToolTip("MIL UDP kanalı: yerel_port:uzak_host:uzak_port (GUI dinler, model dinler)")
         self.mil_channel_edit.setMaximumWidth(190)
         self.mil_channel_edit.editingFinished.connect(self._on_mil_channel)
+        self.manifest_button = QPushButton("Parametre eşleme…")
+        self.manifest_button.setToolTip("A2L parametresi → Simulink değişkeni eşleme dosyası (JSON). Kalibrasyon sayfası "
+                                        "MIL'de bu eşlemeyle modele yazar/okur.")
+        self.manifest_button.clicked.connect(self.manifest_requested.emit)
+        self.manifest_label = QLabel("")
+        self.manifest_label.setObjectName("mutedSmall")
 
         self.baudrate_combo = QComboBox()
         for rate in BAUDRATES:
@@ -126,6 +133,8 @@ class ConnectionTab(QWidget):
         lay.addWidget(QLabel("Mod"))
         lay.addWidget(self.mode_combo)
         lay.addWidget(self.mil_channel_edit)
+        lay.addWidget(self.manifest_button)
+        lay.addWidget(self.manifest_label)
         self.baudrate_label = QLabel("Baudrate")
         lay.addWidget(self.baudrate_label)
         lay.addWidget(self.baudrate_combo)
@@ -148,6 +157,8 @@ class ConnectionTab(QWidget):
     def _apply_mode_visibility(self):
         mil = self.mode == "MIL"
         self.mil_channel_edit.setVisible(mil)
+        self.manifest_button.setVisible(mil)
+        self.manifest_label.setVisible(mil)
         self.baudrate_combo.setVisible(not mil)             # MIL'de gerçek bitrate yok
         self.baudrate_label.setVisible(not mil)
         self.mode_combo.setToolTip(MODE_HINTS[self.mode] + "\nBağlıyken değiştirilemez: önce bağlantıyı kesin.")

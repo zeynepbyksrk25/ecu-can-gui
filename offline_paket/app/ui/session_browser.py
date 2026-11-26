@@ -14,12 +14,13 @@ from PySide6.QtWidgets import (
 )
 
 from app import session_export as sx
+from app import theme
 from app.ui.background import run_with_progress
 from app.ui.dash_widgets import make_card
 
-EVENT_COLORS = {"MARKER": "#B58900", "KALIBRASYON": "#7B3FB5", "HATA": "#C22A1D", "BASLANGIC": "#1B8A4C",
-                "DURAKLATMA": "#9A6208", "DEVAM": "#9A6208", "BAGLANTI": "#C22A1D", "MODEL": "#2A6FDB",
-                "OTURUM": "#51616F", "ISARET": "#B58900"}
+EVENT_COLORS = {"MARKER": theme.WARN, "KALIBRASYON": theme.PURPLE, "HATA": theme.DANGER, "BASLANGIC": theme.OK,
+                "DURAKLATMA": theme.WARN_INK, "DEVAM": theme.WARN_INK, "BAGLANTI": theme.DANGER, "MODEL": theme.BLUE,
+                "OTURUM": theme.MUTED, "ISARET": theme.WARN}
 STATUS_TEXT = {"complete": "tamamlandı", "recovered": "KURTARILDI (beklenmedik kapanış)", "error": "HATA ile bitti",
                "unknown": "?"}
 EXT = {"mf4": "mf4", "asc": "asc", "log": "log", "candump": "log", "csv": "csv", "mat": "mat"}

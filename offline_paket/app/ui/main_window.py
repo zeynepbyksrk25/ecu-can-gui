@@ -243,6 +243,17 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self.session_tab.session_started.connect(self._on_session_record_start)
         self.session_tab.session_stopped.connect(self._on_session_record_stop)
         self.connection_tab.mode_changed.connect(self._on_backend_mode_changed)
+        self.connection_tab.manifest_requested.connect(self._on_sim_manifest_requested)
+        self.model_ctl = None
+        self._model_events_seen = 0
+        self.dashboard_tab.sim_panel.connect_requested.connect(self._on_model_connect)
+        self.dashboard_tab.sim_panel.command_requested.connect(self._on_model_command)
+        self._model_timer = QTimer(self)
+        self._model_timer.setInterval(250)
+        self._model_timer.timeout.connect(self._update_model_panel)
+        self._model_timer.start()
+        self.a2l_tab.a2l_loaded.connect(self._apply_sim_params)
+        self._init_sim_manifest()
         self.session_tab.record_pause_requested.connect(self._on_record_pause)
         self.session_tab.record_resume_requested.connect(self._on_record_resume)
         self.session_tab.marker_requested.connect(self._on_record_marker)
@@ -643,6 +654,7 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
     def _on_backend_mode_changed(self, mode: str):
         """Mod değişince (yalnızca bağlı değilken mümkün) açık kayıt güvenle kapatılır; REAL/MIL kayıtları karışmaz."""
         self.backend_mode = mode
+        self.dashboard_tab.sim_panel.setVisible(mode == "MIL")
         self.dashboard_tab.set_signal_source({"REAL": "PCAN", "MIL": "Simulink MIL"}.get(mode, "Sanal"))
         if self.session_recorder.is_active:
             self.session_tab._on_stop()
@@ -680,6 +692,9 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         except Exception:  # noqa: BLE001
             logging.getLogger(__name__).exception("workspace shutdown hatası")
         self._on_disconnect()
+        if getattr(self, "model_ctl", None) is not None:
+            self.model_ctl.close()
+        self._model_timer.stop()
         self.ccp_session.stop(graceful=False)       # iş parçacığı her durumda bitsin
         self.can_logger.stop()
         self.connection.frame_tap = None

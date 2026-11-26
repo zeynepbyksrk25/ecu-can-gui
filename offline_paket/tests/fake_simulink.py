@@ -21,7 +21,11 @@ class FakeSimulink:
         self.seq = 0
         self.received_frames = []     # GUI'den gelen (id, data, extended)
         self.received_cmds = []
-        self.params = {}
+        self.params = {}               # indeks -> model değeri (parametre kanalı)
+        self.tunable_running = set()   # çalışırken yazılabilen indeksler
+        self.reject_range = {}         # indeks -> (min, max): dışındaki değer NAK
+        self.ignore_params = False     # True: parametre isteklerine yanıt verme (zaman aşımı testi)
+        self.clamp = {}                # indeks -> değer: yazılan ne olursa olsun bu uygulanır (doğrulama testi)
         self._stop = threading.Event()
         self.thread = threading.Thread(target=self._loop, daemon=True)
         self.thread.start()
@@ -52,11 +56,30 @@ class FakeSimulink:
                 continue
             if p.type == proto.T_CAN:
                 self.received_frames.append((p.can_id, p.data, p.extended))
+            elif p.type == proto.T_PARAM and not self.ignore_params:
+                self._on_param(p)
             elif p.type == proto.T_CONTROL:
                 self.received_cmds.append((p.command, p.arg))
                 self.state = {proto.CMD_START: proto.MS_RUNNING, proto.CMD_PAUSE: proto.MS_PAUSED,
                               proto.CMD_RESUME: proto.MS_RUNNING, proto.CMD_STOP: proto.MS_STOPPED,
                               proto.CMD_RESET: proto.MS_READY}.get(p.command, self.state)
+
+    def _on_param(self, p):
+        if p.index not in self.params:
+            self.send_raw(proto.encode_param(self._next(), proto.OP_NAK, p.index, 0.0, proto.ST_UNKNOWN_INDEX))
+            return
+        if p.op == proto.OP_READ:
+            self.send_raw(proto.encode_param(self._next(), proto.OP_VALUE, p.index, self.params[p.index]))
+            return
+        if self.state == proto.MS_RUNNING and p.index not in self.tunable_running:
+            self.send_raw(proto.encode_param(self._next(), proto.OP_NAK, p.index, 0.0, proto.ST_NOT_TUNABLE_RUNNING))
+            return
+        lo, hi = self.reject_range.get(p.index, (float("-inf"), float("inf")))
+        if not lo <= p.value <= hi:
+            self.send_raw(proto.encode_param(self._next(), proto.OP_NAK, p.index, 0.0, proto.ST_OUT_OF_RANGE))
+            return
+        self.params[p.index] = self.clamp.get(p.index, p.value)
+        self.send_raw(proto.encode_param(self._next(), proto.OP_VALUE, p.index, self.params[p.index]))
 
     def close(self):
         self._stop.set()

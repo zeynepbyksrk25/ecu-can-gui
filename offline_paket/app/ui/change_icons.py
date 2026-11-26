@@ -1,9 +1,10 @@
 """Değişiklik göstergesi için kırmızı yön okları (artış ↑ / azalış ↓). Renk her iki yönde kırmızı;
 yön yalnızca ok biçimiyle ayrılır (bkz. docs/GOREV.md 2.1)."""
+from app import theme
 from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap, QPolygonF
 
-ARROW_COLOR = QColor("#C62828")
+ARROW_COLOR = QColor(theme.DANGER)
 _cache: dict[tuple[bool, int], QIcon] = {}
 
 

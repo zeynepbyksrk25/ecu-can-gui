@@ -28,8 +28,14 @@ Her madde bitince `[x]` yapılır; yanına test sonucu ve bilinen eksikler yazı
 - [x] MIL 2 – Dashboard ve kontrol
   - Kontrol Paneli/Dashboard aynı CanConnection+DBC yolunu kullandığı için MIL'de çalışır; sinyal kaynağı etiketi "Simulink MIL" trend tablosunda. Test: `tests/test_mil_integration.py` (model çıkışı→Dashboard, Kontrol yazımı→model DBC ölçekli, link kaybı görünür).
   - Eksik: ACK ile doğrulama (modelde uygulanan değer ayrımı) ve alt/üst sınır denetimi mevcut Kontrol Paneli sınırlarına bırakıldı; modelden "uygulanan değer" geri bildirim mesajı protokolde yok.
-- [ ] MIL 3 – Kalibrasyon
-- [ ] MIL 4 – Model kontrolü
+- [x] MIL 3 – Kalibrasyon
+  - Yeni: `app/sim_bridge/parameters.py` (JSON manifest: A2L→Simulink değişken→tip→ölçek→erişim, `tunable_running`, dizi/harita `count`), `app/sim_bridge/param_client.py` (`SimParamClient`: CCPClient bellek arayüzünü taklit eder; mevcut CcpSession/önbellek/Parametre Listesi/Harita Editörü/geçmiş DEĞİŞMEDEN çalışır), protokol tür 4 (parametre yaz/oku/ACK/NAK). Model çalışırken tunable olmayan parametre yazımı gönderilmeden reddedilir ("modeli durdurun"); modelde uygulanan değer geri okunup doğrulanır; flaş yazma MIL'de yok. Bağlantı sayfasında "Parametre eşleme…" (yol kalıcı).
+  - Testler: `tests/test_sim_bridge.py`, `tests/test_mil_integration.py` (watch yazma → model, başarısız yazma geçmişte).
+  - Eksik: MATLAB'da manifest üretimi betiği yok; modelin param paketlerini işleyen Simulink tarafı örneği yok (yalnızca protokol dokümanı); gerçek model doğrulanmadı.
+- [x] MIL 4 – Model kontrolü
+  - Yeni: `app/sim_bridge/matlab_ctl.py` (ModelController: NOT CONNECTED…ERROR durum makinesi, ayrı komut iş parçacığı, MatlabEngineBackend (isteğe bağlı bağımlılık; yoksa açık hata) + UdpControlBackend, hız = Simulink pacing), `app/ui/sim_model_panel.py` (Ana Sayfa; yalnızca MIL; Start/Pause/Resume/Stop/Reset, hız, MIL Acil Dur [gerçek motor acil durdurmasının yerine geçmez], model durumu ve UDP durumu ayrı). Model olayları kayda `MODEL` olarak yazılır.
+  - Testler: `tests/test_matlab_ctl.py`, `tests/test_mil_integration.py`.
+  - **MATLAB Engine yolu gerçek MATLAB/Simulink ile doğrulanmadı** (sahte engine).
 - [ ] MIL 5 – Kayıt ve analiz
 - [ ] MIL 6 – Otomatik test
 

@@ -42,7 +42,7 @@ ROLE_OBJECT = Qt.UserRole
 # Sütun sırası
 COL_ADDR, COL_HEX, COL_VALUE, COL_DELTA, COL_NAME, COL_UNIT, COL_TYPE, COL_DESC = range(8)
 HEADERS = ["Adres", "Hex", "Değer (Value)", "Değişim", "İsim (Name)", "Birim", "Tip", "Açıklama"]
-ARROW_RED = QColor("#C62828")    # artış/azalış yalnızca ok yönüyle ayrılır; renk her iki durumda kırmızı
+ARROW_RED = QColor(theme.DANGER)    # artış/azalış yalnızca ok yönüyle ayrılır; renk her iki durumda kırmızı
 ARROW_BLINK_MS = 400
 
 OK_BG = QColor("#DDF3E5")        # yazma doğrulandı (kısa süre)
