@@ -81,7 +81,7 @@ Sürücü kurulduktan sonra adaptörü takıp Aygıt Yöneticisi'nde
 |---|---|
 | **Ana Sayfa** | Annunciator lamba şeridi (RED STOP LAMP/MIL LAMP/vb.), Motor Komutları, 9 ibre göstergeli Motor Parametreleri (RPM/İtki/PLA/Tt5/Başlangıç Yakıt Basıncı/Ana Yakıt Basıncı/FT/Ps2/Ps3), Sensör Durumu ve Arıza Tablosu, gömülü canlı grafik, **Eyleyiciler** (manuel override anahtarları — MATLAB/Simulink ile donanım testi için). Aşağıdaki "Ayarlar" bölümüne bakın — bu sekmenin çalışması için DBC/A2L eşlemelerini bir kere girmeniz gerekir. |
 | **CAN Monitor** | Bağlantı (arayüz/kanal/baudrate — arayüz seçimi "▸ Gelişmiş ayarlar" arkasında, varsayılan arayüz `virtual` — **gerçek test için `pcan` seçin**), İzleme (gelen/giden CAN trafiği), Gönderim (manuel/periyodik mesaj + DBC yükleme — Ana Sayfa'daki motor komutları ve eyleyici override'ları da aynı DBC'yi kullanır), Log (CAN trafiğini CSV'ye kaydetme) — tek sekmede birleşik |
-| **Kalibrasyon** | İç sekmeler (4): **A2L** (A2L dosyası yükleyip Measurement/Characteristic nesnelerini gezme; kalibrasyonun ilk adımı), **CCP** (canlı değer okuma, RAM'e geçici yazma, **Yönetici rolüyle flaşa kalıcı yazma**), **Parametre Listesi** (adres/hex ile serbest satırlar, toplu yaz/oku), **Geçmiş** (RAM ve FLAŞ yazımlarının eski/yeni değerleri, geri alma — FLAŞ kaydı uygulama kapansa bile kalıcıdır) |
+| **Kalibrasyon** | İç sekmeler (3): **A2L** (A2L dosyası yükleyip Measurement/Characteristic nesnelerini gezme; kalibrasyonun ilk adımı), **CCP** (canlı değer okuma, RAM'e geçici yazma, **Yönetici rolüyle flaşa kalıcı yazma**), **Geçmiş** (RAM ve FLAŞ yazımlarının eski/yeni değerleri, geri alma — FLAŞ kaydı uygulama kapansa bile kalıcıdır) |
 | **Tanılama ve Oturum** | CCP bağlantı testi + ham DIAG_SERVICE isteği, CAN bağlantı sağlığı, test oturumu (başlat/bitir, PDF test raporu) ve TEK olay günlüğü ("Tümü / Yalnız hatalar" süzgeci) — birleşik |
 | **⚙ Ayarlar** (komut şeridi; sekme değil) | Rol seçimi (Operatör/Mühendis/Yönetici), bağlantı+CCP ayarlarını profil olarak kaydetme ve Eşleşmeler. "Rol: …" etiketine tıklayarak da açılır |
 
@@ -176,8 +176,8 @@ uygulamada donanımla doğrulanmamıştır**. Bu yüzden:
   Start otomatik gitmez): tek tıkla ya da **`Ctrl+Shift+E`** ile (hangi sayfa açık olursa olsun, odak bir
   giriş kutusunda bile) gönderilir. `Ctrl+1` … `Ctrl+6` sayfalar arasında geçer. Ana düğmelerin ve durum
   göstergelerinin ekran okuyucu adları vardır.
-- **Parametre Listesi'nde değer yazma:** Değer hücresine yazıp **Enter** ile RAM'e yazılır. Bunun için rolün
-  **Mühendis veya Yönetici** olması gerekir (sağ üstteki ⚙ Ayarlar > rol). **Operatör** rolünde Değer hücreleri
+- **Worksheets'te değer yazma:** Değer penceresine yazıp **Enter** ile RAM'e yazılır. Bunun için rolün
+  **Mühendis veya Yönetici** olması gerekir (sağ üstteki ⚙ Ayarlar > rol). **Operatör** rolünde değer pencereleri
   kilitlidir ve ipucu satırı nedenini söyler; değerler yine canlı izlenir.
 - **Tablo yedeğinden geri yükleme:** Worksheets'te tablo penceresine sağ tık > **Yedekten Yükle…** tablonun, ECU'ya yazılmadan
   önce otomatik alınmış yedeklerinden birini hücrelere getirir (aynı nesne, adres ve boyut doğrulanır). ECU'ya
@@ -234,72 +234,21 @@ uygulamada donanımla doğrulanmamıştır**. Bu yüzden:
   güç döngüsünden sonra CCP oturumu otomatik yeniden kurulur. Otomatik bağlanma, ECU hazır olana kadar
   geri çekilmeli olarak (0,5 → 5 sn) sürekli dener. Durum üst şeritteki çipte ve CCP/Kalibrasyon
   sekmelerinde görünür.
-- **Kalibrasyon > Parametre Listesi:** değerler sürekli canlıdır; Değer hücresine yazıp **Enter** yazar
-  (Esc / başka yere tıklamak iptal), yazılan değer ECU'dan geri okunup doğrulanır. A2L'den eklenen **ölçüm
-  (MEASUREMENT)** satırlarına da değer girilir (bu ECU'da override değişkenleri `clbc_*` ölçüm olarak tanımlıdır; ECU
-  yazılan değeri kendi hesabıyla geri ezebilir). Değer yazmak için **Mühendis veya Yönetici** rolü gerekir:
-  Operatör rolünde Değer hücreleri kilitlidir ve listenin üstünde nedeni yazar. (Eskiden canlı okuma her 250 ms'de
-  hücreyi yenilerken açık düzenleyiciyi sıfırladığı için yazılan karakterler siliniyordu; düzeltildi.)
-- **Ayarlanabilir parametreler (clbc_*)** grafik/trend/çalışma alanı/performans listelerinde
-  "Ayarlanabilir parametreler" grubunda görünür.
-- Doğrulanamayanlar: PCAN-USB'nin gerçek bus-off davranışı ve gerçek ECU açılış süresi yalnızca
-  yazılım simülasyonuyla test edildi; ilk gerçek testte olay günlüğünü kontrol edin.
-
-### PCAN-View ile birlikte test etme (donanımsız-adjacent)
-
-PEAK-System'in PCAN-View programı ve bu uygulama, aynı CAN kanalına
-**aynı anda** bağlanabilir (fiziksel kablolama gerekmez): PCAN-View'de
-mesaj gönderip bu uygulamanın İzleme sekmesinde göründüğünü, ya da bu
-uygulamadan gönderip PCAN-View'de göründüğünü doğrulayarak çift yönlü
-haberleşmeyi test edebilirsiniz.
-
-### Önemli sınırlamalar (bilinçli olarak uygulanmadı)
-
-- **Flaş yazmanın M220'ye özel akışı doğrulanmadı** (bkz. yukarıdaki uyarı) —
-  komut dizilimi standarda göre uygulandı ama gerçek donanımla test edilmedi.
-- **Diagnostics ekranı** ECU'ya özel arıza kodu formatını "bilmediği"
-  için ham DIAG_SERVICE istek/cevabı gösterir, yorumlamaz.
-- **STD_AXIS/COM_AXIS eksenli haritalar**: Worksheets tablo penceresinde fonksiyon
-  değerlerinin bellek adresi sadece FIX_AXIS eksenler için doğrulanmıştır;
-  diğer eksen tipleri için ekranda uyarı gösterilir.
-- **Kullanıcı rolleri kimlik doğrulama değildir** (şifre yok) — amaç,
-  denetim günlüğünde kimin ne yaptığını görünür kılmak ve kalibrasyon
-  yazma gibi işlemleri kazara tetiklemeyi zorlaştırmaktır.
-
-## Sorun giderme
-
-- **"python" tanınmıyor**: Python kurulurken PATH'e eklenmemiş; Python'u
-  kaldırıp yeniden kurun, "Add python.exe to PATH" kutusunu işaretleyin.
-- **PyInstaller "not recognized"**: `1_kurulum.bat` başarıyla bitmemiş
-  olabilir; tekrar çalıştırıp hata mesajını okuyun.
-- **exe çalışınca "No module named can.interfaces.pcan" (veya benzeri)**:
-  `2_exe_olustur.bat` içindeki `--collect-submodules`/`--collect-all`
-  bayraklarına eksik olan paketi ekleyip yeniden derleyin (script
-  içinde örnek ve açıklama var).
-- **PCAN-USB Bağlantı sekmesinde görünmüyor**: PEAK-System sürücüsünün
-  kurulu olduğundan ve adaptörün Aygıt Yöneticisi'nde göründüğünden
-  emin olun.
-
-## Son sürümde değişenler (özet)
-
-- **CCP varsayılanları**: CRO ID `6F9`, DTO ID `6F8` (CCP sekmesinden değiştirilebilir).
-- **Otomatik CCP**: CAN'a bağlanınca CCP kendiliğinden bağlanır (kutucuktan kapatılabilir);
-  "CCP Bağlan / Bağlantıyı Kes" düğmeleri elle kullanım için durur.
+- **Worksheets > değer penceresi:** değer yazıp **Enter** yazar (Esc iptal), yazılan değer ECU'dan geri okunup doğrulanır. Ölçüm
+  (MEASUREMENT) etiketleri gri ve salt okunurdur. Değer yazmak için **Mühendis veya Yönetici** rolü gerekir:
 - **RAM'e yazma onay sormaz**; yalnızca FLAŞ (kalıcı) yazma onay ister.
 - **Bağlantı izleme**: adaptör çekilirse ~3 sn teyit edilir, "Bağlantı KOPTU" gösterilir,
   adaptör geri gelince otomatik yeniden bağlanır (CCP de devam eder).
-- **Kalibrasyon**: "Parametre Listesi" (Adres / Hex / Değer / Ad, sınırsız sayıda satır, toplu
-  yaz/oku) ve Worksheets (Modas Sport tarzı; eğri/harita/dizi her biri kendi iç penceresinde, 1×16 gibi diziler dahil).
+- **Kalibrasyon**: Worksheets (Modas Sport tarzı; eğri/harita/dizi her biri kendi iç penceresinde, 1×16 gibi diziler dahil).
 - **Duyarlı arayüz**: sayfalar kaydırılabilir, pencere ekrana sığacak şekilde açılır,
   göstergeler orantılı ölçeklenir.
 - **Kalıcı dosyalar** sabit kullanıcı klasöründe: Belgelerim\OpenECU_M220_Veri (exe nereden açılırsa açılsın aynı; eski exe-yanı dosyalar ilk açılışta oraya kopyalanır):
   `audit_log.txt` (5 MB'ı aşınca `.1` yedeği), `calibration_history.json` (son 5000 yazım),
-  `profiles.json`, `dashboard_config.json`, `watchlist.json`, `kontrol_paneli.json`, `sim_interface.json`,
+  `profiles.json`, `dashboard_config.json`, `modas_worksheets.json`, `modas_templates.json`, `kontrol_paneli.json`, `sim_interface.json`,
   `workspace_layouts.json`, `openecu.log` (hata günlüğü); CAN kayıtları `can_loglari\`, tablo yazım yedekleri
   `tablo_yedekleri\`. Her JSON için bir `.bak` yedeği tutulur; bozulan dosya `*.corrupt-<zaman>` olarak saklanır.
 - **Simge**: `app_icon.ico` (exe'ye `--icon` ile gömülür).
 - **Tablolar (Worksheets)**: Modas Sport tarzı tablo penceresi (X üstte, Y solda, köşede Y\X, hücrelerde Z).
-  Parametre Listesi'ne "Açıklama" (A2L) sütunu eklendi.
 
 ## Ana Sayfa – kompakt yerleşim
 - Solda dar "Simülasyon Girişleri" sütunu; sağda 8 gösterge tek satırda (dar ekranda otomatik 4×2), altında Sensör Durumu ile Canlı Grafik yan yana, en altta Eyleyiciler şeridi.
@@ -375,11 +324,11 @@ Aşağıdakiler yazılımın otomatik testleriyle **kanıtlanamaz**; gerçek ECU
 - **Dosya:** veri klasöründe `oturum_kayitlari\<test_ismi>_<tarih_saat>.csv`. Her oturum yeni dosya açar, eskisinin üzerine yazılmaz. Yol oturum kartında ve olay günlüğünde (OTURUM) görünür.
 - **Kayıt ilkesi — her veri kendi geliş zamanında ve kendi periyoduyla yazılır** (arayüz zamanlayıcısına bağlı örnekleme yoktur, veri kaybolmaz):
   - **CAN (`dbc:<MESAJ>.<SİNYAL>`):** DBC'deki **tüm** mesajların **her gelişinde**, mesajdaki tüm sinyaller, karenin gerçek geliş zamanıyla yazılır; ekranda kullanılmayan sinyaller de dahil. 10 ms'de bir gelen mesaj 10 ms'de bir, 100 sn'de bir gelen 100 sn'de bir satır üretir. Aynı değer tekrar gelse de her geliş bir satırdır. Ayrı bir iş parçacığında yazılır; kuyruk dolarsa düşen kare sayısı olay günlüğüne HATA olarak yazılır.
-  - **A2L/CCP (`a2l:<ölçüm>`):** CCP iş parçacığı her okumada değeri izler; **değer değiştiğinde** okuma zamanıyla bir satır yazılır (başlangıç değeri dahil). ECU'daki bir değişken 10 sn'de bir güncelleniyorsa 10 sn'de bir satır oluşur; değişmeyen değer tekrar tekrar yazılmaz (Excel'in **Geniş tablo** sayfası son değeri korur). Yalnızca arayüzde izlenen (gösterge, Parametre Listesi, Çalışma Alanı, Kontrol Paneli...) değişkenler okunduğu için yalnızca onlar kaydolur.
+  - **A2L/CCP (`a2l:<ölçüm>`):** CCP iş parçacığı her okumada değeri izler; **değer değiştiğinde** okuma zamanıyla bir satır yazılır (başlangıç değeri dahil). ECU'daki bir değişken 10 sn'de bir güncelleniyorsa 10 sn'de bir satır oluşur; değişmeyen değer tekrar tekrar yazılmaz (Excel'in **Geniş tablo** sayfası son değeri korur). Yalnızca arayüzde izlenen (gösterge, Worksheets, Çalışma Alanı, Kontrol Paneli...) değişkenler okunduğu için yalnızca onlar kaydolur.
   - **Kullanıcı girişleri (`input:<anahtar>`):** girildikleri anda. Ana Sayfa göstergeleri ayrıca yazılmaz; değerleri kaynak kimlikleriyle (`a2l:`/`dbc:`) zaten kayıttadır.
 - **Biçim:** `time,signal,value,unix_time` (time = oturum başından saniye; unix_time = mutlak zaman). Excel'de açılabilir.
 - **Geri açma:** Analiz → Çalışma Alanı → **CSV aç** ile kayıt yüklenip grafikte çizilir, yeni bir kayıtla üst üste karşılaştırılabilir.
-- Veri saniyede bir diske işlenir (çökmede en çok ~1 sn kaybolur). Oturum boyunca girişleriniz de ayrıca `<oturum>_girisler.csv` dosyasına satır satır yazılır. Disk hatasında kayıt durur ve olay günlüğüne HATA yazılır. Manuel adresli (A2L'siz) Parametre Listesi satırları kaydedilmez. Oturum başlatılmadıkça kayıt yapılmaz.
+- Veri saniyede bir diske işlenir (çökmede en çok ~1 sn kaybolur). Oturum boyunca girişleriniz de ayrıca `<oturum>_girisler.csv` dosyasına satır satır yazılır. Disk hatasında kayıt durur ve olay günlüğüne HATA yazılır. Oturum başlatılmadıkça kayıt yapılmaz.
 
 ## Kayıtlar ve Excel (.xlsx) — testlerden sonra inceleme
 
@@ -395,7 +344,7 @@ yalnızca sizin açıkça başlattığınız kalibrasyon işlemleridir (RAM'e Ya
 Oturum Excel dosyasının sayfaları:
 **Özet** (oturum adı, operatör, süre, olay / hata sayıları, **sayfa başına giriş sayıları**, RAM ve FLAŞ yazım sayıları) ·
 **Girişler (tüm sayfalar)** — hangi sayfada ne yaptıysanız hepsi: Ana Sayfa (eyleyici değeri, switch, motor komutu,
-uçuş koşulu), Kontrol Paneli, Kalibrasyon (Parametre Listesi, CCP, Worksheets tabloları, geri alma); tarih/saat, sayfa,
+uçuş koşulu), Kontrol Paneli, Kalibrasyon (Worksheets değer / tabloları, CCP, geri alma); tarih/saat, sayfa,
 tür, hedef (sinyal/parametre), eski ve yeni değer, **başarılı mı / başarısız mı** (reddedilen denemeler dahil),
 kullanıcı, rol · **Kalibrasyon yazımları** (RAM / FLAŞ, eski ve yeni değer) · **Olay günlüğü** · **Sinyal özeti**
 (her sinyalin örnek sayısı, ilk/son, min/maks/ortalama) · **Parametre kaydı** (her değer kendi geliş zamanıyla:

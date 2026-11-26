@@ -808,7 +808,6 @@ def test_scope_window_collects_labels_by_drop_and_feeds_the_hub(qapp):
     assert sw.signals() == [] and not sw.hint.isHidden() or sw.hint.isVisibleTo(sw.widget())
     mime = QMimeData()
     mime.setData(MIME, "N_RPM\nT_OIL\nN_RPM".encode("utf-8"))          # tekrar eden etiket bir kez eklenir
-    body = sw.widget()
     assert sw.add_labels(["N_RPM", "T_OIL", "N_RPM"]) == 2
     assert sw.signals() == ["a2l:N_RPM", "a2l:T_OIL"] and not sw.hint.isVisibleTo(sw.widget())
     hub.set_active(sw.signals())
@@ -1131,10 +1130,9 @@ def test_data_file_compare_reports_identical_unreadable_and_unauthorized(live, m
 
 def test_parameter_file_manager_saves_applies_and_deletes(live, monkeypatch, tmp_path):
     from PySide6.QtWidgets import QInputDialog, QMessageBox
-    import app.ui.mainwin.modas_tools as mt
     from app.ui.modas.tools_dialogs import ParameterFilesDialog
     w, ecu, obj, pump = live
-    win = _fuel(live)
+    _fuel(live)
     pr = w.project_store.create_project(f"Par{next(_ch)}")
     wb = w.project_store.save_workbase(pr.name, Workbase(name="WB"))
     w._modas_workbase = (pr, wb)
@@ -1184,7 +1182,7 @@ def test_macro_records_successful_writes_and_replays_them_through_the_safe_path(
 def test_macro_play_checks_preconditions_before_writing_anything(live, monkeypatch):
     from PySide6.QtWidgets import QMessageBox
     w, ecu, obj, pump = live
-    win = _fuel(live)
+    _fuel(live)
     store = w._modas_macro_store()
     store.save("M", [{"kind": "value", "label": obj.name, "value": 77.0},
                      {"kind": "table", "label": "YOK_TABLO", "value": [[1, 2]]}])

@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
 from app import theme
 from app.ccp import codec as ccp_codec
 from app.ccp import mapio
-from app.ui.watch_tab import parse_value_text
+from app.value_text import parse_value_text
 
 FORMATS = ("phys", "dec", "hex", "bin")
 FORMAT_LABELS = {"phys": "Physical", "dec": "Decimal", "hex": "Hexadecimal", "bin": "Binary"}

@@ -5,8 +5,7 @@ from PySide6.QtCore import QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QGuiApplication, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication, QFrame, QGraphicsDropShadowEffect, QLabel, QMainWindow,
-    QMessageBox, QPushButton, QScrollArea, QSizePolicy,
-    QVBoxLayout, QWidget,
+    QMessageBox, QPushButton, QScrollArea, QVBoxLayout, QWidget,
 )
 
 from app import theme
@@ -37,14 +36,14 @@ from app.ui.tanilama_tab import TanilamaTab
 from app.ui.settings_dialog import SettingsDialog
 from app.ui.user_tab import UserTab
 from app.user_roles import (
-    Role, can_override_actuator, can_write_calibration,
+    Role, can_override_actuator,
 )
 
 # Eski içe aktarma yolu (app.ui.main_window) çalışmaya devam etsin diye yeniden dışa aktarılır.
 from app.ui.mainwin.common import (  # noqa: F401
     CCP_AUTO_CONNECT_DELAY_MS, CCP_JOB_INLINE_S, CONNECTION_LOSS_CONFIRM_S, CcpBusyError,
     HEALTH_CHECK_INTERVAL_MS, RECONNECT_INTERVAL_MS, RX_POLL_INTERVAL_MS, SAFETY_A2L_ATTEMPTS,
-    SAFETY_REPEAT_COUNT, SAFETY_REPEAT_MS, SILENT_NOTICE_S, WATCH_FAIL_STREAK_LIMIT, _CCP_IO_ERRORS,
+    SAFETY_REPEAT_COUNT, SAFETY_REPEAT_MS, SILENT_NOTICE_S, _CCP_IO_ERRORS,
 )
 from app.ui.mainwin.calibration import CalibrationMixin
 from app.ui.mainwin.connection import ConnectionMixin
@@ -118,7 +117,6 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self._last_connect_params: tuple | None = None   # (interface, channel, bitrate)
         self._resume_ccp_after_reconnect = False
         self._loss_box: QMessageBox | None = None
-        self._watch_fail_streak = 0
         self._ccp_busy = False               # arka planda uzun bir CCP işi sürüyor (bkz. _ccp_job)
         self._job_progress = ""              # işin durum çubuğunda gösterilen ilerleme metni
 
@@ -147,7 +145,6 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
 
         self.kalibrasyon_tab = KalibrasyonTab(self.a2l_tab)   # A2L ilk iç sekme (a2l_tab takma adı korunur)
         self.ccp_tab = self.kalibrasyon_tab.ccp
-        self.watch_tab = self.kalibrasyon_tab.watch
         self.history_tab = self.kalibrasyon_tab.history
 
         self.workspace_tab = WorkspaceTab(WorkspaceLayoutStore(data_path("workspace_layouts.json")))
@@ -197,7 +194,6 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self.dashboard_tab.set_config(self.dashboard_config_store.load())
         self._migrate_control_bindings()
         self._rebuild_dash_can_map()
-        self.watch_tab.set_storage_path(data_path("watchlist.json"))
 
         # İzleme sekmesi, Gönderim sekmesindeki DBC ile AYNI nesneyi kullanır;
         # böylece DBC yüklenince ikisi de aynı anda görür.
@@ -209,9 +205,6 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self.ccp_tab.a2l_db = self.a2l_tab.db
         self.a2l_tab.a2l_loaded.connect(self.ccp_tab.refresh_objects)
 
-        self.watch_tab.a2l_db = self.a2l_tab.db
-        self.a2l_tab.a2l_loaded.connect(self.watch_tab.refresh_objects)
-        self.watch_tab.refresh_objects()
 
         # Çalışma Alanı: A2L/DBC listeleri, CCP okuma isteği, giriş/gösterge beslemesi.
         self.a2l_tab.a2l_loaded.connect(self._sync_workspace_a2l)
@@ -263,7 +256,6 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self._install_shortcuts_and_accessibility()
         self._wire_modas()
         self._wire_modas_tools()
-        self.watch_tab.set_write_allowed(can_write_calibration(self.current_role))
         for sig in (self.transmit_tab.dbc_loaded, self.a2l_tab.a2l_loaded, self.dashboard_tab.config_saved,
                     self.user_tab.role_applied):
             sig.connect(self._schedule_minimum_size_refresh)
@@ -601,8 +593,6 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self.tx_scheduler.recovered.connect(self._on_panel_tx_recovered)
         self.tx_scheduler.state_changed.connect(self._panel_tx_state)
         self.control_panel_tab.set_allowed(can_override_actuator(self.current_role))
-        self.watch_tab.read_requested.connect(self._on_watch_read)
-        self.watch_tab.write_requested.connect(self._on_watch_write)
 
         self.diagnostics_tab.test_requested.connect(self._on_diag_test_requested)
         self.diagnostics_tab.diag_requested.connect(self._on_diag_requested)

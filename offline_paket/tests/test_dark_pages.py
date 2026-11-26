@@ -68,7 +68,7 @@ def test_a2l_page_summary_tree_filter_and_details(qapp):
     leaf = next(scalar.child(i) for i in range(scalar.childCount()) if not scalar.child(i).isHidden())
     assert leaf.text(0) == "clbc_Fuel_pump_gain"
     tab._on_item_clicked(leaf, 0)
-    assert "Parametre Listesi" in tab.detail_use.text() and tab.detail_readonly.text().startswith("Evet")
+    assert "değer penceresinde" in tab.detail_use.text() and tab.detail_readonly.text().startswith("Evet")
     tab.search_edit.setText("")
 
 
@@ -93,7 +93,7 @@ def test_kalibrasyon_dark_and_aliases():
     w = MainWindow()
     assert w.kalibrasyon_tab in w._dark_pages
     k = w.kalibrasyon_tab
-    assert k.inner_tabs.count() == 4 and k.watch is not None and not hasattr(k, "map_editor")
+    assert k.inner_tabs.count() == 3 and not hasattr(k, "map_editor") and not hasattr(k, "watch")
     w.close()
 
 

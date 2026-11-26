@@ -1,6 +1,6 @@
 """Modas çalışma alanının MainWindow tarafı: ölçüm turu, değer/tablo okuma-yazma, WP/RP, Ribbon düğmeleri, kısayollar.
 
-Güvenlik: yazma yolları Parametre Listesi ile AYNIDIR — rol denetimi (Mühendis/Yönetici), CCP bağlı olma,
+Güvenlik: yazma yolları CCP sekmesindeki RAM yazımıyla AYNI ilkelere uyar — rol denetimi (Mühendis/Yönetici), CCP bağlı olma,
 ``encode_for_write`` doğrulaması, yazma sonrası geri okuma, tablo yedeği + geri alma, giriş kaydı ve kalibrasyon geçmişi.
 Modas penceresi yalnızca arayüzdür; ECU'ya doğrudan dokunmaz.
 """
@@ -31,7 +31,7 @@ from app.ui.modas.project_manager import ProjectManagerDialog
 from app.ui.modas.testbench import TEST_INPUTS
 from app.ui.modas.ribbon import glyph_icon
 from app.ui.modas.windows import TableWindow, ValueWindow, format_phys
-from app.ui.watch_tab import parse_value_text
+from app.value_text import parse_value_text
 from app.user_roles import can_override_actuator, can_write_calibration
 
 log = logging.getLogger(__name__)
@@ -385,7 +385,7 @@ class ModasMixin:
             QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.dirname(path)))
 
     # ======================================================================
-    # Yazma (Parametre Listesi ile aynı güvenlik yolu)
+    # Yazma (CCP sekmesiyle aynı güvenlik ilkeleri: rol, yedek, geri okuma doğrulaması)
     # ======================================================================
     def _modas_write_value(self, win: ValueWindow, text: str):
         obj = win.obj

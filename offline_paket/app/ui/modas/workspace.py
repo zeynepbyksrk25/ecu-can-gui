@@ -24,7 +24,7 @@ from app.persist import atomic_write_json, load_json
 from app.signal_hub import SignalHub
 from app.ui.modas.pages import RP, WP
 from app.ui.modas.scope import ScopeWindow, label_of
-from app.ui.modas.testbench import BY_KEY as INPUT_BY_KEY, BY_TITLE as INPUT_BY_TITLE, TestInputWindow
+from app.ui.modas.testbench import BY_KEY as INPUT_BY_KEY, TestInputWindow
 from app.ui.modas.style import MODAS_QSS
 from app.ui.modas.variable_list import MIME, LogPanel, VariableListPanel, classify
 from app.ui.modas.windows import ModasSub, TableWindow, ValueWindow
@@ -32,7 +32,7 @@ from app.ui.modas.windows import ModasSub, TableWindow, ValueWindow
 log = logging.getLogger(__name__)
 
 STATE_VERSION = 1
-MEASURE_INTERVAL_MS = 250          # watch_tab.POLL_INTERVAL_MS ile aynı: değerler arka plan CCP önbelleğinden gelir
+MEASURE_INTERVAL_MS = 250          # Değerler arka plan CCP önbelleğinden gelir
 SAVE_DELAY_MS = 500
 DEFAULT_SHEET = "Sheet1"
 

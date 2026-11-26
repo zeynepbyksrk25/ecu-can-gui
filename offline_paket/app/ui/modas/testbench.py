@@ -18,7 +18,7 @@ from app import theme
 from app.dashboard_config import ACTUATOR_LABELS, CONTROL_KEYS
 from app.sim_interface import FLIGHT_DEFS, INPUT_BY_KEY
 from app.ui.modas.windows import ModasSub, _ValueEdit, format_phys
-from app.ui.watch_tab import parse_value_text
+from app.value_text import parse_value_text
 
 PREFIX = "Input: "
 

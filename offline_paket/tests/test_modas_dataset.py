@@ -1,5 +1,4 @@
 import json
-import os
 
 from app.modas_dataset import DatasetStore, compare
 

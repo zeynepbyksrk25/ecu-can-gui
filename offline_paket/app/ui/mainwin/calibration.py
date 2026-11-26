@@ -1,4 +1,4 @@
-"""CCP oturumu ve kalibrasyon: arka plan CCP işleri, tek değer / harita / Parametre Listesi
+"""CCP oturumu ve kalibrasyon: arka plan CCP işleri, tek değer / harita
 okuma-yazma, tanılama ve geçmişten geri alma."""
 import contextlib
 import threading
@@ -11,9 +11,8 @@ from PySide6.QtWidgets import (
 from app.ccp import codec as ccp_codec
 from app.ccp import mapio as ccp_mapio
 from app.ccp import protocol as ccp_protocol
-from app.ccp.worker import IDLE, LOST, ONLINE
+from app.ccp.worker import IDLE
 from app.paths import data_path
-from app.ui.watch_tab import parse_value_text
 from app.user_roles import (
     can_run_diagnostics, can_write_calibration, can_write_flash,
 )
@@ -189,10 +188,7 @@ class CalibrationMixin:
         self._update_ccp_chip()
 
     def _apply_ccp_state(self, state: str, info: str):
-        online = state == ONLINE
         self.ccp_tab.set_session_state(state, self.ccp_session.status_text())
-        self.watch_tab.set_live_state(state, self.ccp_session.status_text())
-        self.watch_tab.set_connected(state in (ONLINE, LOST))
         self._panel_conn_state()
         self._update_ccp_chip()
 
@@ -475,137 +471,11 @@ class CalibrationMixin:
     def _write_map_doc(self, doc) -> bool:
         return self._write_map_docs([doc])[0] == 1
 
-    # ---- Parametre Listesi (çoklu parametre izleme/yazma) --------------------
-    def _read_phys_best_effort(self, e):
-        try:
-            return ccp_codec.read_value(self.ccp_client, e).phys
-        except (ccp_protocol.CCPError, ccp_protocol.CCPTimeoutError,
-                ccp_codec.UnknownDatatypeError, ValueError):
-            return None
-
-    def _on_watch_read(self):
-        """Parametre Listesi canlı okuma: değerler arka plan CCP iş parçacığının önbelleğinden
-        gelir (arayüz hiç beklemez); ECU yokken satırlar anında 'ECU cevap vermiyor' gösterir ve
-        ECU geri gelince değerler kendiliğinden akmaya başlar."""
-        if self.ccp_client is None:
-            return
-        for row, e in enumerate(self.watch_tab.entries()):
-            if not getattr(e, "resolved", True) or not e.datatype:
-                continue
-            try:
-                reading = ccp_codec.read_value(self.ccp_reader, e)
-            except ccp_protocol.CCPTimeoutError as exc:
-                self.watch_tab.set_row_error(row, str(exc) or "ECU cevap vermedi")
-                continue
-            except (ccp_protocol.CCPError, ccp_codec.UnknownDatatypeError, ValueError) as exc:
-                self.watch_tab.set_row_error(row, str(exc))
-                continue
-            except Exception as exc:
-                self.watch_tab.set_row_error(row, f"Okuma hatası: {exc}")
-                continue
-            self.watch_tab.set_row_value(row, reading.raw_bytes, reading.phys)    # Parametre Listesi HAM BAYT bekler
-
-    def _on_watch_write(self, rows: list):
-        """Parametre Listesi: Değer hücresine Enter ile onaylanan değerleri RAM'e yazar (anında).
-        Yazılamayanlarda bekleyen metin atılır (hücre canlı değere döner); yazılanlar ECU'dan geri
-        okunarak doğrulanır (bkz. WatchTab.commit_written / set_row_value)."""
-        def record_denied(detail: str):
-            for row in rows:
-                if 0 <= row < len(self.watch_tab.entries()):
-                    e = self.watch_tab.entries()[row]
-                    text = self.watch_tab.pending_text(row)
-                    self._record_input("Kalibrasyon > Parametre Listesi", "RAM yazımı", "A2L", e.name,
-                                       text, ok=False, detail=detail, unit=e.unit or "")
-
-        if self.ccp_client is None:
-            record_denied("CCP bağlı değil")
-            self.watch_tab.discard_pending(rows)
-            self.watch_tab.set_write_result(False, "CCP bağlı değil; değer yazılamadı (bağlantı kurulunca tekrar deneyin).")
-            return
-        if not can_write_calibration(self.current_role):
-            record_denied("Yetki yok: Mühendis veya Yönetici rolü gerekir")
-            self.watch_tab.discard_pending(rows)
-            self.watch_tab.set_write_result(
-                False, "Yetki yok: kalibrasyon yazmak için Mühendis veya Yönetici rolü gerekir "
-                       "(sağ üstteki ⚙ Ayarlar penceresinden rol seçin).")
-            return
-        entries = self.watch_tab.entries()
-        done = 0
-        problems: list[str] = []
-        failed_rows: list[int] = []
-        todo = []                               # (satır, giriş, fiziksel değer)
-        for row in rows:
-            if row < 0 or row >= len(entries):
-                continue
-            e = entries[row]
-            text = self.watch_tab.pending_text(row)
-            if text is None or e.read_only or not getattr(e, "resolved", True):
-                continue
-            try:
-                todo.append((row, e, parse_value_text(text)))
-            except ValueError:
-                problems.append(f"{e.name}: geçersiz sayı ({text!r})")
-                failed_rows.append(row)
-        client = self.ccp_client
-
-        def work():
-            out = []                            # (eski değer, hata | None)
-            for _row, e, phys in todo:
-                try:
-                    old = ccp_codec.read_value(client, e).phys
-                except _CCP_IO_ERRORS:
-                    old = None
-                try:
-                    # doğrulama (sonlu, tür aralığı, A2L min/max, READ_ONLY) + güvenli dönüşüm
-                    raw_bytes = ccp_codec.encode_for_write(e, phys)
-                    # yazdıktan sonra geri okuyup doğrular; fark varsa CCPVerifyError (satır "yazılamadı" olur)
-                    client.write_memory(e.address, raw_bytes, e.address_extension or 0, verify=True)
-                    out.append((old, None))
-                except _CCP_IO_ERRORS as exc:
-                    out.append((old, exc))
-            return out
-
-        try:
-            results = self._ccp_job("Parametreler yazılıyor", work) if todo else []
-        except (ValueError, RuntimeError) as exc:
-            results = [(None, exc)] * len(todo)
-        for (row, e, phys), (old_phys, exc) in zip(todo, results):
-            if isinstance(exc, ccp_protocol.CCPTimeoutError):
-                problems.append(f"{e.name}: {str(exc) or 'ECU cevap vermedi'}")
-                self._log_event("HATA", f"{e.name} RAM yazma: ECU cevap vermedi")
-                self._record_input("Kalibrasyon > Parametre Listesi", "RAM yazımı", "A2L", e.name, phys, ok=False,
-                                   detail=str(exc) or "ECU cevap vermedi", unit=e.unit or "")
-                failed_rows.append(row)
-                continue
-            if exc is not None:
-                problems.append(f"{e.name}: {exc}")
-                self._log_event("HATA", f"{e.name} RAM yazma hatası: {exc}")
-                self._record_input("Kalibrasyon > Parametre Listesi", "RAM yazımı", "A2L", e.name, phys, ok=False,
-                                   detail=str(exc), unit=e.unit or "")
-                failed_rows.append(row)
-                continue
-            self.watch_tab.commit_written(row, phys)
-            self._log_event("KALIBRASYON", f"{e.name} = {phys} {e.unit or ''} (RAM, Parametre Listesi) yazıldı")
-            self.calibration_history.add(
-                self.current_user, self.current_role.value, e.name, old_phys, phys, e.unit or "",
-                persistent=False,
-            )
-            self._record_input("Kalibrasyon > Parametre Listesi", "RAM yazımı", "A2L", e.name, phys,
-                               old_value=old_phys, unit=e.unit or "")
-            done += 1
-        self.watch_tab.discard_pending(failed_rows)
-        self.history_tab.refresh()
-        if problems:
-            self.watch_tab.set_write_result(
-                False, f"{done} parametre yazıldı; sorunlar: " + "; ".join(problems))
-        elif done:
-            self.watch_tab.set_write_result(True, f"{done} parametre RAM'e yazıldı; ECU'dan doğrulanıyor…")
-
     # ---- Grafik (canlı Measurement çizimi) ---------------------------------
     def _iter_a2l_samples(self, names: list):
         """Verilen A2L ölçüm adlarını (önbellekten, beklemeden) okuyup ``(ad, ölçüm, Reading)``
         üretir. Okunamayanlar (A2L'de yok, adres yok, ECU cevap vermiyor, bilinmeyen veri tipi)
-        sessizce atlanır; ayrıntılı hata gösterimi isteyenler (Ana Sayfa, Parametre Listesi)
+        sessizce atlanır; ayrıntılı hata gösterimi isteyenler (Ana Sayfa, Worksheets)
         ``ccp_codec.read_value`` ile kendileri okur."""
         if self.ccp_client is None:
             return

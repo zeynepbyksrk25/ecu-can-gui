@@ -10,7 +10,7 @@ import os
 import re
 import time
 
-from app.modas_dataset import DiffEntry, _valid, compare
+from app.modas_dataset import _valid, compare
 from app.persist import atomic_write_json
 from app.ui.modas.pages import _copy
 

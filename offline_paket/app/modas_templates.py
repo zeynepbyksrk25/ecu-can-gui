@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from app.persist import atomic_write_json, load_json
 from app.sim_interface import PERF_DEFS, norm
 from app.ui.modas.scope import sid_of
-from app.ui.modas.testbench import BY_KEY as INPUTS, PREFIX
+from app.ui.modas.testbench import BY_KEY as INPUTS
 
 VALUE_W, VALUE_H, GAP = 260, 54, 8
 COL_X = (10, 290)

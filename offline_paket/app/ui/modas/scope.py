@@ -6,7 +6,7 @@ Etiketler Variable list'ten sürüklenip bırakılır (ya da pencere menüsünde
 """
 from __future__ import annotations
 
-from PySide6.QtCore import QTimer, Qt, Signal
+from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import QCheckBox, QComboBox, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from app import theme
