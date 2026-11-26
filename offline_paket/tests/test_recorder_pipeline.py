@@ -183,3 +183,13 @@ def test_main_window_record_controls_meta_markers_and_chip(qapp, tmp_path, monke
 
 def m_events(meta_path):
     return meta_path.replace(".meta.json", ".events.csv")
+
+
+def test_burst_of_200k_samples_is_written_without_loss(tmp_path):
+    """Performans: arayüz zamanlayıcısından bağımsız yoğun akış kayıpsız yazılır (kuyruk 500k, toplu yazma)."""
+    rec = SessionRecorder()
+    path = rec.start(str(tmp_path), "yogun")
+    for i in range(200_000):
+        rec.record(f"s{i % 8}", i, rec._t0 + i * 0.0005)
+    rec.stop()
+    assert rec.dropped == 0 and rec.rows == 200_000 and len(_rows(path)) == 200_001

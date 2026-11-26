@@ -144,13 +144,15 @@ class SessionBrowser(QWidget):
         self.open_button = QPushButton("Analiz için Aç")
         self.open_button.setToolTip("Kaydı canlı trenddeki araçlarla (Main/Difference cursor, şeritler, istatistik) inceler")
         self.open_button.clicked.connect(self.open_selected)
+        self.report_button = QPushButton("Test Raporu (HTML)")
+        self.report_button.clicked.connect(lambda: self.report_selected())
         self.export_button = QPushButton("Dışa Aktar ▾")
         menu = QMenu(self.export_button)
         for fmt, label in sx.EXPORTERS.items():
             menu.addAction(label, lambda f=fmt: self.export_selected(f))
         self.export_button.setMenu(menu)
         row = QHBoxLayout()
-        for w in (self.refresh_button, self.open_button, self.export_button):
+        for w in (self.refresh_button, self.open_button, self.report_button, self.export_button):
             row.addWidget(w)
         row.addStretch(1)
         v.addWidget(self.table)
@@ -197,6 +199,27 @@ class SessionBrowser(QWidget):
         self._windows.append(w)
         w.destroyed.connect(lambda _=None, w=w: self._windows.remove(w) if w in self._windows else None)
         w.show()
+
+    def report_selected(self, path: str | None = None):
+        from app import session_report
+        d = self._selected()
+        if d is None:
+            return None
+        sd = self._load(d)
+        if sd is None:
+            return None
+        if path is None:
+            base = os.path.splitext(os.path.basename(d["path"]))[0]
+            path, _ = QFileDialog.getSaveFileName(self.window(), "Test raporu", f"{base}_rapor.html", "HTML (*.html)")
+            if not path:
+                return None
+        try:
+            run_with_progress(self, "Rapor hazırlanıyor…", lambda: session_report.write_report(sd, path))
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.critical(self.window(), "Rapor", f"Yazılamadı: {exc}")
+            return None
+        self.status.emit(f"Rapor yazıldı: {path}")
+        return path
 
     def export_selected(self, fmt: str, path: str | None = None):
         d = self._selected()

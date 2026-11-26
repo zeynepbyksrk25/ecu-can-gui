@@ -359,11 +359,24 @@ class SessionRecorder:
             except queue.Empty:
                 item = None
             if item is not None:
-                if item[0] == _STOP:
-                    self._flush()
-                    return
+                batch = [item]
+                while len(batch) < 4096:                      # birikmiş öğeleri tek turda yaz (verim)
+                    try:
+                        batch.append(self._q.get_nowait())
+                    except queue.Empty:
+                        break
+                stop = False
+                if batch[-1][0] == _STOP:
+                    stop = True
+                    batch.pop()
+                elif any(b[0] == _STOP for b in batch):       # _STOP her zaman kuyruğun SONUNDA; yine de güvenli
+                    stop = True
+                    batch = [b for b in batch if b[0] != _STOP]
                 try:
-                    self._write(item)
+                    self._write_batch(batch)
+                    if stop:
+                        self._flush()
+                        return
                 except OSError as exc:               # disk dolu / sürücü çıkarıldı: görünür, kayıt durur
                     self.error = str(exc)
                     self._fail()
@@ -378,6 +391,11 @@ class SessionRecorder:
                     self._fail()
                     return
                 last_flush = time.monotonic()
+
+    def _write_batch(self, batch):
+        write = self._write
+        for item in batch:
+            write(item)
 
     def _write(self, item):
         kind = item[0]

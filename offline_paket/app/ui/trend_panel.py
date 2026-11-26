@@ -99,7 +99,16 @@ class _Series:
             del self.v[:n]
 
     def arrays(self):
-        return np.asarray(self.t, dtype=float), np.asarray(self.v, dtype=float)
+        """(t, v) numpy dizileri. Büyük (kayıtlı) serilerde her tikte listeden yeniden dönüştürmemek için önbelleklenir;
+        önbellek uzunluk + son örnek değişince geçersiz olur (canlı seride her append'de)."""
+        n = len(self.t)
+        key = (n, self.t[-1] if n else None, self.v[-1] if n else None)
+        c = getattr(self, "_arr_cache", None)
+        if c is not None and c[0] == key:
+            return c[1], c[2]
+        t, v = np.asarray(self.t, dtype=float), np.asarray(self.v, dtype=float)
+        self._arr_cache = (key, t, v)
+        return t, v
 
     def view_arrays(self):
         """Görüntülenen (freeze uygulanmış) HAM veri; ofset/ölçek uygulanmamıştır."""
