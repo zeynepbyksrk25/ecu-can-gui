@@ -258,3 +258,24 @@ def test_stop_without_start_and_double_stop_are_safe(tmp_path):
     rec.pause()
     rec.resume()
     assert rec.add_marker("x") is False and rec.record_event("A", "b") is False
+
+
+def test_control_inputs_and_sensor_overrides_are_recorded_as_time_series(qapp, tmp_path, monkeypatch):
+    monkeypatch.setenv("OPENECU_VERI_KLASORU", str(tmp_path))
+    import app.paths as paths
+    monkeypatch.setattr(paths, "_cached", None)
+    from app.ui.main_window import MainWindow
+    w = MainWindow()
+    try:
+        w.session_tab._on_start()
+        w._record_input("Kontrol Paneli", "Değer girişi", "CAN", "OVERRIDE.pump_dc", 42.5, unit="%")
+        w._record_input("Ana Sayfa", "Sensör override", "CAN", "OVERRIDE.valf_cmd", "metin")        # sayısal değil: atlanır
+        w._record_input("Kalibrasyon > CCP", "RAM yazımı", "A2L", "Kp", 1.0)                         # cal: yolu
+        w._record_input("Kontrol Paneli", "Değer girişi", "CAN", "OVERRIDE.pump_dc", 50.0, ok=False)  # başarısız: yazılmaz
+        path, meta = w.session_recorder.path, w.session_recorder.meta_path
+        w.session_tab._on_stop()
+        rows = [r[1:3] for r in _rows(path)[1:]]
+        assert rows == [["input:OVERRIDE.pump_dc", "42.5"]]
+        assert json.load(open(meta, encoding="utf-8"))["signals"]["input:OVERRIDE.pump_dc"]["source"] == "Kullanıcı girişi"
+    finally:
+        w.close()

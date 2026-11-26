@@ -53,6 +53,17 @@ class ExportMixin:
                                user=self.current_user, role=self.current_role.value, **kw)
         except Exception:  # noqa: BLE001
             log.exception("giriş kaydı eklenemedi")
+        # Başarılı sayısal CAN girişleri (Kontrol Paneli, sensör override, motor komutu) kayıtta da zaman serisi olarak görünür
+        # (input:<MESAJ.SİNYAL>); kalibrasyon yazımları ayrıca cal: olarak yazıldığından burada tekrarlanmaz.
+        rec = getattr(self, "session_recorder", None)
+        if ok and rec is not None and rec.is_active and source == "CAN" and not page.startswith("Kalibrasyon"):
+            try:
+                v = float(new_value)
+            except (TypeError, ValueError):
+                return
+            sid = f"input:{target}"
+            rec.register_signal(sid, unit or "", "Kullanıcı girişi", "wall_clock")
+            rec.record(sid, v)
 
     # ---- oturum bitince (otomatik)
     def _export_session_excel(self, record_csv: str | None) -> str:

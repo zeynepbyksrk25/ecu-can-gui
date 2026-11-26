@@ -18,3 +18,9 @@ Her kayıt ayrı bir **oturumdur**; aynı kök ad (`<ad>_<tarih_saat>`) ile dosy
 * **ASC (.asc)** – ham CAN. Fiziksel sinyal içermez.
 * **LOG (.log)** – iki seçenek: (a) ASC içerikli `.log` (yalnızca uzantı farkı; hedef yazılımda doğrulanmadı), (b) can-utils `candump -L` biçimi `(zaman) kanal ID#VERİ`.
 * **CSV** – uzun biçim (kayıt dosyası). **MAT** – sinyal başına `{time, values, unit, name, source}`.
+
+## Ek notlar
+* Kullanıcı girişleri (Kontrol Paneli, sensör override, motor komutu) başarılıysa `input:<MESAJ.SİNYAL>` zaman serisi olarak da yazılır; kalibrasyon yazımları `cal:<ad>`.
+* MIL: simülasyon zamanı `mil:sim_time` sinyali (en çok 50 ms'de bir) olarak yazılır; diğer sinyaller GUI alım zamanıyla. Analizde "Simülasyon zamanı ekseni" seçilebilir.
+* Tetikleyici ile otomatik kayıt: tetik öncesi örnekler eski zaman damgalarıyla yazılır (göreli `time` negatif olabilir).
+* Kısayollar: `Ctrl+Shift+R` kayıt başlat/bitir, `Ctrl+Shift+P` duraklat/sürdür, `Ctrl+Shift+M` işaret, `Ctrl+Shift+F` trend dondur.
