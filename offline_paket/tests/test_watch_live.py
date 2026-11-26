@@ -349,7 +349,7 @@ def test_typed_characters_survive_live_updates_and_enter_writes(live_window):
     tab = w.watch_tab
     w.resize(1500, 900)
     w.show()                                                    # gerçek kullanımdaki gibi: pencere ve sekme açık
-    w.nav_bar.setCurrentIndex(2)
+    w.setCurrentWidget(w.kalibrasyon_tab)
     w.kalibrasyon_tab.inner_tabs.setCurrentWidget(tab)
     tab.set_write_allowed(True)
     assert wait_for(lambda: tab.table.item(0, wt.COL_VALUE).text() == "12.5", pump=pump)

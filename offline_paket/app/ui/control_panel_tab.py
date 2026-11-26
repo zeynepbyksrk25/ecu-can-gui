@@ -36,7 +36,7 @@ from app.control_panel import (
 )
 
 C_PEND_ROW = QColor("#FFF1CC")
-C_PEND_CELL = QColor("#FFE8A8")
+C_PEND_CELL = QColor(theme.PENDING_BG)
 C_FAULT_ROW = QColor("#FBE3E0")
 C_CHANGED_ROW = QColor("#E1EEF6")
 C_OK = QColor(theme.OK)

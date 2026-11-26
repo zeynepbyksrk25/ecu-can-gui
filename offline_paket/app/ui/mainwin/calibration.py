@@ -207,6 +207,8 @@ class CalibrationMixin:
             self.ccp_chip.setProperty("state", st)
             self.ccp_chip.style().unpolish(self.ccp_chip)
             self.ccp_chip.style().polish(self.ccp_chip)
+        if hasattr(self, "modas_ribbon"):
+            self._modas_sync_status()
 
     def _on_ccp_read(self):
         if self.ccp_client is None:

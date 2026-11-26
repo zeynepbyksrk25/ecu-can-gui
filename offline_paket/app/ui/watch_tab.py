@@ -44,7 +44,7 @@ HEADERS = ["Adres", "Hex", "Değer (Value)", "İsim (Name)", "Birim", "Tip", "A�
 
 OK_BG = QColor("#DDF3E5")        # yazma doğrulandı (kısa süre)
 OK_FG = QColor("#1B6B3E")
-PENDING_BG = QColor("#FFE8A8")   # yazılmayı bekleyen değer (map_editor MODIFIED_BG ile aynı)
+PENDING_BG = QColor(theme.PENDING_BG)   # yazılmayı bekleyen değer (map_editor MODIFIED_BG ile aynı)
 PENDING_FG = QColor("#7A4F00")
 INVALID_BG = QColor("#FBDCD8")   # ayrıştırılamayan sayı
 INVALID_FG = QColor("#A8241A")

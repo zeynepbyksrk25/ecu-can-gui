@@ -34,7 +34,7 @@ from PySide6.QtWidgets import (
 
 from app.ui.a2l_tree import ROLE_OBJECT, filter_tree, new_tree, payload_item  # noqa: F401 (ROLE_OBJECT: eski içe aktarma yolu)
 
-MODIFIED_BG = QColor("#FFE8A8")   # değişen hücre (ısı haritası kapalıyken)
+MODIFIED_BG = QColor(theme.PENDING_BG)   # değişen hücre (ısı haritası kapalıyken)
 MODIFIED_FG = QColor("#7A4F00")   # değişen hücrede kalın/turuncu yazı (ısı haritası açıkken)
 HEAT_MODIFIED_FG = QColor("#B3001B")  # ısı haritası açıkken değişen hücre yazısı (mor/mavi zeminde okunur)
 PLACEHOLDER = "-"                 # ECU'dan okunmamış hücre yer tutucusu
