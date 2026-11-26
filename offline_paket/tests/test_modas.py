@@ -506,3 +506,10 @@ def test_minimum_size_follows_the_visible_page(qapp):
     QTest.qWait(500)
     assert w.minimumHeight() == home[1]
     w.close()
+
+
+def test_variable_list_uses_distinct_kind_icons(qapp):
+    from app.ui.modas.kind_icons import kind_icon
+    keys = {k: kind_icon(k).pixmap(16, 16).toImage().bits().tobytes() for k in ("value", "meas", "curve", "map", "text")}
+    assert len(set(keys.values())) == 5                            # her tür farklı çizilir
+    assert not kind_icon("value").isNull() and not kind_icon("bilinmeyen").isNull()   # bilinmeyen tür ölçüm simgesine düşer

@@ -8,13 +8,14 @@ bırakılınca ``add_requested`` yayılır. A2L özetinden (``A2LSummary``) besl
 from __future__ import annotations
 
 from PySide6.QtCore import QMimeData, Qt, Signal
-from PySide6.QtGui import QColor, QIcon, QPixmap
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QFrame, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QListWidget,
     QListWidgetItem, QMenu, QTableWidget, QTableWidgetItem, QVBoxLayout,
 )
 
 from app import theme
+from app.ui.modas.kind_icons import kind_icon
 
 MIME = "application/x-openecu-label"
 
@@ -28,7 +29,6 @@ FILTERS = [
     ("   - maps", "map"),
     ("   - text", "text"),
 ]
-KIND_COLORS = {"meas": theme.SLATE, "value": theme.OK, "curve": theme.ACCENT, "map": theme.PURPLE, "text": theme.ORANGE}
 
 
 def classify(obj) -> str:
@@ -57,12 +57,6 @@ def passes_filter(kind: str, key: str) -> bool:
     if key == "char":
         return kind != "meas"
     return kind == key
-
-
-def _icon(color: str) -> QIcon:
-    pm = QPixmap(10, 10)
-    pm.fill(QColor(color))
-    return QIcon(pm)
 
 
 class _VarTable(QTableWidget):
@@ -156,7 +150,7 @@ class VariableListPanel(QFrame):
         try:
             self.table.setRowCount(len(objs))
             for r, (o, k) in enumerate(zip(objs, self._kinds)):
-                a = QTableWidgetItem(_icon(KIND_COLORS.get(k, theme.SLATE)), o.name)
+                a = QTableWidgetItem(kind_icon(k), o.name)
                 a.setToolTip(f"{o.name} — {k}")
                 b = QTableWidgetItem(getattr(o, "description", "") or "")
                 self.table.setItem(r, 0, a)
