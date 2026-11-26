@@ -267,6 +267,7 @@ class ModasRibbon(QFrame):
             self.big("add_label", "Add label", "＋", "Variable list'ten seçili etiketi worksheet'e ekle   Enter"),
             self.big("remove_label", "Remove", "✕", "Etiketi görünümden kaldır   Delete"),
             self.big("var_info", "Information", "ⓘ", "Variable information   Ctrl+I"),
+            self.big("add_scope", "Scope", "∿", "Yeni osiloskop penceresi (Variable list'te seçili etiketlerle açılır)"),
         ))
         fmts = [("fmt_phys", "Physical", "Ctrl+P"), ("fmt_dec", "Decimal", "Ctrl+D"),
                 ("fmt_hex", "Hexadecimal", "Ctrl+H"), ("fmt_bin", "Binary", "Ctrl+B")]

@@ -78,6 +78,7 @@ class ModasMixin:
         b["write_ecu"].clicked.connect(self._modas_write_pending)
         b["add_label"].clicked.connect(self._modas_add_selected)
         b["remove_label"].clicked.connect(tab.remove_selected)
+        b["add_scope"].clicked.connect(lambda: tab.add_scope(self._selected_var_labels()))
         b["var_info"].clicked.connect(self._modas_show_info)
         for key, fmt in (("fmt_phys", "phys"), ("fmt_dec", "dec"), ("fmt_hex", "hex"), ("fmt_bin", "bin")):
             b[key].clicked.connect(lambda _c=False, f=fmt: tab.set_format(f))
@@ -205,10 +206,29 @@ class ModasMixin:
         """Ölçüm turu (250 ms): tüm değer pencereleri arka plan CCP önbelleğinden okunur (arayüz beklemez)."""
         if self.ccp_client is None:
             return
+        open_labels = set()
         for win in self.modas_tab.value_windows():
             self._modas_read_window(win)
+            open_labels.add(win.label)
+            v = win.wp_value()
+            if v is not None:
+                self.modas_tab.push_sample(win.label, v)       # açık değer penceresi aynı zamanda osiloskop kaynağı
+        for name in self.modas_tab.scope_labels():
+            if name not in open_labels:
+                self._modas_scope_sample(name)
         self.page_model.adopt_missing(self._modas_value_snapshot())
         self._modas_update_diff()
+
+    def _modas_scope_sample(self, name: str):
+        """Yalnızca osiloskopta izlenen etiket: arka plan CCP önbelleğinden okunur; okunamazsa örnek eklenmez (boşluk)."""
+        obj = self.modas_tab.object_by_name(name)
+        if obj is None or getattr(obj, "address", None) is None or not getattr(obj, "datatype", ""):
+            return
+        try:
+            reading = ccp_codec.read_value(self.ccp_reader, obj)
+        except Exception:  # noqa: BLE001 - tek sinyal hatası ölçüm turunu bozmasın
+            return
+        self.modas_tab.push_sample(name, reading.phys)
 
     def _modas_value_snapshot(self) -> dict:
         return {w.label: w.wp_value() for w in self.modas_tab.value_windows() if w.is_calibration and w.wp_value() is not None}
@@ -573,6 +593,10 @@ class ModasMixin:
             return
         for o in objs:
             self.modas_tab.add_label(o)
+
+    def _selected_var_labels(self) -> list:
+        """Variable list'te seçili etiketler (yeni osiloskop bunlarla açılır)."""
+        return [o.name for o in self.modas_tab.var_panel.selected_objects()]
 
     def _modas_show_info(self):
         w = self.modas_tab.active_window()

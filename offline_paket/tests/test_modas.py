@@ -794,3 +794,70 @@ def test_dataset_write_pc_writes_tables_through_the_backup_and_verify_path(live,
     assert wait_for(lambda: struct.unpack(">H", ecu.read_memory_bytes(ch.address + 10, 2))[0] == 60, pump)
     assert not w._dataset_diffs and not tw.is_modified()
     assert any("Tablo yazıldı" in t for t in w.modas_tab.log_panel.texts())
+
+
+# ------------------------------------------------------------------ Aşama 3: osiloskop (scope)
+def test_scope_window_collects_labels_by_drop_and_feeds_the_hub(qapp):
+    from PySide6.QtCore import QMimeData
+    from app.signal_hub import SignalHub
+    from app.ui.modas.scope import ScopeWindow
+    from app.ui.modas.variable_list import MIME
+    hub = SignalHub()
+    sw = ScopeWindow("Scope 1", hub)
+    assert sw.signals() == [] and not sw.hint.isHidden() or sw.hint.isVisibleTo(sw.widget())
+    mime = QMimeData()
+    mime.setData(MIME, "N_RPM\nT_OIL\nN_RPM".encode("utf-8"))          # tekrar eden etiket bir kez eklenir
+    body = sw.widget()
+    assert sw.add_labels(["N_RPM", "T_OIL", "N_RPM"]) == 2
+    assert sw.signals() == ["a2l:N_RPM", "a2l:T_OIL"] and not sw.hint.isVisibleTo(sw.widget())
+    hub.set_active(sw.signals())
+    for i in range(5):
+        hub.push("a2l:N_RPM", 1000 + i)
+    sw.panel.refresh(30.0, False)
+    assert hub.has_data("a2l:N_RPM") and not hub.has_data("a2l:T_OIL")
+    st = sw.state()
+    assert st["kind"] == "scope" and st["panel"]["signals"] == ["a2l:N_RPM", "a2l:T_OIL"]
+    sw2 = ScopeWindow("Scope 1", hub, state={**st, "span": 60.0})
+    assert sw2.signals() == ["a2l:N_RPM", "a2l:T_OIL"] and sw2.span_combo.currentText() == "1 min"
+    sw.clear_signals()
+    assert sw.signals() == []
+    sw.close()
+    sw2.close()
+
+
+def test_workspace_scopes_persist_without_an_a2l_and_limit_the_hub_to_used_signals(qapp, tmp_path):
+    path = str(tmp_path / "ws.json")
+    ws = ModasWorkspace(ModasSheetStore(path))
+    sc = ws.add_scope(["N_RPM"])
+    assert sc.label == "Scope 1" and ws.add_scope().label == "Scope 2"
+    assert ws.scope_labels() == ["N_RPM"] and ws.hub.active() == {"a2l:N_RPM"}
+    ws.push_sample("N_RPM", 3000)
+    ws.push_sample("OTHER", 1)                                         # kullanılmayan etiket depolanmaz
+    assert ws.hub.has_data("a2l:N_RPM") and not ws.hub.has_data("a2l:OTHER")
+    assert ws.save()
+    ws.close_all()
+    ws2 = ModasWorkspace(ModasSheetStore(path))                       # A2L yok: osiloskoplar yine de geri gelir
+    assert sorted(w.label for w in ws2.scope_windows()) == ["Scope 1", "Scope 2"]
+    assert ws2.scope_labels() == ["N_RPM"] and ws2.hub.active() == {"a2l:N_RPM"}
+    ws2.scope_windows()[0].close()
+    ws2.scope_windows()[0].close()
+    assert ws2.hub.active() == set()
+
+
+def test_scope_records_only_while_measuring_and_reads_labels_that_are_not_open_windows(live):
+    w, ecu, obj, pump = live
+    assert wait_for(lambda: w.ccp_session.state == ONLINE, pump)
+    sc = w.modas_tab.add_scope([obj.name])                              # etiket worksheet'te değer penceresi olarak AÇIK DEĞİL
+    assert w.modas_tab.value_windows() == []
+    w._modas_tick()
+    assert wait_for(lambda: w.modas_tab.hub.has_data(f"a2l:{obj.name}"), lambda: (pump(), w._modas_tick()))
+    t, v = w.modas_tab.hub.get(f"a2l:{obj.name}")
+    assert float(v[-1]) == pytest.approx(12.5)
+    n = len(v)
+    ecu.write_memory_bytes(obj.address, struct.pack("<f", 20.0))
+    assert wait_for(lambda: float(w.modas_tab.hub.get(f"a2l:{obj.name}")[1][-1]) == pytest.approx(20.0),
+                    lambda: (pump(), w._modas_tick()))
+    assert len(w.modas_tab.hub.get(f"a2l:{obj.name}")[1]) > n
+    w.modas_ribbon.buttons["add_scope"].click()                         # ribbon düğmesi yeni osiloskop açar
+    assert len(w.modas_tab.scope_windows()) == 2
+    sc.close()

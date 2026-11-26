@@ -21,7 +21,9 @@ from PySide6.QtWidgets import (
 
 from app import theme
 from app.persist import atomic_write_json, load_json
+from app.signal_hub import SignalHub
 from app.ui.modas.pages import RP, WP
+from app.ui.modas.scope import ScopeWindow, label_of
 from app.ui.modas.style import MODAS_QSS
 from app.ui.modas.variable_list import MIME, LogPanel, VariableListPanel, classify
 from app.ui.modas.windows import ModasSub, TableWindow, ValueWindow
@@ -122,6 +124,7 @@ class ModasWorkspace(QWidget):
         self._page = WP
         self._reference: dict = {}
         self._cascade = 0
+        self.hub = SignalHub()                  # osiloskop (scope) pencerelerinin ortak veri deposu
 
         # ---- orta: MDI yığını + Variable list
         self.stack_host = QWidget()
@@ -309,6 +312,9 @@ class ModasWorkspace(QWidget):
     def _materialize(self, sheet: _Sheet):
         left = []
         for spec in sheet.pending:
+            if spec.get("kind") == "scope":              # osiloskop: A2L'ye bağlı değil (sinyaller ad olarak saklanır)
+                self._open_scope(sheet, spec.get("name"), state=spec, geom=spec.get("geom"))
+                continue
             obj = self._by_name.get(spec.get("name", ""))
             if obj is None:
                 left.append(spec)
@@ -382,6 +388,56 @@ class ModasWorkspace(QWidget):
         self._apply_page_to(win)
         return win
 
+    # ---- osiloskop (scope) ----------------------------------------------------------
+    def add_scope(self, labels: list | None = None, pos: QPoint | None = None) -> ScopeWindow:
+        """Aktif worksheet'e yeni bir osiloskop penceresi ekler (isteğe bağlı başlangıç etiketleriyle)."""
+        sheet = self.current_sheet()
+        win = self._open_scope(sheet, None, pos=pos)
+        if labels:
+            win.add_labels(labels)
+        self._changed()
+        return win
+
+    def _unique_scope_name(self) -> str:
+        used = {w.label for s in self._sheets for w in s.windows} | {s.get("name") for sh in self._sheets for s in sh.pending}
+        n = 1
+        while f"Scope {n}" in used:
+            n += 1
+        return f"Scope {n}"
+
+    def _open_scope(self, sheet: _Sheet, name: str | None, state: dict | None = None, geom=None, pos=None) -> ScopeWindow:
+        win = ScopeWindow(name or self._unique_scope_name(), self.hub, state=state)
+        win.changed.connect(self._on_scope_changed)
+        win.closed.connect(lambda w, s=sheet: self._on_closed(s, w))
+        sheet.mdi.addSubWindow(win)
+        win.show()
+        if isinstance(geom, (list, tuple)) and len(geom) == 4 and all(isinstance(v, (int, float)) for v in geom):
+            win.setGeometry(*(int(v) for v in geom))
+        else:
+            win.move(pos if pos is not None else self._next_pos())
+        sheet.windows.append(win)
+        self._sync_hub()
+        return win
+
+    def scope_windows(self, all_sheets: bool = True) -> list:
+        return [w for w in self.windows(all_sheets) if isinstance(w, ScopeWindow)]
+
+    def scope_labels(self) -> list:
+        """Osiloskoplarda izlenen etiket adları (sıralı, tekrarsız)."""
+        return sorted({label_of(s) for w in self.scope_windows() for s in w.signals()})
+
+    def _on_scope_changed(self):
+        self._sync_hub()
+        self._changed()
+
+    def _sync_hub(self):
+        """Hub yalnızca osiloskopta kullanılan sinyalleri saklar (bellek / CPU)."""
+        self.hub.set_active([s for w in self.scope_windows() for s in w.signals()])
+
+    def push_sample(self, label: str, value):
+        """Ölçüm turu bir etiketin değerini osiloskop deposuna verir (kullanılmıyorsa hub yok sayar)."""
+        self.hub.push("a2l:" + label, value)
+
     def _next_pos(self) -> QPoint:
         self._cascade = (self._cascade + 1) % 12
         return QPoint(20 + 26 * self._cascade, 20 + 26 * self._cascade)
@@ -389,6 +445,7 @@ class ModasWorkspace(QWidget):
     def _on_closed(self, sheet: _Sheet, win):
         if win in sheet.windows:
             sheet.windows.remove(win)
+        self._sync_hub()
         self._changed()
 
     # ======================================================================
@@ -586,6 +643,7 @@ class ModasWorkspace(QWidget):
         for s in state["sheets"]:
             sheet = self._make_sheet(s["name"], select=False)
             sheet.pending = list(s["windows"])
+            self._materialize(sheet)                 # osiloskoplar A2L gerektirmez; etiket pencereleri A2L gelince kurulur
         idx = state["current"] if 0 <= state["current"] < len(self._sheets) else 0
         self.tabs.setCurrentIndex(idx)
         self._on_tab_changed(idx)
