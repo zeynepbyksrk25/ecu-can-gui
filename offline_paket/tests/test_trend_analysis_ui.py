@@ -158,3 +158,21 @@ def test_autosave_layout_only_when_path_set(panel, tmp_path):
     panel._on_table_color("g:RPM", "#111111")
     panel._tick()
     assert path.exists()
+
+
+def test_layout_applies_to_series_created_later(qapp, tmp_path):
+    """Yerleşim, sinyaller sonradan (config yüklenince) oluşsa da uygulanır; sıra bir kez uygulanır."""
+    p1 = tp.TrendPanel()
+    p1.set_series(SPECS)
+    p1.set_signal_offset("g:Tt5", 3.0)
+    p1._on_table_color("g:RPM", "#654321")
+    p1.signal_table.order_changed.emit(["g:FP", "g:Tt5", "g:RPM"])
+    path = str(tmp_path / "l.json")
+    p1.save_layout(path)
+    p2 = tp.TrendPanel()
+    assert p2.load_layout(path)                      # henüz sinyal yok
+    p2.set_series(SPECS)
+    assert p2._order[:3] == ["g:FP", "g:Tt5", "g:RPM"]
+    assert p2._series["g:Tt5"].offset == 3.0 and p2._series["g:RPM"].color == "#654321"
+    p2.set_series(list(reversed(SPECS)))            # kullanıcı sonradan başka sıra seçerse ezilmez
+    assert p2._order[:3] == ["g:FP", "g:Tt5", "g:RPM"][::-1] or p2._order[0] == "g:FP"

@@ -1,4 +1,5 @@
 import logging
+import os
 from datetime import datetime
 
 from PySide6.QtCore import QTimer, Qt, Signal
@@ -100,6 +101,7 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self._last_connect_params: tuple | None = None   # (interface, channel, bitrate)
         self.latest_signals: dict = {}                   # senaryo için son DBC sinyal değerleri
         self.latest_signals_enabled = False
+        self.trigger_engine = None                       # kuruluyken tetik mantığı (app/record_trigger.py)
         self.backend_mode = "REAL"                       # REAL | MIL | VIRTUAL (bağlantı sayfasından seçilir)
         self._resume_ccp_after_reconnect = False
         self._loss_box: QMessageBox | None = None
@@ -196,6 +198,12 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self._build_ui_chrome()
 
         self.dashboard_tab.set_config(self.dashboard_config_store.load())
+        # Trend yerleşimi (sıra/renk/görünürlük/ofset/şerit modu/pencere) oturumlar arası kalıcı: önce yükle, sonra değişiklikler
+        # (yalnızca kullanıcı etkileşimi) otomatik kaydedilir.
+        _trend_layout = data_path("trend_yerlesim.json")
+        if os.path.exists(_trend_layout):
+            self.dashboard_tab.trend.load_layout(_trend_layout)
+        self.dashboard_tab.trend.layout_path = _trend_layout
         self._migrate_control_bindings()
         self._rebuild_dash_can_map()
         self.watch_tab.set_storage_path(data_path("watchlist.json"))
@@ -247,6 +255,7 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self.connection_tab.mode_changed.connect(self._on_backend_mode_changed)
         self.connection_tab.manifest_requested.connect(self._on_sim_manifest_requested)
         self.model_ctl = None
+        self.session_tab.trigger_panel.config_changed.connect(self._on_trigger_config)
         self._model_events_seen = 0
         self.dashboard_tab.sim_panel.connect_requested.connect(self._on_model_connect)
         self.dashboard_tab.sim_panel.command_requested.connect(self._on_model_command)

@@ -269,7 +269,7 @@ class ConnectionMixin:
             except queue.Empty:
                 break
             n += 1
-            if self.latest_signals_enabled:
+            if self.latest_signals_enabled or self.trigger_engine is not None:
                 self._note_latest_signals(msg)
             self.monitor_tab.add_message(msg, direction="RX")
             self.control_panel_tab.on_can_frame(msg.arbitration_id, bytes(msg.data))
@@ -291,9 +291,17 @@ class ConnectionMixin:
         except Exception:  # noqa: BLE001 - bozuk/kısa kare: yok say
             return
         t = getattr(msg, "timestamp", None) or time.time()
+        eng = self.trigger_engine
         for k, v in vals.items():
             if isinstance(v, (int, float)):
-                self.latest_signals[f"{m.name}.{k}"] = (float(v), t)
+                sid = f"{m.name}.{k}"
+                self.latest_signals[sid] = (float(v), t)
+                if eng is not None:
+                    fired = eng.feed(sid, v, t)
+                    if fired is not None:
+                        self._on_trigger_fired(fired)
+        if eng is not None and eng.should_stop(t):
+            self._on_trigger_done()
 
     def _drain_tx_queue(self):
         """Gönderilen kareleri (elle, periyodik, Kontrol Paneli, güvenlik tekrarları; hangi iş parçacığı

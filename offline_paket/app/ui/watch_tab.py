@@ -376,6 +376,10 @@ class WatchTab(QWidget):
         self.add_manual_button = QPushButton("Manuel Ekle…")
         self.delete_button = QPushButton("Seçili Satırları Sil")
         self.clear_button = QPushButton("Listeyi Temizle")
+        self.default_button = QPushButton("Seçilileri Başlangıca Döndür")
+        self.default_button.setToolTip("Seçili parametreleri başlangıç referansına (A2L varsayılanı yoksa oturum başı ECU "
+                                       "değeri) döndürür: onay sorulur, ECU'ya normal yazma yoluyla yazılır.")
+        self.default_button.clicked.connect(self.revert_selected_to_baseline)
         self.live_label = QLabel("● CCP bağlı değil")
         self.live_label.setStyleSheet(f"color: {theme.DANGER}; font-weight: bold;")
         self.hint_label = QLabel("")
@@ -388,7 +392,7 @@ class WatchTab(QWidget):
 
         row1 = QHBoxLayout()
         for w in (self.add_a2l_button, self.add_manual_button,
-                  self.delete_button, self.clear_button):
+                  self.delete_button, self.clear_button, self.default_button):
             row1.addWidget(w)
         row1.addStretch()
         row1.addWidget(self.live_label)
@@ -653,6 +657,36 @@ class WatchTab(QWidget):
                 self._set_status(f"'{entry.name}' eklendi.", None)
                 return
             dlg.warn_label.setText(f"'{entry.name}' adlı satır zaten listede.")
+
+    def _confirm(self, title: str, text: str) -> bool:
+        return QMessageBox.question(self, title, text, QMessageBox.Yes | QMessageBox.No,
+                                    QMessageBox.No) == QMessageBox.Yes
+
+    def revert_selected_to_baseline(self) -> int:
+        """Seçili (ya da hiçbiri seçili değilse TÜM) satırları başlangıç referansına yazar. Referansı olmayan/salt-okunur
+        satırlar atlanır; hangi referansın kullanıldığı onay metninde listelenir. Yazma ``write_requested`` ile normal yoldan
+        (rol denetimi, ECU doğrulaması, geçmiş) yapılır. Yazılması istenen satır sayısını döner."""
+        rows = self._selected_rows() or list(range(len(self._entries)))
+        targets = self.tracker.default_targets([self._entries[r].name for r in rows])
+        todo = [r for r in rows if self._entries[r].name in targets and not self._entries[r].read_only
+                and self._entries[r].resolved]
+        if not todo:
+            self._set_status("Başlangıca döndürülecek parametre yok (zaten başlangıçta / referans yok / salt okunur).", False)
+            return 0
+        lines = [f"{self._entries[r].name}: {format_phys(self.tracker.state(self._entries[r].name).ecu)} → "
+                 f"{format_phys(targets[self._entries[r].name])}  ({self.tracker.baseline_label(self._entries[r].name)})"
+                 for r in todo]
+        if not self._confirm("Başlangıç değerlerine dönülsün mü?",
+                             f"{len(todo)} parametre ECU'ya YAZILACAK:\n\n" + "\n".join(lines[:15])
+                             + ("\n…" if len(lines) > 15 else "")):
+            return 0
+        for r in todo:
+            self._entries[r].pending_text = format_phys(targets[self._entries[r].name]).replace(",", ".")
+            self.tracker.edit(self._entries[r].name, targets[self._entries[r].name], self._entries[r].unit)
+            self._render_row(r)
+        self._set_status(f"{len(todo)} parametre başlangıç değerine yazılıyor…", None)
+        self.write_requested.emit(todo)
+        return len(todo)
 
     def _selected_rows(self) -> list[int]:
         return sorted({i.row() for i in self.table.selectedIndexes()})

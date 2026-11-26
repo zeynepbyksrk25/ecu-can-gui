@@ -407,6 +407,31 @@ class DashboardMixin:
                 "timebase": "simulation_time" if mode == "MIL" else "monotonic_acquisition",
                 "app": "ecu-can-gui"}
 
+    # ---- tetikleyici ile otomatik kayıt -----------------------------------------------------------
+    def _on_trigger_config(self, trg, pre_s: float, post_s: float):
+        from app.record_trigger import TriggerEngine
+        self.trigger_engine = TriggerEngine([trg], pre_s, post_s) if trg is not None else None
+        if trg is not None:
+            self._log_event("OTURUM", f"Tetikleyici kuruldu: {trg.kind} {trg.signal} {trg.op} {trg.value:g}")
+
+    def _on_trigger_fired(self, trg):
+        """Tetik: kayıt yoksa başlatılır; tetik öncesi örnekler ESKİ zaman damgalarıyla (negatif göreli zaman) yazılır."""
+        eng = self.trigger_engine
+        st = self.session_tab
+        if not self.session_recorder.is_active:
+            st.name_edit.setText(f"tetik_{trg.signal.replace('.', '_')}")
+            st._on_start()
+        rec = self.session_recorder
+        for t, sid, v in eng.take_pre_buffer():
+            rec.record(f"dbc:{sid}", v, t)
+        rec.add_marker(f"TETİK: {trg.signal} {trg.op} {trg.value:g} (gözlenen {eng.fire_value:g})", eng.fired_at)
+        st.trigger_panel.status_label.setText(f"Tetiklendi ({trg.signal} = {eng.fire_value:g}); kayıt sürüyor…")
+
+    def _on_trigger_done(self):
+        self.trigger_engine = None
+        self.session_tab._on_stop()
+        self.session_tab.trigger_panel.disarm("Tetikli kayıt tamamlandı; yeniden kurmak için işaretleyin.")
+
     def _on_record_pause(self):
         self.session_recorder.pause()
         self._update_rec_state()
@@ -486,7 +511,12 @@ class DashboardMixin:
                 phys = ccp_codec.raw_to_physical(info.compu_method, raw)
             except Exception:  # noqa: BLE001
                 continue
-            rec.record_change(f"a2l:{info.name}", phys, t)
+            sid = f"a2l:{info.name}"
+            if sid not in rec._signals:                    # birim/kaynak üst verisi (ilk yazımda)
+                rec.register_signal(sid, getattr(info, "unit", "") or "",
+                                    "MIL parametre kanalı" if getattr(self, "backend_mode", "") == "MIL" else "CCP",
+                                    "acquisition_wall_clock")
+            rec.record_change(sid, phys, t)
 
     def _sync_workspace_a2l(self):
         summary = self.a2l_tab.db.summary

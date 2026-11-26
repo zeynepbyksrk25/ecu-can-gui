@@ -461,12 +461,14 @@ class FrameRecorder:
         self.dropped = 0
         self.frames = 0
         self._cache: dict = {}                    # (dbc nesnesi, frame_id) -> message | None
+        self._registered: set = set()
 
     def start(self):
         self.stop()
         self._stop.clear()
         self.dropped = self.frames = 0
         self._cache = {}
+        self._registered = set()
         self._thread = threading.Thread(target=self._run, name="frame-recorder", daemon=True)
         self._thread.start()
 
@@ -502,6 +504,12 @@ class FrameRecorder:
         except Exception:  # noqa: BLE001 - bozuk/kısa kare: yok say
             return
         t = getattr(msg, "timestamp", None) or time.time()
+        if m.name not in self._registered:                 # birim/kaynak üst verisi (MDF4 dışa aktarımı için), mesaj başına bir kez
+            self._registered.add(m.name)
+            src = "Simulink MIL (UDP)" if hasattr(msg, "sim_time") else "CAN"
+            for sg in getattr(m, "signals", []):
+                self._rec.register_signal(f"dbc:{m.name}.{sg.name}", getattr(sg, "unit", "") or "", src,
+                                          "acquisition_wall_clock")
         for name, value in decoded.items():
             if isinstance(value, (int, float)):
                 self._rec.record(f"dbc:{m.name}.{name}", value, t)

@@ -148,3 +148,24 @@ def test_watch_tab_delta_column_pending_then_applied(qapp):
     assert tab.blink_timer.isActive()
     tab.mark_write_failed(0, "x")
     assert tab.tracker.state("Kp_Governor").last_write_ok is False
+
+
+def test_watch_revert_selected_to_baseline_confirms_and_requests_write(qapp):
+    from app.ui.watch_tab import WatchEntry, WatchTab
+    tab = WatchTab()
+    for n in ("A", "B", "RO"):
+        tab.add_manual_entry(WatchEntry(n, "characteristic", 0x100, "FLOAT32_IEEE", read_only=(n == "RO")))
+    for i, v in enumerate((10.0, 20.0, 5.0)):
+        tab.set_row_value(i, b"\0\0\0\0", v)                  # başlangıç referansı = ilk okuma
+    tab.commit_written(0, 12.5, old=10.0)                     # A: 10 -> 12.5 uygulandı
+    got = []
+    tab.write_requested.connect(got.append)
+    tab._confirm = lambda *_a: False
+    assert tab.revert_selected_to_baseline() == 0 and got == []        # onay reddedildi: yazma yok
+    tab._confirm = lambda *_a: True
+    tab.table.selectAll()
+    n = tab.revert_selected_to_baseline()
+    assert n == 1 and got == [[0]]                                      # yalnızca değişmiş, yazılabilir satır (A)
+    assert tab._entries[0].pending_text == "10"
+    tab.set_row_value(1, b"\0\0\0\0", 20.0)
+    assert tab.revert_selected_to_baseline() == 0                       # B zaten başlangıçta

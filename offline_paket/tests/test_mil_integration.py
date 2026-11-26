@@ -234,3 +234,49 @@ def test_sim_time_mapping_refuses_restart_and_missing(tmp_path):
         rec.record("mil:sim_time", st, t0 + wt)
     rec.stop()
     assert sx.load_session(rec.path).to_sim_time([t0 + 1.5]) is None
+
+
+def test_trigger_starts_recording_with_pre_buffer_and_stops_after_post(mil):
+    import csv
+    w, model = mil
+    tp = w.session_tab.trigger_panel
+    tp.signal_edit.setText("ENG_STATUS.rpm")
+    tp.op_combo.setCurrentText(">")
+    tp.value_spin.setValue(3000)
+    tp.pre_spin.setValue(5)
+    tp.post_spin.setValue(0.3)
+    tp.arm_check.setChecked(True)
+    assert w.trigger_engine is not None and not w.session_recorder.is_active
+    dbc = w.transmit_tab.dbc
+    cid = None
+    for i in range(6):                                          # eşik altı: kayıt başlamaz
+        cid, data, ext = dbc.encode("ENG_STATUS", {"rpm": 1000.0 + i, "tt2_c": 50.0, "tt2_fault": 0})
+        model.send_frame(cid, data, ext)
+        time.sleep(0.03)
+    assert _pump(w, lambda: w.trigger_engine._buf and len(w.trigger_engine._buf) >= 6) and not w.session_recorder.is_active
+    cid, data, ext = dbc.encode("ENG_STATUS", {"rpm": 3500.0, "tt2_c": 50.0, "tt2_fault": 0})
+    model.send_frame(cid, data, ext)
+    assert _pump(w, lambda: w.session_recorder.is_active)
+    path = w.session_recorder.path
+    end = time.time() + 3
+    while time.time() < end and w.trigger_engine is not None:
+        model.send_frame(cid, data, ext)
+        w._drain_rx_queue()
+        time.sleep(0.05)
+    assert w.trigger_engine is None and not w.session_recorder.is_active
+    assert not tp.arm_check.isChecked()
+    rows = [r for r in csv.reader(open(path, encoding="utf-8")) if r[1] == "dbc:ENG_STATUS.rpm"]
+    vals = [float(r[2]) for r in rows]
+    assert 1000.0 in vals and 3500.0 in vals                   # tetik öncesi örnekler dahil
+    assert float(rows[0][0]) < 0.5                              # pre-trigger: kayıt başlamadan önceki zamanlar
+    ev = open(path[:-4] + ".events.csv", encoding="utf-8").read()
+    assert "TETİK" in ev
+
+
+def test_trigger_panel_rejects_invalid_config(qapp):
+    from app.ui.trigger_panel import TriggerPanel
+    p = TriggerPanel()
+    got = []
+    p.config_changed.connect(lambda *a: got.append(a))
+    p.arm_check.setChecked(True)                                # sinyal boş
+    assert not p.arm_check.isChecked() and "Kurulamadı" in p.status_label.text() and got == []

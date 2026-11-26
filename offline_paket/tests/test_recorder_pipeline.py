@@ -193,3 +193,20 @@ def test_burst_of_200k_samples_is_written_without_loss(tmp_path):
         rec.record(f"s{i % 8}", i, rec._t0 + i * 0.0005)
     rec.stop()
     assert rec.dropped == 0 and rec.rows == 200_000 and len(_rows(path)) == 200_001
+
+
+def test_dbc_units_and_source_registered_in_meta(tmp_path):
+    from app.dbc import DbcDatabase
+    dbc = DbcDatabase()
+    dbc.load(os.path.join(os.path.dirname(__file__), "data", "sample.dbc"))
+    rec = SessionRecorder()
+    rec.start(str(tmp_path), "birim")
+    fr = FrameRecorder(rec, lambda: dbc)
+    fr.start()
+    cid, data, ext = dbc.encode("ENG_STATUS", {"rpm": 100.0, "tt2_c": 30.0, "tt2_fault": 0})
+    fr.submit(can.Message(arbitration_id=cid, data=data, is_extended_id=ext, timestamp=rec._t0 + 0.1))
+    fr.stop()
+    rec.stop()
+    sig = json.load(open(rec.meta_path, encoding="utf-8"))["signals"]
+    assert sig["dbc:ENG_STATUS.rpm"] == {"unit": "rpm", "source": "CAN", "timebase": "acquisition_wall_clock"}
+    assert sig["dbc:ENG_STATUS.tt2_c"]["unit"] == "degC"

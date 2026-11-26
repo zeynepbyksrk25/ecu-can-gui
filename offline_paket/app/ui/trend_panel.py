@@ -144,6 +144,8 @@ class TrendPanel(QFrame):
         self._strip_titles: dict = {}
         self._strip_texts: list = []      # şerit içi "ad + o anki değer" yazıları
         self._cursor_vals: tuple | None = None   # (A değerleri, B değerleri): imleç açıkken şerit yazılarında
+        self._pending_views: dict = {}    # yüklenen yerleşimdeki, henüz var olmayan sinyallerin görünüm durumu
+        self._pending_order: list = []
         self._color_override: dict = {}   # key -> kullanıcının seçtiği renk (oturum boyunca korunur)
         self._static = False              # True: kayıtlı oturum analizi (canlı veri gelmez)
         self._y_free = False              # True: dikey kaydırma/yakınlaştırma serbest (otomatik ölçek kapalı)
@@ -378,11 +380,18 @@ class TrendPanel(QFrame):
     def set_series(self, specs: list):
         """specs: [{'key','label','unit'}]; mevcut geçmiş korunur."""
         new_order = [s["key"] for s in specs]
+        if self._pending_order and set(self._pending_order) & set(new_order):
+            pos = {k: i for i, k in enumerate(self._pending_order)}
+            new_order = sorted(new_order, key=lambda k: pos.get(k, len(pos)))   # kayıtlı sıra bir kez uygulanır
+            self._pending_order = []
         for s in specs:
             ser = self._series.get(s["key"])
             if ser is None:
                 ser = _Series(s["key"], s["label"], s.get("unit", ""), PALETTE[0])
                 self._series[s["key"]] = ser
+                sv = self._pending_views.pop(s["key"], None)
+                if sv is not None:
+                    ser.visible, ser.offset, ser.scale, ser.group = sv.visible, sv.offset, sv.scale, sv.group
             ser.label, ser.unit = s["label"], s.get("unit", "")
             if s.get("source") is not None:
                 ser.source = s["source"]
@@ -1013,6 +1022,8 @@ class TrendPanel(QFrame):
                 ser.visible, ser.offset, ser.scale, ser.group = sv.visible, sv.offset, sv.scale, sv.group
                 if sv.color:
                     ser.color = sv.color
+        self._pending_views = {k: sv for k, sv in lay.views.items() if k not in self._series}
+        self._pending_order = list(lay.order)
         known = [k for k in lay.order if k in self._series and k in self._order]
         self._order = known + [k for k in self._order if k not in known]
         self._window = max(5.0, min(MAX_HISTORY_S, lay.window_s))

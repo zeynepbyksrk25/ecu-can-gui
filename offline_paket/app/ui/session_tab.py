@@ -46,6 +46,9 @@ class SessionTab(QWidget):
         layout.addWidget(self.browser)
         self.browser.refresh()
         from app.ui.scenario_panel import ScenarioPanel
+        from app.ui.trigger_panel import TriggerPanel
+        self.trigger_panel = TriggerPanel()
+        layout.addWidget(self.trigger_panel)
         self.scenario_panel = ScenarioPanel(lambda: self.window() if hasattr(self.window(), "latest_signals") else None)
         layout.addWidget(self.scenario_panel)
         layout.addWidget(self._build_log_card(), stretch=1)

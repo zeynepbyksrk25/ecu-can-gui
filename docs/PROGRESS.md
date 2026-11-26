@@ -45,7 +45,9 @@ Her madde bitince `[x]` yapılır; yanına test sonucu ve bilinen eksikler yazı
   - Eksik: sensör arızası/sınır dışı değer/iletişim kaybı senaryoları için hazır dosya yok (adım türleri yeterli; gereksinim limitleri kullanıcıdan gelmeli).
 
 ## İyileştirme turları
-(boş)
+- **Tur 1 (performans/dayanıklılık):** SessionRecorder toplu yazma (1M örnek/2,5 sn, düşen 0); trend `arrays()` önbelleği (500k×4 örnek analizde tik 266 ms → 2 ms); büyük oturum yükleme `array('d')` (1M satır 0,7 sn); testler: `test_recorder_pipeline.py::test_burst_*`.
+- **Tur 2 (kapsam):** Test raporu (HTML, `app/session_report.py`, oturum listesinde düğme) — GOREV 6.3; tetikleyici ile otomatik kayıt (`app/record_trigger.py` + `ui/trigger_panel.py`, pre/post-trigger, bir kez çalışır) — GOREV 6.2; Parametre Listesi'nde toplu "Seçilileri Başlangıca Döndür" (onaylı); trend yerleşimi MainWindow'da otomatik yükle/kaydet (`trend_yerlesim.json`), sonradan oluşan sinyallere de uygulanır; kayıt üst verisinde DBC birimi/kaynak/zaman tabanı.
+- Tur 3+ planı: sensör/giriş override değerlerinin ayrı kaydı, kayıtlı oturumda kalibrasyon olaylarının dikey marker olarak otomatik gösterimi doğrulaması, UX kısayolları.
 
 ## Bilinen eksikler / doğrulanamayanlar
 - Gerçek MATLAB/Simulink, AVL Concerto, PCAN donanımı bu ortamda yok; ilgili her şey sahte yapıyla test edilir, "gerçek ortamda doğrulanmadı".
