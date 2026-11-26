@@ -49,5 +49,8 @@ Her madde bitince `[x]` yapılır; yanına test sonucu ve bilinen eksikler yazı
 - **Tur 2 (kapsam):** Test raporu (HTML, `app/session_report.py`, oturum listesinde düğme) — GOREV 6.3; tetikleyici ile otomatik kayıt (`app/record_trigger.py` + `ui/trigger_panel.py`, pre/post-trigger, bir kez çalışır) — GOREV 6.2; Parametre Listesi'nde toplu "Seçilileri Başlangıca Döndür" (onaylı); trend yerleşimi MainWindow'da otomatik yükle/kaydet (`trend_yerlesim.json`), sonradan oluşan sinyallere de uygulanır; kayıt üst verisinde DBC birimi/kaynak/zaman tabanı.
 - Tur 3+ planı: sensör/giriş override değerlerinin ayrı kaydı, kayıtlı oturumda kalibrasyon olaylarının dikey marker olarak otomatik gösterimi doğrulaması, UX kısayolları.
 
+## Test sonuçları
+- Tam paket (MIL 6 + Tur 2 sonrası anlık görüntü): **530 geçti** (25 dk). Sonraki küçük değişiklikler (kısayollar, giriş sinyalleri kaydı, bus hata dönüşümü) ilgili testlerle ayrıca geçti; son durum için tam koşu yeniden başlatıldı.
+
 ## Bilinen eksikler / doğrulanamayanlar
 - Gerçek MATLAB/Simulink, AVL Concerto, PCAN donanımı bu ortamda yok; ilgili her şey sahte yapıyla test edilir, "gerçek ortamda doğrulanmadı".
