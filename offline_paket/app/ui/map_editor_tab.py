@@ -19,12 +19,14 @@ import pyqtgraph as pg
 
 from app import theme
 from app.ui.dash_widgets import make_card
+from app.ui.lookup_headers import apply_lookup_style
+from app.ui.mesh3d import Mesh3DWidget, parula, parula_lut
 from app.ccp.mapio import grid_shape as _grid_shape
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QItemSelectionModel, Qt, Signal
 from PySide6.QtGui import QColor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QAbstractItemView, QApplication, QCheckBox, QHBoxLayout,
+    QAbstractItemView, QApplication, QCheckBox, QComboBox, QFrame, QHBoxLayout,
     QLabel, QLineEdit, QPushButton, QSplitter, QTableWidget,
     QTableWidgetItem, QTabWidget, QTreeWidgetItem,
     QVBoxLayout, QWidget, QHeaderView,
@@ -34,6 +36,7 @@ from app.ui.a2l_tree import ROLE_OBJECT, filter_tree, new_tree, payload_item  # 
 
 MODIFIED_BG = QColor("#FFE8A8")   # değişen hücre (ısı haritası kapalıyken)
 MODIFIED_FG = QColor("#7A4F00")   # değişen hücrede kalın/turuncu yazı (ısı haritası açıkken)
+HEAT_MODIFIED_FG = QColor("#B3001B")  # ısı haritası açıkken değişen hücre yazısı (mor/mavi zeminde okunur)
 PLACEHOLDER = "-"                 # ECU'dan okunmamış hücre yer tutucusu
 
 
@@ -53,6 +56,28 @@ def _parse_number(text) -> float | None:
 
 def _fmt(v: float | None) -> str:
     return PLACEHOLDER if v is None else f"{v:.10g}"
+
+
+class _VerticalLabel(QWidget):
+    """Dikey yazılmış eksen adı (MATLAB'daki sol kenar düğmesi gibi)."""
+
+    def __init__(self, text: str):
+        super().__init__()
+        self._text = text
+        self.setFixedWidth(26)
+        self.setMinimumHeight(60)
+
+    def paintEvent(self, _ev):
+        from PySide6.QtGui import QPainter, QPen
+        p = QPainter(self)
+        p.setPen(QPen(QColor(theme.BORDER)))
+        p.setBrush(QColor(theme.SURFACE_SUBTLE))
+        p.drawRoundedRect(2, 4, self.width() - 5, self.height() - 8, 6, 6)
+        p.setPen(QColor(theme.HEAD))
+        p.translate(self.width() / 2 + 4, self.height() / 2)
+        p.rotate(-90)
+        p.drawText(-self.height() // 2, -self.width() // 2, self.height(), self.width(), Qt.AlignCenter, self._text)
+        p.end()
 
 
 class MapDocument(QWidget):
@@ -78,6 +103,7 @@ class MapDocument(QWidget):
         self._history = [self._values()]
         self._history_index = 0
         self._update_buttons()
+        self._refresh_plot()
 
     # ---- Arayüz -----------------------------------------------------------
     def _shape(self) -> tuple:
@@ -125,12 +151,22 @@ class MapDocument(QWidget):
         self.redo_button = QPushButton("Yinele")
         self.redo_button.clicked.connect(self.redo)
 
-        self.heatmap_checkbox = QCheckBox("Isı haritası (renk) göster")
+        self.heatmap_checkbox = QCheckBox("Isı haritası")
         self.heatmap_checkbox.toggled.connect(self._refresh_cell_colors)
+        self.mesh_checkbox = QCheckBox("Mesh (3B)")
+        self.mesh_checkbox.setChecked(True)
+        self.contour_checkbox = QCheckBox("Contour")
+        self.contour_checkbox.setChecked(True)
+
+        self.hide_plot_button = QPushButton("GRAFİKLERİ GİZLE")
+        self.hide_plot_button.setCheckable(True)
+        self.hide_plot_button.setToolTip("Sağdaki Mesh / Contour grafiklerini gizle / göster")
+        self.hide_plot_button.toggled.connect(self._on_hide_plot)
 
         toolbar = QHBoxLayout()
         for w in (self.read_button, self.write_button, self.undo_button,
-                  self.redo_button, self.heatmap_checkbox):
+                  self.redo_button, self.heatmap_checkbox, self.mesh_checkbox,
+                  self.contour_checkbox, self.hide_plot_button):
             toolbar.addWidget(w)
         toolbar.addStretch()
 
@@ -157,23 +193,35 @@ class MapDocument(QWidget):
             bulk.addWidget(b)
         bulk.addStretch()
 
-        # --- INCA/Lookup tarzı grafik (üstte) ---
+        # --- Sağ taraf: Plot - Mesh (3B) ve Plot - Contour (MATLAB Lookup Table Editor düzeni) ---
+        self.mesh = Mesh3DWidget()
+        self.mesh.set_theme(theme.paint("@@SURFACE@@"), theme.HEAD)
+        self.mesh.cellPicked.connect(self._on_mesh_picked)
+        self.mesh.cellDragged.connect(self._on_mesh_dragged)
+        self.mesh.dragFinished.connect(self._push_history)
+        self.mesh.setToolTip("Sürükle: döndür • Düğüm üstünden yukarı/aşağı sürükle: Z değerini değiştir\n"
+                             "Tekerlek: yakınlaştır • Çift tık: görünümü sıfırla")
+
         self.plot = pg.PlotWidget(background=theme.paint("@@SURFACE_SUBTLE@@"))
         self.plot.showGrid(x=True, y=True, alpha=0.25)
-        self.plot.setMinimumHeight(150)
-        self.plot.setMaximumHeight(300)
-        self.plot.addLegend(offset=(5, 5)) if rows > 1 and c.kind == "MAP" else None
-        self.hide_plot_button = QPushButton("GİZLE")
-        self.hide_plot_button.setCheckable(True)
-        self.hide_plot_button.setToolTip("Grafiği gizle / göster")
-        self.hide_plot_button.toggled.connect(self._on_hide_plot)
+        self.plot.setMinimumHeight(120)
+        self.plot.scene().sigMouseClicked.connect(self._on_contour_clicked)
 
+        self.mesh_panel = self._plot_panel("Plot - Mesh", self.mesh)
+        self.contour_panel = self._plot_panel("Plot - Contour", self.plot)
+        self.mesh_checkbox.toggled.connect(self.mesh_panel.setVisible)
+        self.contour_checkbox.toggled.connect(self.contour_panel.setVisible)
+        self.plot_splitter = QSplitter(Qt.Vertical)
+        self.plot_splitter.addWidget(self.mesh_panel)
+        self.plot_splitter.addWidget(self.contour_panel)
+        self.plot_splitter.setChildrenCollapsible(False)
+        self.plot_splitter.setStretchFactor(0, 3)
+        self.plot_splitter.setStretchFactor(1, 2)
+
+        # --- Sol taraf: Spreadsheet (X üstte, Y solda, Z hücrelerde) ---
         self.table = QTableWidget()
         self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
-        # Eksen değerleri (başlıklar) Lookup penceresindeki gibi gri zeminde, kalın
-        hdr_css = theme.paint("QHeaderView::section { background:@@LINE_SOFT@@; color:@@HEAD@@; font-weight:bold; padding:3px 8px; border:1px solid @@BORDER@@; }")
-        self.table.horizontalHeader().setStyleSheet(hdr_css)
-        self.table.verticalHeader().setStyleSheet(hdr_css)
+        apply_lookup_style(self.table)   # MATLAB: gri indeks satırı/sütunu + kalın eksen değerleri
         self.table.setSelectionBehavior(QAbstractItemView.SelectItems)
         self.table.itemChanged.connect(self._on_item_changed)
         self.table.itemSelectionChanged.connect(self._on_selection_changed)
@@ -183,6 +231,62 @@ class MapDocument(QWidget):
         sc_paste = QShortcut(QKeySequence.Paste, self.table)
         sc_paste.setContext(Qt.WidgetShortcut)
         sc_paste.activated.connect(self.paste_from_clipboard)
+
+        self.axis_label = QLabel(self._axis_summary())
+        self.axis_label.setWordWrap(True)
+        self.axis_label.setStyleSheet(f"color:{theme.INK_2}; font-size:11px;")
+
+        # Üst: nesne adı + MATLAB ifadesi satırı, altında eksen seçici (MATLAB Spreadsheet sekmesi)
+        self.name_combo = QComboBox()
+        self.name_combo.addItem(c.name)
+        self.name_combo.setEnabled(False)
+        self.expr_edit = QLineEdit()
+        self.expr_edit.setPlaceholderText("İfade yazıp Enter'a basın (seçili hücrelere; x = hücrenin değeri, ör. x*1.1+2)")
+        self.expr_edit.returnPressed.connect(self.apply_expression)
+        expr_row = QHBoxLayout()
+        expr_row.addWidget(self.name_combo, 1)
+        expr_row.addWidget(self.expr_edit, 3)
+        self.axis_combo = QComboBox()
+        names = self._axis_names()
+        self.axis_combo.addItems([names[1] if c.kind == "MAP" else names[0]])
+        self.axis_combo.setEnabled(False)
+        self.axis_combo.setMaximumWidth(200)
+        top = QWidget()
+        tl = QVBoxLayout(top)
+        tl.setContentsMargins(6, 6, 6, 4)
+        tl.addLayout(expr_row)
+        tl.addWidget(self.axis_combo)
+        tl.addWidget(self.axis_label)
+
+        # Sol kenarda dikey eksen adı (MATLAB'daki "SpeedVect" düğmesi)
+        self.side_label = _VerticalLabel(names[1] if c.kind == "MAP" else names[2])
+        body = QWidget()
+        bl = QHBoxLayout(body)
+        bl.setContentsMargins(4, 0, 0, 0)
+        bl.addWidget(self.side_label)
+        bl.addWidget(self.table, 1)
+        sheet = self._plot_panel("Spreadsheet", body, extra=top)
+
+        self.main_splitter = QSplitter(Qt.Horizontal)
+        self.main_splitter.addWidget(sheet)
+        self.main_splitter.addWidget(self.plot_splitter)
+        self.main_splitter.setChildrenCollapsible(False)
+        self.main_splitter.setStretchFactor(0, 3)
+        self.main_splitter.setStretchFactor(1, 4)
+        self.main_splitter.setSizes([600, 600])
+        self.plot_splitter.setSizes([320, 220])
+
+        # --- Veri kaynağı tablosu (MATLAB "Data Source") ---
+        self.source_table = QTableWidget()
+        self.source_table.setColumnCount(3)
+        self.source_table.setHorizontalHeaderLabels(["Kaynak Türü", "Kaynak", "Ad"])
+        self.source_table.horizontalHeader().setStretchLastSection(True)
+        self.source_table.verticalHeader().setVisible(False)
+        self.source_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.source_table.setSelectionMode(QAbstractItemView.NoSelection)
+        self.source_table.setMaximumHeight(118)
+        self._fill_source_table()
+        source_panel = self._plot_panel(f"Veri Kaynağı - {c.name}", self.source_table)
 
         # --- Ayrıntılar: hücre başına Adres / Hex / Değer / Ad / Tip / Birim ---
         self.details_button = QPushButton("Ayrıntıları göster >>")
@@ -204,26 +308,76 @@ class MapDocument(QWidget):
         head = QHBoxLayout()
         head.addWidget(self.info_label, stretch=1)
         head.addWidget(self.online_label)
-        plot_row = QHBoxLayout()
-        plot_row.addWidget(self.plot, stretch=1)
 
         layout = QVBoxLayout(self)
         layout.addLayout(head)
         layout.addWidget(self.caveat_label)
         layout.addLayout(toolbar)
-        layout.addWidget(self.plot)
-        hide_row = QHBoxLayout()
-        hide_row.addStretch()
-        hide_row.addWidget(self.hide_plot_button)
-        layout.addLayout(hide_row)
         layout.addLayout(bulk)
-        layout.addWidget(self.table, stretch=1)
+        layout.addWidget(self.main_splitter, stretch=1)
+        layout.addWidget(source_panel)
         details_row = QHBoxLayout()
         details_row.addWidget(self.details_button)
         details_row.addStretch()
         layout.addLayout(details_row)
         layout.addWidget(self.details_table, stretch=1)
         layout.addWidget(self.status_label)
+
+    @staticmethod
+    def _plot_panel(title: str, body: QWidget, extra: QWidget | None = None) -> QFrame:
+        """MATLAB penceresindeki gibi başlık çubuklu çerçeve."""
+        frame = QFrame()
+        frame.setFrameShape(QFrame.StyledPanel)
+        lay = QVBoxLayout(frame)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
+        head = QLabel(title)
+        head.setStyleSheet(theme.paint(
+            "background:@@LINE_SOFT@@; color:@@HEAD@@; font-weight:600; padding:3px 8px; "
+            "border-bottom:1px solid @@BORDER@@;"))
+        lay.addWidget(head)
+        if extra is not None:
+            lay.addWidget(extra)
+        lay.addWidget(body, 1)
+        return frame
+
+    def _axis_summary(self) -> str:
+        c = self.characteristic
+        ax = list(getattr(c, "axes", None) or [])
+        unit = lambda a: f" [{a.unit}]" if a is not None and a.unit else ""
+        zu = f" [{c.unit}]" if c.unit else ""
+        if c.kind == "MAP":
+            return (f"X (sütun){unit(ax[0] if ax else None)} →   |   Y (satır){unit(ax[1] if len(ax) > 1 else None)} ↓   |   "
+                    f"Z (değer){zu}")
+        if c.kind == "CURVE":
+            return f"X (nokta){unit(ax[0] if ax else None)} →   |   Z (değer){zu}"
+        return f"X (indeks) →   |   Y (satır indeksi) ↓   |   Z (değer){zu}"
+
+    def _axis_names(self) -> tuple:
+        c = self.characteristic
+        ax = list(getattr(c, "axes", None) or [])
+
+        def nm(letter, a):
+            return f"{letter} ({a.unit})" if a is not None and a.unit else letter
+        zl = f"Z ({c.unit})" if c.unit else "Z"
+        if c.kind == "MAP":
+            return nm("X", ax[0] if ax else None), nm("Y", ax[1] if len(ax) > 1 else None), zl
+        if c.kind == "CURVE":
+            return nm("X", ax[0] if ax else None), "Y", zl
+        return "X", "Y", zl
+
+    def _fill_source_table(self):
+        c = self.characteristic
+        addr = f"0x{c.address:X}" if c.address else "-"
+        rows = [("A2L", f"{c.kind} @ {addr}", f"{c.name}  (Z)")]
+        for letter, a in zip("XY", getattr(c, "axes", None) or []):
+            rows.append((f"A2L eksen {letter}", f"{a.attribute} • {a.count} nokta", a.unit or "-"))
+        self.source_table.setRowCount(len(rows))
+        for i, row in enumerate(rows):
+            for j, text in enumerate(row):
+                self.source_table.setItem(i, j, QTableWidgetItem(text))
+        self.source_table.resizeColumnsToContents()
+        self.source_table.horizontalHeader().setStretchLastSection(True)
 
     def _axis_labels(self, axis_info, count: int, fallback_prefix: str) -> list:
         if axis_info is not None and axis_info.values:
@@ -254,7 +408,7 @@ class MapDocument(QWidget):
         for r in range(rows):
             for col in range(cols):
                 item = QTableWidgetItem(PLACEHOLDER)
-                item.setTextAlignment(Qt.AlignCenter)
+                item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 self.table.setItem(r, col, item)
         self._updating_table = False
 
@@ -274,8 +428,10 @@ class MapDocument(QWidget):
         self._style_online_label()
 
     def _on_hide_plot(self, hidden: bool):
-        self.plot.setVisible(not hidden)
-        self.hide_plot_button.setText("GÖSTER" if hidden else "GİZLE")
+        self.plot_splitter.setVisible(not hidden)
+        self.hide_plot_button.setText("GRAFİKLERİ GÖSTER" if hidden else "GRAFİKLERİ GİZLE")
+        if not hidden:
+            self._refresh_plot()
 
     def _axis_x_values(self, cols: int) -> list:
         c = self.characteristic
@@ -284,15 +440,44 @@ class MapDocument(QWidget):
             return [float(v) for v in ax.values]
         return [float(i) for i in range(cols)]
 
+    def _axis_y_values(self, rows: int) -> list:
+        c = self.characteristic
+        ax = c.axes[1] if len(getattr(c, "axes", None) or []) > 1 else None
+        if c.kind == "MAP" and ax is not None and ax.values and len(ax.values) == rows:
+            return [float(v) for v in ax.values]
+        return [float(i) for i in range(rows)]
+
+    def _is_2d(self, vals) -> bool:
+        return len(vals) >= 2 and len(vals[0]) >= 2
+
     def _refresh_plot(self, vals=None):
-        if not self.plot.isVisible() and self.hide_plot_button.isChecked():
+        if self.hide_plot_button.isChecked():
             return
         vals = vals if vals is not None else self._values()
+        sel = self._selected_cells()
+        if vals and vals[0]:
+            xs, ys = self._axis_x_values(len(vals[0])), self._axis_y_values(len(vals))
+        else:
+            xs, ys = [0.0], [0.0]
+        # --- Plot - Mesh (3B) ---
+        self.mesh.set_data(xs, ys, vals if vals else [[None]], sel, self._axis_names(), self.is_cell_editable())
+        # --- Plot - Contour ---
         self.plot.clear()
         if not vals or not vals[0]:
             return
-        cols = len(vals[0])
-        xs = self._axis_x_values(cols)
+        if self._is_2d(vals):
+            self._plot_contour(vals, xs, ys, sel)
+        else:
+            self._plot_lines(vals, xs, sel)
+
+    def _plot_lines(self, vals, xs, sel):
+        """CURVE / 1xN dizi: değer - eksen çizgisi."""
+        pi = self.plot.getPlotItem()
+        pi.getAxis("bottom").setTicks(None)
+        pi.getAxis("left").setTicks(None)
+        names = self._axis_names()
+        pi.setLabel("bottom", names[0])
+        pi.setLabel("left", names[2])
         palette = [theme.ACCENT, theme.DANGER, theme.OK, theme.WARN_INK, theme.PURPLE, "#0E8C7C", theme.MUTED]
         for r, row in enumerate(vals):
             pts = [(x, v) for x, v in zip(xs, row) if v is not None]
@@ -302,15 +487,95 @@ class MapDocument(QWidget):
             self.plot.plot([p[0] for p in pts], [p[1] for p in pts],
                            pen=pg.mkPen(color, width=2), symbol="o", symbolSize=7,
                            symbolBrush=None, symbolPen=pg.mkPen(color, width=1.5))
-        # seçili hücreler: kırmızı dolu nokta
-        sel = []
-        for rr, cc in self._selected_cells():
-            if rr < len(vals) and cc < len(vals[rr]) and vals[rr][cc] is not None and cc < len(xs):
-                sel.append((xs[cc], vals[rr][cc]))
-        if sel:
-            self.plot.plot([p[0] for p in sel], [p[1] for p in sel], pen=None, symbol="o",
-                           symbolSize=11, symbolBrush=pg.mkBrush("#ff0000"),
-                           symbolPen=pg.mkPen("#ff0000"))
+        pts = [(xs[cc], vals[rr][cc]) for rr, cc in sel
+               if rr < len(vals) and cc < len(vals[rr]) and vals[rr][cc] is not None and cc < len(xs)]
+        if pts:
+            self.plot.plot([p[0] for p in pts], [p[1] for p in pts], pen=None, symbol="o",
+                           symbolSize=11, symbolBrush=pg.mkBrush("#ff0000"), symbolPen=pg.mkPen("#ff0000"))
+
+    def _plot_contour(self, vals, xs, ys, sel):
+        """MAP / 2B dizi: eş-değer (izoçizgi) haritası; eksenler indeks uzayında, etiketler gerçek eksen değeri."""
+        import numpy as np
+        flat = [v for row in vals for v in row if v is not None]
+        if not flat:
+            return
+        mean = sum(flat) / len(flat)
+        arr = np.array([[mean if v is None else v for v in row] for row in vals], dtype=float).T   # [x, y]
+        lo, hi = float(arr.min()), float(arr.max())
+        rows, cols = len(vals), len(vals[0])
+        pi = self.plot.getPlotItem()
+        names = self._axis_names()
+        pi.setLabel("bottom", names[0])
+        pi.setLabel("left", names[1])
+
+        def ticks(vs):
+            step = max(1, math.ceil(len(vs) / 8))
+            return [[(i, f"{vs[i]:g}") for i in range(0, len(vs), step)]]
+        pi.getAxis("bottom").setTicks(ticks(xs))
+        pi.getAxis("left").setTicks(ticks(ys))
+
+        img = pg.ImageItem(axisOrder="col-major")
+        img.setImage(arr, levels=(lo, hi if hi > lo else lo + 1.0))
+        img.setLookupTable(np.array(parula_lut(), dtype=np.ubyte))
+        img.setRect(pg.QtCore.QRectF(-0.5, -0.5, cols, rows))
+        img.setOpacity(0.35)
+        self.plot.addItem(img)
+        if hi - lo > 1e-12:
+            n = 9
+            for k in range(1, n + 1):
+                level = lo + (hi - lo) * k / (n + 1)
+                col = parula(k / (n + 1))
+                iso = pg.IsocurveItem(data=arr, level=level, pen=pg.mkPen(col.darker(120), width=1.6))
+                self.plot.addItem(iso)
+        pts = [(cc, rr) for rr, cc in sel if rr < rows and cc < cols and vals[rr][cc] is not None]
+        if pts:
+            self.plot.plot([p[0] for p in pts], [p[1] for p in pts], pen=None, symbol="o",
+                           symbolSize=9, symbolBrush=pg.mkBrush("#ff0000"), symbolPen=pg.mkPen("#7a0000"))
+        self.plot.setXRange(-0.5, cols - 0.5, padding=0.02)
+        self.plot.setYRange(-0.5, rows - 0.5, padding=0.02)
+
+    # ---- 3B / contour üzerinden seçim ve düzenleme ---------------------------
+    def _select_cell(self, r: int, c: int, additive: bool = False):
+        if r >= self.table.rowCount() or c >= self.table.columnCount():
+            return
+        item = self.table.item(r, c)
+        if item is None:
+            return
+        if additive:
+            item.setSelected(not item.isSelected())
+            self.table.setCurrentItem(item, QItemSelectionModel.NoUpdate)
+        else:
+            self.table.clearSelection()
+            self.table.setCurrentCell(r, c)
+            item.setSelected(True)
+        self.table.scrollToItem(item)
+
+    def _on_mesh_picked(self, r: int, c: int, additive: bool):
+        self._select_cell(r, c, additive)
+
+    def _on_mesh_dragged(self, r: int, c: int, value: float):
+        """3B yüzeyde düğüm sürükleme: tablo hücresi canlı güncellenir; geri-al adımı bırakınca atılır."""
+        item = self.table.item(r, c)
+        if item is None or not self.is_cell_editable():
+            return
+        self._updating_table = True
+        item.setText(_fmt(value))
+        self._updating_table = False
+        self._refresh_cell_colors()
+
+    def _on_contour_clicked(self, ev):
+        if ev.button() != Qt.LeftButton:
+            return
+        vals = self._values()
+        if not self._is_2d(vals):
+            return
+        vb = self.plot.getPlotItem().vb
+        if not vb.sceneBoundingRect().contains(ev.scenePos()):
+            return
+        p = vb.mapSceneToView(ev.scenePos())
+        r, c = int(round(p.y())), int(round(p.x()))
+        if 0 <= r < len(vals) and 0 <= c < len(vals[0]):
+            self._select_cell(r, c, bool(ev.modifiers() & Qt.ControlModifier))
 
     def _cell_name(self, r: int, c: int, rows: int, cols: int) -> str:
         n = self.characteristic.name
@@ -467,7 +732,7 @@ class MapDocument(QWidget):
                     if r >= self.table.rowCount() or c >= self.table.columnCount():
                         continue
                     item = QTableWidgetItem()
-                    item.setTextAlignment(Qt.AlignCenter)
+                    item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
                     self.table.setItem(r, c, item)
                 item.setText(_fmt(val))
         self._updating_table = False
@@ -536,11 +801,12 @@ class MapDocument(QWidget):
                     item.setForeground(QColor(theme.INK))
                 elif heatmap_on:
                     ratio = (val - vmin) / span
-                    color = QColor.fromHsvF(0.66 * (1.0 - ratio), 0.7, 0.55)  # mavi (düşük) -> kırmızı (yüksek)
+                    # MATLAB Lookup Table Editor: mor (düşük) -> açık mavi (yüksek)
+                    color = QColor(int(150 - 40 * ratio), int(125 + 60 * ratio), int(222 + 25 * ratio))
                     item.setBackground(color)
-                    item.setForeground(MODIFIED_FG if modified else QColor(theme.SURFACE))
+                    item.setForeground(HEAT_MODIFIED_FG if modified else QColor(theme.INK))
                 else:
-                    item.setBackground(MODIFIED_BG if modified else QColor(theme.paint("@@SURFACE_SUBTLE@@")))
+                    item.setBackground(MODIFIED_BG if modified else QColor(theme.SURFACE))
                     item.setForeground(MODIFIED_FG if modified else QColor(theme.INK))
                 font = item.font()
                 font.setBold(modified)
@@ -581,6 +847,44 @@ class MapDocument(QWidget):
                 new = cur * operand
             else:  # pct
                 new = cur * (1.0 + operand / 100.0)
+            if not math.isfinite(new):
+                skipped += 1
+                continue
+            item.setText(_fmt(new))
+            updated += 1
+        self._updating_table = False
+        self._push_history()
+        self._report_bulk(updated, skipped)
+        return updated, skipped
+
+    def apply_expression(self) -> tuple:
+        """Üstteki ifade kutusu: seçili hücrelere ifadeyi uygular (x = hücrenin değeri). TEK undo adımı."""
+        text = self.expr_edit.text().strip()
+        cells = self._selected_cells()
+        if not text or not cells:
+            self._set_status("Önce hücre seçin ve bir ifade yazın.", ok=False)
+            return 0, 0
+        env = {k: getattr(math, k) for k in ("sqrt", "sin", "cos", "tan", "exp", "log", "log10", "pi", "floor", "ceil")}
+        env.update(abs=abs, min=min, max=max, round=round)
+        try:
+            code = compile(text, "<ifade>", "eval")
+        except SyntaxError:
+            self._set_status("İfade geçersiz.", ok=False)
+            return 0, 0
+        if any(n.startswith("__") for n in code.co_names):
+            self._set_status("İfade geçersiz.", ok=False)
+            return 0, 0
+        updated = skipped = 0
+        self._updating_table = True
+        for r, c in cells:
+            item = self.table.item(r, c)
+            cur = _parse_number(item.text()) if item else None
+            try:
+                new = eval(code, {"__builtins__": {}}, dict(env, x=cur if cur is not None else 0.0))   # noqa: S307
+                new = float(new)
+            except Exception:
+                skipped += 1
+                continue
             if not math.isfinite(new):
                 skipped += 1
                 continue
