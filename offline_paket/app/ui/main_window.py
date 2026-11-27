@@ -1,5 +1,4 @@
 import logging
-import os
 from datetime import datetime
 
 from PySide6.QtCore import QTimer, Qt, Signal
@@ -54,6 +53,7 @@ from app.ui.mainwin.exports import ExportMixin
 from app.ui.mainwin.modas import ModasMixin
 from app.ui.mainwin.panel import PanelMixin
 from app.ui.mainwin.profiles import ProfilesMixin
+from app.ui.mainwin.recording import RecordingMixin
 from app.ui.modas.pages import PageModel
 from app.ui.modas.ribbon import ModasRibbon
 from app.ui.modas.workspace import ModasSheetStore, ModasWorkspace
@@ -70,7 +70,7 @@ class _ClickLabel(QLabel):
 
 
 class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, ProfilesMixin, ExportMixin, ModasMixin,
-                 QMainWindow):
+                 RecordingMixin, QMainWindow):
     """Ana pencere: pencere çatısı, sayfalar, sinyal bağlantıları ve kapanış. İş mantığı alanlara bölünmüş
     parçalardadır (bkz. ``app/ui/mainwin``): bağlantı, CCP/kalibrasyon, Ana Sayfa, Kontrol Paneli, profiller."""
 
@@ -198,12 +198,7 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self._build_ui_chrome()
 
         self.dashboard_tab.set_config(self.dashboard_config_store.load())
-        # Trend yerleşimi (sıra/renk/görünürlük/ofset/şerit modu/pencere) oturumlar arası kalıcı: önce yükle, sonra değişiklikler
-        # (yalnızca kullanıcı etkileşimi) otomatik kaydedilir.
-        _trend_layout = data_path("trend_yerlesim.json")
-        if os.path.exists(_trend_layout):
-            self.dashboard_tab.trend.load_layout(_trend_layout)
-        self.dashboard_tab.trend.layout_path = _trend_layout
+        self._load_trend_layout()
         self._migrate_control_bindings()
         self._rebuild_dash_can_map()
         self.watch_tab.set_storage_path(data_path("watchlist.json"))
@@ -252,26 +247,7 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self.a2l_tab.a2l_loaded.connect(self._rebuild_record_index)
         self.session_tab.session_started.connect(self._on_session_record_start)
         self.session_tab.session_stopped.connect(self._on_session_record_stop)
-        self.connection_tab.mode_changed.connect(self._on_backend_mode_changed)
-        self.connection_tab.manifest_requested.connect(self._on_sim_manifest_requested)
-        self.model_ctl = None
-        self.session_tab.trigger_panel.config_changed.connect(self._on_trigger_config)
-        self._model_events_seen = 0
-        self.dashboard_tab.sim_panel.connect_requested.connect(self._on_model_connect)
-        self.dashboard_tab.sim_panel.command_requested.connect(self._on_model_command)
-        self._model_timer = QTimer(self)
-        self._model_timer.setInterval(250)
-        self._model_timer.timeout.connect(self._update_model_panel)
-        self._model_timer.start()
-        self.a2l_tab.a2l_loaded.connect(self._apply_sim_params)
-        self._init_sim_manifest()
-        self.session_tab.record_pause_requested.connect(self._on_record_pause)
-        self.session_tab.record_resume_requested.connect(self._on_record_resume)
-        self.session_tab.marker_requested.connect(self._on_record_marker)
-        self._rec_timer = QTimer(self)
-        self._rec_timer.setInterval(500)               # yalnızca GÖSTERGE; kayıt hızı bundan bağımsızdır
-        self._rec_timer.timeout.connect(self._update_rec_state)
-        self._rec_timer.start()
+        self._wire_recording()
         self.session_tab.excel_requested.connect(self._on_excel_export_requested)
         self.history_tab.history = self.calibration_history
         self.change_tracker = self.watch_tab.tracker   # tek ortak değişiklik takibi (Parametre Listesi, CCP, geçmiş)
@@ -528,25 +504,7 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
             sc = QShortcut(QKeySequence(f"Ctrl+{i + 1}"), self)
             sc.setContext(Qt.ApplicationShortcut)
             sc.activated.connect(lambda idx=i: self.nav_bar.setCurrentIndex(idx))
-        # Kayıt / trend kısayolları (uygulama kapsamlı, üç tuşlu: yanlışlıkla basılmasın)
-        st = self.session_tab
-
-        def app_sc(seq: str, fn):
-            sc = QShortcut(QKeySequence(seq), self)
-            sc.setContext(Qt.ApplicationShortcut)
-            sc.activated.connect(fn)
-            return sc
-        self._rec_shortcuts = [
-            app_sc("Ctrl+Shift+R", lambda: st._on_start() if st.start_button.isEnabled() else st._on_stop()),
-            app_sc("Ctrl+Shift+P", lambda: st.pause_button.click() if st.pause_button.isEnabled() else None),
-            app_sc("Ctrl+Shift+M", lambda: st.marker_button.click() if st.marker_button.isEnabled() else None),
-            app_sc("Ctrl+Shift+F", lambda: dt.trend.btn_freeze.toggle()),
-        ]
-        st.start_button.setToolTip("Kaydı başlatır (Ctrl+Shift+R)")
-        st.stop_button.setToolTip("Kaydı bitirir (Ctrl+Shift+R)")
-        st.pause_button.setToolTip("Kaydı duraklatır / sürdürür (Ctrl+Shift+P)")
-        st.marker_button.setToolTip("Kayda ve trende olay işareti ekler (Ctrl+Shift+M)")
-        dt.trend.btn_freeze.setToolTip(dt.trend.btn_freeze.toolTip() + " (Ctrl+Shift+F)")
+        self._install_record_shortcuts()
         dt.estop_hint = f"Kısayol: {self.ESTOP_SHORTCUT}"
         dt.update_estop_tooltip()
         names = {
@@ -680,15 +638,6 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self.user_tab.profile_save_requested.connect(self._on_profile_save)
         self.user_tab.profile_apply_requested.connect(self._on_profile_apply)
         self.user_tab.profile_delete_requested.connect(self._on_profile_delete)
-
-    def _on_backend_mode_changed(self, mode: str):
-        """Mod değişince (yalnızca bağlı değilken mümkün) açık kayıt güvenle kapatılır; REAL/MIL kayıtları karışmaz."""
-        self.backend_mode = mode
-        self.dashboard_tab.sim_panel.setVisible(mode == "MIL")
-        self.dashboard_tab.set_signal_source({"REAL": "PCAN", "MIL": "Simulink MIL"}.get(mode, "Sanal"))
-        if self.session_recorder.is_active:
-            self.session_tab._on_stop()
-            self._log_event("OTURUM", f"Mod {mode} olarak değişti: açık kayıt güvenle kapatıldı")
 
     def _log_event(self, category: str, message: str):
         self.event_log.add(category, message, user=self.current_user, role=self.current_role.value)
