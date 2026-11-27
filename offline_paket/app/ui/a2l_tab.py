@@ -210,6 +210,6 @@ class A2LTab(QWidget):
             self.detail_readonly.setText("Hayır (salt okunur)" if obj.read_only else "Evet (kalibrasyon)")
             tunable = obj.kind == "SCALAR" and not obj.read_only
             self.detail_use.setText(
-                "Kalibrasyon > Parametre Listesi'nde değiştirilir; grafik/trend'de 'Ayarlanabilir parametreler' "
+                "Worksheets'te değer penceresinde değiştirilir; grafik/trend'de 'Ayarlanabilir parametreler' "
                 "grubundan çizilebilir" if tunable else
-                "Kalibrasyon > Harita Editörü'nde düzenlenir" if obj.kind in ("CURVE", "MAP", "ARRAY") else "-")
+                "Worksheets'te tablo penceresinde düzenlenir" if obj.kind in ("CURVE", "MAP", "ARRAY") else "-")

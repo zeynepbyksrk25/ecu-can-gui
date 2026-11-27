@@ -10,7 +10,6 @@ CONNECTION_LOSS_CONFIRM_S = 3.0
 RECONNECT_INTERVAL_MS = 2000  # bağlantı koptuktan sonra otomatik yeniden bağlanma denemesi aralığı
 SILENT_NOTICE_S = 3.0  # bu kadar süre mesaj gelmezse bağlantı şeridinde "Hat sessiz" uyarısı
 CCP_AUTO_CONNECT_DELAY_MS = 300  # CAN bağlandıktan kaç ms sonra CCP otomatik bağlansın
-WATCH_FAIL_STREAK_LIMIT = 3  # Parametre Listesi'nde art arda bu kadar ECU-cevapsız turdan sonra sürekli okuma durur
 # Güvenlik komutları (Acil Durdurma / Motor Durdur): CAN'da aynı kare, ilkinden sonra bu kadar kez daha ve bu
 # aralıkla tekrarlanır; A2L/CCP'de iletişim hatasında bu kadar denemeye kadar yeniden yazılır.
 SAFETY_REPEAT_COUNT = 4

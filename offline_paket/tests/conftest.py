@@ -12,6 +12,23 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
+def _fresh_worksheets():
+    """Worksheet düzeni (modas_worksheets.json) testler arasında sızmasın: önceki testin kaydettiği pencereler
+    sonraki testin MainWindow'unda canlanmasın."""
+    from app.paths import data_path
+    for name in ("modas_worksheets.json", "modas_templates.json"):
+        for suffix in ("", ".bak", ".tmp"):
+            try:
+                os.remove(data_path(name) + suffix)
+            except OSError:
+                pass
+    import shutil
+    for folder in ("makrolar", "parametre_dosyalari", "modas_projects"):
+        shutil.rmtree(data_path(folder), ignore_errors=True)
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _qt_cleanup():
     """Test yalıtımı: her testten sonra açık kalan pencereler kapatılır, zamanlayıcıları durdurulur. Aksi halde önceki
     testlerin pencereleri (zamanlayıcıları ve iş parçacıklarıyla) yaşamaya devam eder; sonraki testleri

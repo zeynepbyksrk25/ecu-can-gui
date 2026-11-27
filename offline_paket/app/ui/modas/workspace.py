@@ -21,7 +21,10 @@ from PySide6.QtWidgets import (
 
 from app import theme
 from app.persist import atomic_write_json, load_json
+from app.signal_hub import SignalHub
 from app.ui.modas.pages import RP, WP
+from app.ui.modas.scope import ScopeWindow, label_of
+from app.ui.modas.testbench import BY_KEY as INPUT_BY_KEY, TestInputWindow
 from app.ui.modas.style import MODAS_QSS
 from app.ui.modas.variable_list import MIME, LogPanel, VariableListPanel, classify
 from app.ui.modas.windows import ModasSub, TableWindow, ValueWindow
@@ -29,7 +32,7 @@ from app.ui.modas.windows import ModasSub, TableWindow, ValueWindow
 log = logging.getLogger(__name__)
 
 STATE_VERSION = 1
-MEASURE_INTERVAL_MS = 250          # watch_tab.POLL_INTERVAL_MS ile aynı: değerler arka plan CCP önbelleğinden gelir
+MEASURE_INTERVAL_MS = 250          # Değerler arka plan CCP önbelleğinden gelir
 SAVE_DELAY_MS = 500
 DEFAULT_SHEET = "Sheet1"
 
@@ -108,6 +111,7 @@ class ModasWorkspace(QWidget):
     measuring_changed = Signal(bool)
     page_changed = Signal(str)
     layout_changed = Signal()                 # pencere eklendi / silindi / sayfa değişti (Diff yeniden hesaplanır)
+    input_submitted = Signal(object, float)   # test girişi penceresi: (pencere, değer) gönderim isteği
 
     def __init__(self, store: ModasSheetStore | None = None):
         super().__init__()
@@ -122,6 +126,10 @@ class ModasWorkspace(QWidget):
         self._page = WP
         self._reference: dict = {}
         self._cascade = 0
+        self.hub = SignalHub()                  # osiloskop (scope) pencerelerinin ortak veri deposu
+        self._inputs_allowed = True             # rol, test girişi göndermeye izin veriyor mu
+        self._inputs_reason = ""
+        self.input_value_provider = None        # callable(anahtar) -> float | None: test girişi pencerelerinin başlangıç değeri
 
         # ---- orta: MDI yığını + Variable list
         self.stack_host = QWidget()
@@ -227,6 +235,25 @@ class ModasWorkspace(QWidget):
         self._changed()
         return sheet
 
+    def sheet_specs(self, index: int | None = None) -> list:
+        """Worksheet'in pencere tanımları (şablon olarak saklamak için); ``index`` verilmezse aktif worksheet."""
+        return self._sheet_specs(self._sheets[max(0, self.tabs.currentIndex()) if index is None else index])
+
+    def new_sheet_from_specs(self, name: str, specs: list) -> tuple:
+        """Verilen pencere tanımlarından yeni worksheet kurar; ``(worksheet, kurulan, istenen)`` döner. A2L'de bulunamayan
+        etiketler worksheet'te bekleyen kalır (A2L yüklenince kurulur) ve kaydedilen düzende korunur."""
+        base, i = (name or "Sheet").strip() or "Sheet", 1
+        unique = base
+        while unique in self.sheet_names():
+            i += 1
+            unique = f"{base} {i}"
+        sheet = self._make_sheet(unique)
+        sheet.pending = [dict(s) for s in specs]
+        self._materialize(sheet)
+        self._sync_hub()
+        self._changed()
+        return sheet, len(sheet.windows), len(specs)
+
     def rename_sheet(self, index: int, name: str | None = None) -> bool:
         if not 0 <= index < len(self._sheets):
             return False
@@ -309,6 +336,13 @@ class ModasWorkspace(QWidget):
     def _materialize(self, sheet: _Sheet):
         left = []
         for spec in sheet.pending:
+            if spec.get("kind") == "scope":              # osiloskop: A2L'ye bağlı değil (sinyaller ad olarak saklanır)
+                self._open_scope(sheet, spec.get("name"), state=spec, geom=spec.get("geom"))
+                continue
+            if spec.get("kind") == "input":              # test girişi: A2L'ye bağlı değil; bilinmeyen anahtar atılır
+                if spec.get("key") in INPUT_BY_KEY:
+                    self._open_input(sheet, spec["key"], geom=spec.get("geom"))
+                continue
             obj = self._by_name.get(spec.get("name", ""))
             if obj is None:
                 left.append(spec)
@@ -363,6 +397,8 @@ class ModasWorkspace(QWidget):
             win.write_requested.connect(self.table_write_requested.emit)
             win.read_requested.connect(lambda w: self.table_read_requested.emit([w]))
             win.set_allowed(self._allowed)
+            if fmt:
+                win.set_format(fmt)
         else:
             win = ValueWindow(obj, "cal" if kind == "value" else "meas")
             win.write_requested.connect(self.value_write_requested.emit)
@@ -380,6 +416,102 @@ class ModasWorkspace(QWidget):
         self._apply_page_to(win)
         return win
 
+    # ---- test girişleri (uçuş koşulu / motor komutu) ----------------------------------
+    def add_input(self, key: str, pos: QPoint | None = None):
+        """Test girişi penceresini aktif worksheet'e ekler; zaten açıksa onu öne getirir."""
+        if key not in INPUT_BY_KEY:
+            return None
+        sheet = self.current_sheet()
+        existing = self.find_window(INPUT_BY_KEY[key].title, sheet)
+        if existing is not None:
+            sheet.mdi.setActiveSubWindow(existing)
+            return existing
+        win = self._open_input(sheet, key, pos=pos)
+        self._changed()
+        return win
+
+    def _open_input(self, sheet: _Sheet, key: str, geom=None, pos=None) -> TestInputWindow:
+        win = TestInputWindow(key)
+        win.submitted.connect(self.input_submitted.emit)
+        win.closed.connect(lambda w, s=sheet: self._on_closed(s, w))
+        win.set_allowed(self._inputs_allowed, self._inputs_reason)
+        if self.input_value_provider is not None:
+            win.set_value(self.input_value_provider(key))
+        sheet.mdi.addSubWindow(win)
+        win.show()
+        if isinstance(geom, (list, tuple)) and len(geom) == 4 and all(isinstance(v, (int, float)) for v in geom):
+            win.setGeometry(*(int(v) for v in geom))
+        else:
+            win.move(pos if pos is not None else self._next_pos())
+        sheet.windows.append(win)
+        return win
+
+    def input_windows(self, all_sheets: bool = True) -> list:
+        return [w for w in self.windows(all_sheets) if isinstance(w, TestInputWindow)]
+
+    def set_inputs_allowed(self, allowed: bool, reason: str = ""):
+        self._inputs_allowed, self._inputs_reason = bool(allowed), reason
+        for w in self.input_windows():
+            w.set_allowed(self._inputs_allowed, reason)
+
+    def refresh_inputs(self, values: dict | None = None):
+        """Test girişi pencerelerinin değerlerini senkronlar (``values`` verilmezse sağlayıcıdan)."""
+        for w in self.input_windows():
+            if values is not None and w.key in values:
+                w.set_value(values[w.key])
+            elif values is None and self.input_value_provider is not None:
+                w.set_value(self.input_value_provider(w.key))
+
+    # ---- osiloskop (scope) ----------------------------------------------------------
+    def add_scope(self, labels: list | None = None, pos: QPoint | None = None) -> ScopeWindow:
+        """Aktif worksheet'e yeni bir osiloskop penceresi ekler (isteğe bağlı başlangıç etiketleriyle)."""
+        sheet = self.current_sheet()
+        win = self._open_scope(sheet, None, pos=pos)
+        if labels:
+            win.add_labels(labels)
+        self._changed()
+        return win
+
+    def _unique_scope_name(self) -> str:
+        used = {w.label for s in self._sheets for w in s.windows} | {s.get("name") for sh in self._sheets for s in sh.pending}
+        n = 1
+        while f"Scope {n}" in used:
+            n += 1
+        return f"Scope {n}"
+
+    def _open_scope(self, sheet: _Sheet, name: str | None, state: dict | None = None, geom=None, pos=None) -> ScopeWindow:
+        win = ScopeWindow(name or self._unique_scope_name(), self.hub, state=state)
+        win.changed.connect(self._on_scope_changed)
+        win.closed.connect(lambda w, s=sheet: self._on_closed(s, w))
+        sheet.mdi.addSubWindow(win)
+        win.show()
+        if isinstance(geom, (list, tuple)) and len(geom) == 4 and all(isinstance(v, (int, float)) for v in geom):
+            win.setGeometry(*(int(v) for v in geom))
+        else:
+            win.move(pos if pos is not None else self._next_pos())
+        sheet.windows.append(win)
+        self._sync_hub()
+        return win
+
+    def scope_windows(self, all_sheets: bool = True) -> list:
+        return [w for w in self.windows(all_sheets) if isinstance(w, ScopeWindow)]
+
+    def scope_labels(self) -> list:
+        """Osiloskoplarda izlenen etiket adları (sıralı, tekrarsız)."""
+        return sorted({label_of(s) for w in self.scope_windows() for s in w.signals()})
+
+    def _on_scope_changed(self):
+        self._sync_hub()
+        self._changed()
+
+    def _sync_hub(self):
+        """Hub yalnızca osiloskopta kullanılan sinyalleri saklar (bellek / CPU)."""
+        self.hub.set_active([s for w in self.scope_windows() for s in w.signals()])
+
+    def push_sample(self, label: str, value):
+        """Ölçüm turu bir etiketin değerini osiloskop deposuna verir (kullanılmıyorsa hub yok sayar)."""
+        self.hub.push("a2l:" + label, value)
+
     def _next_pos(self) -> QPoint:
         self._cascade = (self._cascade + 1) % 12
         return QPoint(20 + 26 * self._cascade, 20 + 26 * self._cascade)
@@ -387,6 +519,7 @@ class ModasWorkspace(QWidget):
     def _on_closed(self, sheet: _Sheet, win):
         if win in sheet.windows:
             sheet.windows.remove(win)
+        self._sync_hub()
         self._changed()
 
     # ======================================================================
@@ -442,9 +575,9 @@ class ModasWorkspace(QWidget):
         return show
 
     def set_format(self, fmt: str) -> int:
-        """Seçili değer penceresine (yoksa aktif worksheet'teki tüm değer pencerelerine) biçim uygular."""
+        """Seçili değer / tablo penceresine (yoksa aktif worksheet'teki tüm değer ve tablo pencerelerine) biçim uygular."""
         w = self.active_window()
-        targets = [w] if isinstance(w, ValueWindow) else self.value_windows(all_sheets=False)
+        targets = [w] if isinstance(w, (ValueWindow, TableWindow)) else self.windows(all_sheets=False)
         for t in targets:
             t.set_format(fmt)
         self._changed()
@@ -584,6 +717,7 @@ class ModasWorkspace(QWidget):
         for s in state["sheets"]:
             sheet = self._make_sheet(s["name"], select=False)
             sheet.pending = list(s["windows"])
+            self._materialize(sheet)                 # osiloskoplar A2L gerektirmez; etiket pencereleri A2L gelince kurulur
         idx = state["current"] if 0 <= state["current"] < len(self._sheets) else 0
         self.tabs.setCurrentIndex(idx)
         self._on_tab_changed(idx)

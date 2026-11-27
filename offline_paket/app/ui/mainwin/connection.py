@@ -188,7 +188,6 @@ class ConnectionMixin:
         self._conn_lost = True
         self._unhealthy_since = None
         self._teardown_connection(graceful=False)  # adaptör yok: bus'a yazan adımlar atlanır
-        self.watch_tab.stop_polling()
         self.connection_tab.set_lost(True)
         self._panel_conn_state()
         lost_text = f"Bağlantı koptu: {reason}"

@@ -2,88 +2,11 @@
 import json
 
 
-from app.a2l import AxisInfo, CharacteristicInfo
 from app.history import CalibrationHistory
+from tests import test_dashboard_e2e as e2e
 
-
-def _map():
-    xs, ys = [1.0, 2.0, 3.0], [10.0, 20.0]
-    return CharacteristicInfo("M", "", "MAP", 0x1000, "%", "UWORD", 0, 100, False, 2,
-                              axes=[AxisInfo(3, "", "FIX_AXIS", xs), AxisInfo(2, "rpm", "FIX_AXIS", ys)])
-
-
-def _doc(qapp):
-    from app.ui.map_editor_tab import MapEditorTab
-    tab = MapEditorTab()
-    doc = tab.open_characteristic(_map())
-    doc.set_grid_from_ecu([[1, 2, 3], [4, 5, 6]])
-    doc._confirm = lambda *_a: True          # onay diyaloğu testte otomatik "Evet"
-    return doc
-
-
-def test_edited_cell_shows_arrow_and_delta_but_not_applied(qapp):
-    doc = _doc(qapp)
-    doc.table.item(0, 1).setText("2.5")                      # artış
-    doc.table.item(1, 0).setText("1")                        # azalış
-    up, down = doc.table.item(0, 1), doc.table.item(1, 0)
-    assert not up.icon().isNull() and not down.icon().isNull()
-    assert "↑ +0.5" in up.toolTip() and "HENÜZ yazılmadı" in up.toolTip()
-    assert "↓ -3" in down.toolTip()
-    assert doc.table.item(0, 0).icon().isNull()              # değişmeyen hücrede ok yok
-    assert doc._applied == {}                                # yazılmadan uygulanmış sayılmaz
-
-
-def test_write_result_marks_applied_and_new_base(qapp):
-    doc = _doc(qapp)
-    doc.table.item(0, 1).setText("9")
-    doc.set_write_result(True, "ok")
-    assert doc._applied[(0, 1)][:2] == (2, 9.0)
-    assert "ECU'ya yazıldı" in doc.table.item(0, 1).toolTip()
-    assert not doc.table.item(0, 1).icon().isNull()
-    assert not doc.is_modified()
-    doc.set_write_result(False, "hata")                      # başarısız yazma uygulanmış göstermez
-    assert doc._applied[(0, 1)][:2] == (2, 9.0)
-
-
-def test_discard_edits_returns_to_ecu_values(qapp):
-    doc = _doc(qapp)
-    doc.table.item(0, 1).setText("50")
-    doc.table.item(1, 2).setText("60")
-    assert doc.discard_edits() == 2
-    assert doc.current_grid() == [[1, 2, 3], [4, 5, 6]] and not doc.is_modified()
-    assert doc.discard_edits() == 0
-
-
-def test_discard_edits_declined_keeps_edits(qapp):
-    doc = _doc(qapp)
-    doc.table.item(0, 1).setText("50")
-    doc._confirm = lambda *_a: False
-    assert doc.discard_edits() == 0
-    assert doc.current_grid()[0][1] == 50
-
-
-def test_revert_to_session_baseline_cell_and_map(qapp):
-    doc = _doc(qapp)
-    doc.table.item(0, 1).setText("7")
-    doc.set_write_result(True, "ok")                         # ECU artık 7; başlangıç (oturum başı) hâlâ 2
-    doc.table.item(1, 1).setText("8")
-    doc.table.clearSelection()
-    doc.table.item(0, 1).setSelected(True)
-    assert doc.revert_selection_to_baseline() == 1
-    assert doc.current_grid()[0][1] == 2
-    assert doc.current_grid()[1][1] == 8                     # seçilmeyen hücreye dokunulmadı
-    assert doc.is_modified()                                 # ECU'ya yazılmadı: hâlâ düzenleme
-    assert doc.revert_all_to_baseline() == 1                 # kalan: (1,1) 8 -> 5
-    assert doc.current_grid() == [[1, 2, 3], [4, 5, 6]]
-    assert doc.revert_all_to_baseline() == 0                 # zaten başlangıçta
-
-
-def test_baseline_unavailable_before_first_read(qapp):
-    from app.ui.map_editor_tab import MapEditorTab
-    doc = MapEditorTab().open_characteristic(_map())
-    doc._confirm = lambda *_a: True
-    assert doc.revert_all_to_baseline() == 0
-    assert "oturum başı" in doc.baseline_reference_text()
+win = e2e.win          # MainWindow + CCP simülatörü düzeneği (Worksheets yazım testleri için)
+ccp = e2e.ccp
 
 
 def test_history_delta_status_and_filtering(tmp_path):
@@ -132,39 +55,38 @@ def test_history_tab_columns_filter_and_revert_guard(qapp, tmp_path):
     assert got == [0]
 
 
-def test_watch_tab_delta_column_pending_then_applied(qapp):
-    from app.ui.watch_tab import COL_DELTA, WatchEntry, WatchTab
-    tab = WatchTab()
-    e = WatchEntry("Kp_Governor", "characteristic", 0x100, "FLOAT32_IEEE", unit="", read_only=False)
-    tab.add_manual_entry(e)
-    tab.set_row_value(0, b"\x00\x00\x00\x00", 1.2)
-    assert tab.table.item(0, COL_DELTA).text() == ""
-    tab.tracker.edit("Kp_Governor", 1.35)
-    tab._render_row(0)
-    assert "yazılmadı" in tab.table.item(0, COL_DELTA).text()
-    tab.commit_written(0, 1.35, old=1.2)
-    assert tab.table.item(0, COL_DELTA).text() == "↑ +0.15"
-    assert tab.blink_timer.isActive()
-    tab.mark_write_failed(0, "x")
-    assert tab.tracker.state("Kp_Governor").last_write_ok is False
+# ---- Worksheets (Modas) yazımları ortak değişiklik takibine, geçmişe ve kayda bağlıdır -----------------------------
+def _fuel(win):
+    win.modas_tab.set_summary(win.a2l_tab.db.summary)
+    obj = next(c for c in win.a2l_tab.db.summary.characteristics if c.name == "clbc_Fuel_pump_gain")
+    return obj, win.modas_tab.add_label(obj.name)
 
 
-def test_watch_revert_selected_to_baseline_confirms_and_requests_write(qapp):
-    from app.ui.watch_tab import WatchEntry, WatchTab
-    tab = WatchTab()
-    for n in ("A", "B", "RO"):
-        tab.add_manual_entry(WatchEntry(n, "characteristic", 0x100, "FLOAT32_IEEE", read_only=(n == "RO")))
-    for i, v in enumerate((10.0, 20.0, 5.0)):
-        tab.set_row_value(i, b"\0\0\0\0", v)                  # başlangıç referansı = ilk okuma
-    tab.commit_written(0, 12.5, old=10.0)                     # A: 10 -> 12.5 uygulandı
-    got = []
-    tab.write_requested.connect(got.append)
-    tab._confirm = lambda *_a: False
-    assert tab.revert_selected_to_baseline() == 0 and got == []        # onay reddedildi: yazma yok
-    tab._confirm = lambda *_a: True
-    tab.table.selectAll()
-    n = tab.revert_selected_to_baseline()
-    assert n == 1 and got == [[0]]                                      # yalnızca değişmiş, yazılabilir satır (A)
-    assert tab._entries[0].pending_text == "10"
-    tab.set_row_value(1, b"\0\0\0\0", 20.0)
-    assert tab.revert_selected_to_baseline() == 0                       # B zaten başlangıçta
+def test_worksheet_write_feeds_tracker_history_and_arrow(win, ccp):
+    from app.user_roles import Role
+    win.current_role = Role.ENGINEER
+    win._modas_sync_permissions()
+    obj, w = _fuel(win)
+    win._modas_write_value(w, "21")
+    st = win.change_tracker.state(obj.name)
+    assert st.last_write_ok is True and st.last_new == 21.0 and st.baseline is not None
+    entry = win.calibration_history.entries[-1]
+    assert entry.object_name == obj.name and entry.write_ok and entry.source == "worksheets"
+    assert "↑" in w.unit_label.text() or "↓" in w.unit_label.text()       # son değişimin yönü pencerede görünür
+    assert "Son değişim" in w.edit.toolTip()
+
+
+def test_worksheet_failed_write_is_recorded_as_failed_in_history_and_tracker(win, ccp, monkeypatch):
+    from app.user_roles import Role
+    win.current_role = Role.ENGINEER
+    win._modas_sync_permissions()
+    obj, w = _fuel(win)
+    win._modas_read_window(w)
+
+    def boom(*a, **k):
+        raise RuntimeError("ECU yazmayı reddetti")
+    monkeypatch.setattr(win.ccp_client, "write_memory", boom)
+    win._modas_write_value(w, "30")
+    entry = win.calibration_history.entries[-1]
+    assert entry.object_name == obj.name and entry.write_ok is False and entry.source == "worksheets"
+    assert win.change_tracker.state(obj.name).last_write_ok is False

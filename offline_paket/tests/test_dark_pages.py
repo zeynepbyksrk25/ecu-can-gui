@@ -13,14 +13,12 @@ def luminance(c):
 def test_dark_wrapper_keeps_page_aliases_and_navigation(qapp):
     from app.ui.main_window import MainWindow
     w = MainWindow()
-    scroll = w.stack.widget(w.stack.indexOf(w._page_scrolls[w.kalibrasyon_tab]))
+    w.setCurrentWidget(w.kalibrasyon_tab)                          # araç penceresi açılır (Calibration Tools)
+    scroll = w._page_scrolls[w.kalibrasyon_tab]
     body = scroll.widget()
     assert body.objectName() == "darkBody" and body.inner is w.kalibrasyon_tab
-    w.setCurrentWidget(w.kalibrasyon_tab)
-    assert w.nav_bar.tabText(w.nav_bar.currentIndex()) == "Kalibrasyon"
-    assert w.current_page() is w.kalibrasyon_tab
-    # A2L artık üst sekme değil, Kalibrasyon'un ilk iç sekmesi; takma ad korunur
-    assert "A2L" not in [w.nav_bar.tabText(i) for i in range(w.nav_bar.count())]
+    assert w.kalibrasyon_tab.window() is w._tool_windows[w.kalibrasyon_tab]
+    # A2L ayrı sayfa değil, Kalibrasyon'un ilk iç sekmesi; takma ad korunur
     assert w.kalibrasyon_tab.a2l is w.a2l_tab and w.kalibrasyon_tab.inner_tabs.widget(0) is w.a2l_tab
     w.close()
 
@@ -70,7 +68,7 @@ def test_a2l_page_summary_tree_filter_and_details(qapp):
     leaf = next(scalar.child(i) for i in range(scalar.childCount()) if not scalar.child(i).isHidden())
     assert leaf.text(0) == "clbc_Fuel_pump_gain"
     tab._on_item_clicked(leaf, 0)
-    assert "Parametre Listesi" in tab.detail_use.text() and tab.detail_readonly.text().startswith("Evet")
+    assert "değer penceresinde" in tab.detail_use.text() and tab.detail_readonly.text().startswith("Evet")
     tab.search_edit.setText("")
 
 
@@ -78,12 +76,11 @@ def test_small_pages_dark_and_accessors(tmp_path):
     from app.ui.main_window import MainWindow
     w = MainWindow()
     assert w.tanilama_tab in w._dark_pages
-    # Profil artık üst sekme değil, Ayarlar penceresinde
-    assert "Profil" not in [w.nav_bar.tabText(i) for i in range(w.nav_bar.count())]
+    # Profil ayrı araç değil, Ayarlar penceresinde
+    assert "Profil" not in w._tool_pages
     assert w.settings_dialog.user_tab is w.user_tab
     assert w.session_tab is w.tanilama_tab.session
-    labels = [w.nav_bar.tabText(i) for i in range(w.nav_bar.count())]
-    assert "Tanılama ve Oturum" in labels and "Test Oturumu" not in labels
+    assert "Diagnostics" in w._tool_pages and "Test Oturumu" not in w._tool_pages
     s = w.session_tab
     assert s.stop_button.isEnabled() is False and s.state_chip.text() == "Oturum yok"
     assert hasattr(w.tanilama_tab, "diagnostics") and hasattr(w.tanilama_tab, "errors")
@@ -96,7 +93,7 @@ def test_kalibrasyon_dark_and_aliases():
     w = MainWindow()
     assert w.kalibrasyon_tab in w._dark_pages
     k = w.kalibrasyon_tab
-    assert k.inner_tabs.count() == 5 and k.watch is not None and k.map_editor is not None
+    assert k.inner_tabs.count() == 3 and not hasattr(k, "map_editor") and not hasattr(k, "watch")
     w.close()
 
 

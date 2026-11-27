@@ -9,7 +9,7 @@ Ribbon yalnızca düğmeleri kurar ve ``buttons[anahtar]`` olarak sunar; davran�
 
 from __future__ import annotations
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QIcon, QKeySequence, QPainter, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QButtonGroup, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QStackedWidget, QTabBar, QToolButton,
@@ -71,9 +71,22 @@ class _Group(QFrame):
         outer.addWidget(label)
 
 
+class _ClickLabel(QLabel):
+    clicked = Signal()
+
+    def mouseReleaseEvent(self, event):  # noqa: N802
+        if event.button() == Qt.LeftButton and self.rect().contains(event.position().toPoint()):
+            self.clicked.emit()
+        super().mouseReleaseEvent(event)
+
+
 class ModasRibbon(QFrame):
+    diff_clicked = Signal()
+
     def __init__(self):
         super().__init__()
+        self._diff_n = 0
+        self._dataset_alert = False
         self.setObjectName("modasRibbon")
         self.setStyleSheet(MODAS_QSS)
         self.buttons: dict[str, QToolButton] = {}
@@ -200,7 +213,11 @@ class ModasRibbon(QFrame):
         meas = self.big("measure", "Start", "▶", "Ölçümü başlat / durdur   F9", checkable=True)
         lay.addWidget(self._group("Measurement", meas))
         rec = self.big("record", "Start", "●", "Kaydı başlat / durdur   Ctrl+F9 (oturum kaydı)", checkable=True)
-        lay.addWidget(self._group("Recording", rec))
+        mark = self.small("mark", "◆ Mark  F4", "Kayda test işareti (zaman damgalı) ekler   F4")
+        mark.setEnabled(False)
+        folder = self.small("open_record", "▸ Open folder", "Son kaydın klasörünü aç")
+        folder.setEnabled(False)
+        lay.addWidget(self._group("Recording", rec, self._column(mark, folder)))
 
         # Current Project and Workbase
         grid = QWidget()
@@ -232,9 +249,12 @@ class ModasRibbon(QFrame):
         grp.addButton(rp)
         self._page_group = grp
         copy_fwd = self.small("copy_wp_rp", "COPY  WP ▶ RP", "WP'deki değerleri referans (RP) olarak sakla")
-        self.diff_label = QLabel("Diff: 0")
+        self.diff_label = _ClickLabel("Diff: 0")
         self.diff_label.setObjectName("modasDiff")
         self.diff_label.setAlignment(Qt.AlignCenter)
+        self.diff_label.setCursor(Qt.PointingHandCursor)
+        self.diff_label.setToolTip("WP ile RP arasındaki farklı etiketleri listele (tıkla)")
+        self.diff_label.clicked.connect(self.diff_clicked.emit)
         copy_back = self.small("copy_rp_wp", "COPY  WP ◀ RP", "Referans (RP) değerlerini ECU RAM'ine (WP) geri yaz")
         mid = self._column(copy_fwd, self.diff_label, copy_back)
         read = self.small("read_ecu", "⇩ Read data from ECU", "Çalışma alanındaki tüm etiketleri ECU'dan oku")
@@ -251,6 +271,8 @@ class ModasRibbon(QFrame):
             self.big("add_label", "Add label", "＋", "Variable list'ten seçili etiketi worksheet'e ekle   Enter"),
             self.big("remove_label", "Remove", "✕", "Etiketi görünümden kaldır   Delete"),
             self.big("var_info", "Information", "ⓘ", "Variable information   Ctrl+I"),
+            self.big("add_input", "Input", "⇢", "Test girişi penceresi ekle: uçuş koşulları ve motor komutları"),
+            self.big("add_scope", "Scope", "∿", "Yeni osiloskop penceresi (Variable list'te seçili etiketlerle açılır)"),
         ))
         fmts = [("fmt_phys", "Physical", "Ctrl+P"), ("fmt_dec", "Decimal", "Ctrl+D"),
                 ("fmt_hex", "Hexadecimal", "Ctrl+H"), ("fmt_bin", "Binary", "Ctrl+B")]
@@ -270,6 +292,7 @@ class ModasRibbon(QFrame):
         lay.addWidget(self._group(
             "Worksheets",
             self.big("sheet_new", "New", "＋", "Yeni worksheet"),
+            self.big("sheet_template", "Template", "▦", "Hazır test / kalibrasyon dizilimlerinden yeni worksheet; kendi şablonunu kaydet"),
             self.big("sheet_rename", "Rename", "✎", "Aktif worksheet'i yeniden adlandır"),
             self.big("sheet_delete", "Delete", "🗑", "Aktif worksheet'i sil"),
         ))
@@ -279,24 +302,32 @@ class ModasRibbon(QFrame):
     # ---- Tools ------------------------------------------------------------------
     def _build_tools(self):
         self._tools_page, self._tools_layout = self._page()
-        self._tools_group = _Group("Pages")
+        self._tools_layout.addWidget(self._group(
+            "Files",
+            self.big("data_file", "Data file", "⇄", "WP değerlerini dosyaya kaydet / dosyayı WP ile karşılaştır (Data file manager)"),
+            self.big("param_files", "Parameter files", "🗂", "Projenin parametre dosyalarını yönet (Parameter file manager)"),
+        ))
+        self._tools_layout.addWidget(self._group(
+            "Macro",
+            self.big("macros", "Macro manager", "⏺", "Yazımları kaydet ve aynı sırayla oynat (Macro manager)"),
+        ))
+        self._tools_group = _Group("Tool windows")
         self._tools_layout.addWidget(self._tools_group)
         self._tools_layout.addStretch(1)
         self._page_buttons: list[QToolButton] = []
         self._pages_btn_group = QButtonGroup(self)
-        self._pages_btn_group.setExclusive(True)
+        self._pages_btn_group.setExclusive(False)
 
     def set_pages(self, pages: list):
-        """Tools sekmesindeki sayfa düğmeleri: ``[(simge, ad), ...]`` (sıra = ``MainWindow._nav_pages``)."""
+        """Tools sekmesindeki araç düğmeleri: ``[(simge, ad), ...]`` (sıra = ``MainWindow._nav_pages``)."""
         for i, (icon, label) in enumerate(pages):
-            b = self.big(f"page_{i}", label, icon, f"{label}   Ctrl+{i + 1}", checkable=True)
+            b = self.big(f"page_{i}", label, icon, f"{label}   Ctrl+{i + 1}")
             self._pages_btn_group.addButton(b, i)
             self._tools_group.body.addWidget(b)
             self._page_buttons.append(b)
 
     def select_page(self, index: int):
-        if 0 <= index < len(self._page_buttons):
-            self._page_buttons[index].setChecked(True)
+        return None             # araç düğmeleri kalıcı seçili durum taşımaz (pencereyi açıp öne getirir)
 
     # ---- Windows ----------------------------------------------------------------
     def _build_windows(self):
@@ -341,12 +372,22 @@ class ModasRibbon(QFrame):
         b.setProperty("ecuState", state)
 
     def set_diff(self, n: int):
+        self._diff_n = n
         self.diff_label.setText(f"Diff: {n}")
         self.diff_label.setProperty("diff", n > 0)
         self.diff_label.style().unpolish(self.diff_label)
         self.diff_label.style().polish(self.diff_label)
+        self._apply_alert()
+
+    def set_dataset_alert(self, on: bool):
+        """PC ↔ ECU veri seti farkı çözülmediyse (Decide later) WP / RP düğmeleri kırmızı kalır (PDF §4)."""
+        self._dataset_alert = bool(on)
+        self._apply_alert()
+
+    def _apply_alert(self):
+        on = self._diff_n > 0 or self._dataset_alert
         for key in ("wp", "rp"):                       # PDF §4: fark varsa WP / RP düğmeleri kırmızı gösterilir
-            self.buttons[key].setProperty("alert", n > 0)
+            self.buttons[key].setProperty("alert", on)
             self.buttons[key].style().unpolish(self.buttons[key])
             self.buttons[key].style().polish(self.buttons[key])
 

@@ -16,13 +16,14 @@ import math
 from PySide6.QtCore import QSize, QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QIcon, QPixmap
 from PySide6.QtWidgets import (
-    QAbstractItemView, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMdiSubWindow,
+    QAbstractButton, QAbstractItemView, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMdiSubWindow, QMenu,
     QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
 from app import theme
+from app.ccp import codec as ccp_codec
 from app.ccp import mapio
-from app.ui.watch_tab import parse_value_text
+from app.value_text import parse_value_text
 
 FORMATS = ("phys", "dec", "hex", "bin")
 FORMAT_LABELS = {"phys": "Physical", "dec": "Decimal", "hex": "Hexadecimal", "bin": "Binary"}
@@ -65,6 +66,32 @@ def format_reading(reading, fmt: str = "phys", byte_order: str | None = None) ->
     if fmt == "bin":
         return f"{num:0{len(raw) * 8}b}"
     return format_phys(reading.phys)
+
+
+def format_cell(characteristic, phys, fmt: str) -> str:
+    """Tablo hücresi için sayı biçimi (Modas Ctrl+P/D/H/B). Yalnızca GÖSTERİM: doğrulama yapılmaz, yazma yolunda kullanılmaz.
+    Ham değer hesaplanamazsa '—' döner (ör. A2L'de COMPU_METHOD / veri tipi yoksa)."""
+    if phys is None:
+        return ""
+    if fmt == "phys":
+        return format_phys(phys)
+    try:
+        raw = ccp_codec.physical_to_raw(getattr(characteristic, "compu_method", None), float(phys))
+        data = ccp_codec.encode_value(characteristic.datatype, raw, getattr(characteristic, "byte_order", None))
+    except Exception:  # noqa: BLE001 - gösterim hatası arayüzü bozmasın
+        return "—"
+    little = (getattr(characteristic, "byte_order", None) or "").upper() in ("MSB_LAST", "LITTLE_ENDIAN")
+    num = int.from_bytes(data, "little" if little else "big")
+    if fmt == "dec":
+        try:
+            return str(round(float(raw)))
+        except (TypeError, ValueError, OverflowError):
+            return str(num)
+    if fmt == "hex":
+        return f"0x{num:0{len(data) * 2}X}"
+    if fmt == "bin":
+        return f"{num:0{len(data) * 8}b}"
+    return format_phys(phys)
 
 
 def _square_icon(color: str) -> QIcon:
@@ -184,12 +211,20 @@ class ValueWindow(ModasSub):
     def has_pending(self) -> bool:
         return self._pending
 
+    def set_change(self, arrow: str, delta: str, summary: str):
+        """Değişiklik takibi göstergesi (ok + fark): son yazım yönü ve miktarı birim etiketinin yanında, ayrıntı ipucunda."""
+        self._change_text = f"  {arrow} {delta}".rstrip() if arrow else ""
+        self._change_summary = summary
+        self.unit_label.setText(((getattr(self.obj, "unit", "") or "") + self._change_text).strip())
+        self.edit.setToolTip(self._tooltip())
+
     def _tooltip(self) -> str:
         o = self.obj
         addr = f"0x{o.address:X}" if getattr(o, "address", None) else "-"
         kind = "Kalibrasyon (ayarlanabilir)" if self.is_calibration else "Ölçüm (salt okunur)"
+        extra = getattr(self, "_change_summary", "")
         return (f"{o.name}\n{getattr(o, 'description', '') or ''}\n{kind} · {getattr(o, 'datatype', '')} · adres {addr}\n"
-                "M / N: değeri artır / azalt · Enter: yaz · Esc: vazgeç")
+                "M / N: değeri artır / azalt · Enter: yaz · Esc: vazgeç" + (f"\n\n{extra}" if extra else ""))
 
     def _editable(self) -> bool:
         return (self.is_calibration and self._allowed and self.fmt == "phys" and not self._rp_view
@@ -325,6 +360,8 @@ class TableWindow(ModasSub):
         self._updating = False
         self._rp_view = False
         self._wp_backup: list | None = None     # RP gösteriminde WP tablosunun saklandığı yer
+        self.fmt = "phys"                       # Physical | Decimal | Hexadecimal | Binary (Modas Ctrl+P/D/H/B)
+        self._phys_cache: list | None = None    # Physical dışı biçimde gerçek (fiziksel) değerler; hücre metni yalnızca gösterimdir
 
         body = QWidget()
         body.setObjectName("modasWinBody")
@@ -341,12 +378,15 @@ class TableWindow(ModasSub):
         self.table.horizontalHeader().setDefaultSectionSize(62)
         self.table.verticalHeader().setDefaultSectionSize(20)
         self._build_headers()
+        self._set_corner_label()
         for r in range(self.rows):
             for c in range(self.cols):
                 it = QTableWidgetItem("")
                 it.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 self.table.setItem(r, c, it)
         self.table.itemChanged.connect(self._on_item_changed)       # hücreler tamamlandıktan SONRA bağlanır
+        self.table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self._on_context_menu)
         v.addWidget(self.table, 1)
         self.setWidget(body)
         self.resize(min(720, 90 + 64 * self.cols), min(460, 96 + 22 * self.rows))
@@ -381,22 +421,33 @@ class TableWindow(ModasSub):
         self.table.setHorizontalHeaderLabels(labels(x_ax, self.cols))
         self.table.setVerticalHeaderLabels(labels(y_ax, self.rows) if y_ax is not None else ["Z"] * self.rows)
 
+    def _set_corner_label(self):
+        """Modas Sport: sol üst köşe hücresi 'Y\\X' (satır ekseni \\ sütun ekseni); eğride 'X'."""
+        corner = self.table.findChild(QAbstractButton)
+        if corner is not None:
+            corner.setText("Y\\X" if len(self.characteristic.axes or []) >= 2 else "X")
+
     # ---- yetki ---------------------------------------------------------------------
     def set_allowed(self, allowed: bool):
         self._allowed = bool(allowed)
         self._apply_editable()
 
     def _apply_editable(self):
-        ok = self.writable_layout and self._allowed and not self._rp_view
+        ok = self.writable_layout and self._allowed and not self._rp_view and self.fmt == "phys"
         self.table.setEditTriggers(
             QAbstractItemView.DoubleClicked | QAbstractItemView.EditKeyPressed | QAbstractItemView.AnyKeyPressed
             if ok else QAbstractItemView.NoEditTriggers)
 
     def is_cell_editable(self) -> bool:
-        return self.writable_layout and self._allowed and not self._rp_view
+        return self.writable_layout and self._allowed and not self._rp_view and self.fmt == "phys"
 
     # ---- doküman arayüzü (mainwin/calibration.py bunu çağırır) ----------------------
     def _cell_value(self, r: int, c: int):
+        if self.fmt != "phys" and self._phys_cache is not None:          # gösterim biçimi ham: gerçek değer önbellekte
+            try:
+                return self._phys_cache[r][c]
+            except IndexError:
+                return None
         it = self.table.item(r, c)
         text = (it.text() if it else "").strip()
         if not text:
@@ -467,14 +518,32 @@ class TableWindow(ModasSub):
         self._refresh_pending()
 
     def _fill(self, grid: list):
+        full = [[grid[r][c] if r < len(grid) and c < len(grid[r]) else None for c in range(self.cols)]
+                for r in range(self.rows)]
+        if self.fmt != "phys":
+            self._phys_cache = full
+        self._render(full)
+        self._refresh_pending()
+
+    def _render(self, grid: list):
+        """Hücre metinlerini geçerli biçimde yazar (gerçek değerlere dokunmaz)."""
         self._updating = True
         try:
             for r in range(self.rows):
                 for c in range(self.cols):
-                    v = grid[r][c] if r < len(grid) and c < len(grid[r]) else None
-                    self.table.item(r, c).setText(format_phys(v))
+                    self.table.item(r, c).setText(format_cell(self.characteristic, grid[r][c], self.fmt))
         finally:
             self._updating = False
+
+    def set_format(self, fmt: str):
+        """Sayı biçimi (Ctrl+P/D/H/B). Physical dışında hücreler salt-okunurdur; gerçek değerler fiziksel olarak saklanır."""
+        if fmt not in FORMATS or fmt == self.fmt:
+            return
+        grid = self._read_table_grid()                 # geçerli (bekleyen düzenleme dahil) fiziksel değerler
+        self.fmt = fmt
+        self._phys_cache = grid if fmt != "phys" else None
+        self._render(grid)
+        self._apply_editable()
         self._refresh_pending()
 
     def _refresh_pending(self):
@@ -496,8 +565,8 @@ class TableWindow(ModasSub):
 
     # ---- düzenleme -----------------------------------------------------------------
     def _on_item_changed(self, item: QTableWidgetItem):
-        if self._updating or self._rp_view:
-            return
+        if self._updating or self._rp_view or self.fmt != "phys":
+            return                                  # ham biçimde hücre metni gösterimdir: düzenleme / yazma tetiklenmez
         self._refresh_pending()
         if self.is_writable() and self.is_modified():
             self.write_requested.emit(self)       # Enter ile onaylanan hücre: RAM'e yaz (yedek + doğrulama MainWindow'da)
@@ -550,15 +619,81 @@ class TableWindow(ModasSub):
             self.write_requested.emit(self)
         return changed
 
+    def restore_selection(self) -> int:
+        """Modas Ctrl+R: seçili hücreleri ECU'dan okunan (son yazılan) değerine döndürür. Değişen hücre sayısını döner."""
+        if not self.is_cell_editable() or self._original is None:
+            return 0
+        changed = 0
+        self._updating = True
+        try:
+            for r, c in self._selected():
+                orig = self._original[r][c] if r < len(self._original) and c < len(self._original[r]) else None
+                if orig is None:
+                    continue
+                cur = self._cell_value(r, c)
+                if cur is None or abs(cur - orig) > 1e-9:
+                    self.table.item(r, c).setText(format_phys(orig, 6))
+                    changed += 1
+        finally:
+            self._updating = False
+        self._refresh_pending()
+        if changed and self.is_writable() and self.is_modified():
+            self.write_requested.emit(self)
+        return changed
+
+    def _on_context_menu(self, pos):
+        menu = QMenu(self.table)
+        editable = self.is_cell_editable()
+        act_restore = menu.addAction("Seçili değerleri geri yükle  (Ctrl+R)")
+        act_restore.setEnabled(editable and self._original is not None and bool(self._selected()))
+        act_backup = menu.addAction("Yedekten Yükle…")
+        act_backup.setEnabled(editable)
+        chosen = menu.exec(self.table.viewport().mapToGlobal(pos))
+        if chosen is act_restore:
+            self.restore_selection()
+        elif chosen is act_backup:
+            self.restore_from_backup()
+
+    def restore_from_backup(self) -> bool:
+        """Tablonun, ECU'ya yazılmadan önce otomatik alınan yedeklerinden birini hücrelere DÜZENLEME olarak yükler.
+        ECU'ya yazılmaz: kullanıcı onaylayınca (Enter / Write) normal güvenli yazma yolu çalışır."""
+        from PySide6.QtWidgets import QMessageBox
+        from app.ccp import table_backup
+        from app.paths import data_path
+        ch = self.characteristic
+        backups = table_backup.list_backups(data_path("tablo_yedekleri"), ch)
+        if not backups:
+            QMessageBox.information(self.window(), "Yedek yok", f"{ch.name} için kayıtlı bir yedek yok. Yedekler, tablo "
+                                                                 "ECU'ya yazılmadan hemen önce otomatik alınır.")
+            return False
+        label, ok = QInputDialog.getItem(self.window(), "Yedekten yükle", f"{ch.name}: yedek seçin (en yenisi üstte)",
+                                         [b.label for b in backups], 0, False)
+        if not ok:
+            return False
+        chosen = next(b for b in backups if b.label == label)
+        try:
+            grid = table_backup.load(chosen.path, ch, mapio.grid_shape(ch))
+        except ValueError as exc:
+            QMessageBox.warning(self.window(), "Yedek yüklenemedi", str(exc))
+            return False
+        self.load_grid_as_edit(grid)
+        # set_write_result KULLANILMAZ: başarıda tabloyu "ECU ile aynı" sayıp değişiklik işaretini silerdi.
+        self.info.setText(self._info_text() + f"<br><span style='color:{theme.WARN_INK}'>Yedek yüklendi "
+                          f"({label.split('  ')[0]}); ECU'ya HENÜZ yazılmadı. Yazmak için Enter / Write data to ECU.</span>")
+        return True
+
     def ask_operand(self, title: str) -> float | None:
         value, ok = QInputDialog.getDouble(self, title, "Değer:", 1.0, -1e12, 1e12, 6)
         return value if ok else None
 
     def keyPressEvent(self, event):  # noqa: N802
-        """PDF §8 tablo kısayolları: M / N artır-azalt, * çarp, / böl, + ekle, = ata, Delete (gizle değil: yok sayılır)."""
+        """PDF §8 tablo kısayolları: M / N artır-azalt, * çarp, / böl, + ekle, = ata, Ctrl+R geri yükle, Delete pencereyi kapatır."""
         key = event.key()
         table_focus = self.table.hasFocus() and self.table.state() != QAbstractItemView.EditingState
         if table_focus:
+            if key == Qt.Key_R and event.modifiers() & Qt.ControlModifier:
+                self.restore_selection()        # PDF §8: "Restore selected values" (Ctrl+R)
+                return
             if key == Qt.Key_Delete:
                 self.close()                    # PDF §8: "Remove label from view"
                 return
@@ -582,4 +717,4 @@ class TableWindow(ModasSub):
         return QSize(self.width(), self.height())
 
     def state(self) -> dict:
-        return {"kind": "table", "name": self.label, "geom": self.geometry_state()}
+        return {"kind": "table", "name": self.label, "geom": self.geometry_state(), "fmt": self.fmt}

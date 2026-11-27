@@ -11,17 +11,27 @@ Arayüz **Bosch Modas Sport** çalışma alanına benzer: üstte **Ribbon** (`St
 ortada mavi zeminde sürüklenebilir iç pencereler, sağda **Variable list** (`F2`), altta **Log-Windows** (`F3`) ve
 worksheet sekmeleri. Motor Başlat / Durdur / **Acil Durdurma** grubu Ribbon'un sağında HER sekmede görünür.
 
-| Sayfa (Tools sekmesi / `Ctrl+1…7`) | İşlev |
-|---|---|
-| **Worksheets** (açılış) | Modas çalışma alanı: A2L etiketlerini Variable list'ten sürükleyip bırakın → *değer penceresi* (beyaz = ayarlanabilir kalibrasyon, gri = ölçüm) ya da *eğri/harita tablosu*; WP/RP, `Diff`, Measurement (`F9`), Recording (`Ctrl+F9`), Read/Write data |
-| **Ana Sayfa** | Motor Başlat / Durdur / **Acil Durdurma** (`Ctrl+Shift+E`), göstergeler, canlı grafik, eyleyici override |
-| **CAN Monitor** | Bağlantı, canlı izleme (DBC çözümlemeli), çerçeve gönderme, CSV kaydı |
-| **Kalibrasyon** | A2L tarayıcı, CCP bağlantısı, Parametre Listesi, Harita Editörü (yedekten yükleme dahil), geçmiş |
-| **Analiz** | Çalışma Alanı (çoklu sinyal grafiği, matematik sinyalleri), Performans |
-| **Kontrol Paneli** | Uçak girişleri / sensör override değerleri, senaryolar |
-| **Tanılama ve Oturum** | CCP testi, DIAG_SERVICE, olay günlüğü, oturum kaydı, PDF rapor, **Excel (.xlsx) kayıt dosyası** |
+**Ana pencere = Worksheets (Modas).** Her şey birer *label penceresi*dir ve bir worksheet'te durur:
 
-Sayfa geçişi: `Ctrl+1` … `Ctrl+7` (ya da Ribbon > Tools).
+| Pencere | İşlev |
+|---|---|
+| **Değer** | A2L etiketini Variable list'ten sürükleyin: beyaz = ayarlanabilir kalibrasyon, gri = ölçüm; sarı = yazılmayı bekleyen |
+| **Tablo** | Eğri / harita / dizi: `Y\X` başlıklı hücreler, `M N * / + =`, `Ctrl+R`, `Ctrl+P/D/H/B` biçimleri, sağ tık > Yedekten Yükle |
+| **Scope** (osiloskop) | Etiketleri sürükleyip bırakın; gerçek birimli eksenler, A/B imleç, Hold; veri ölçüm (`F9`) ile akar |
+| **Input** (test girişi) | Uçuş koşulları (Altitude, Alfa, Beta, Ma, basınçlar, sıcaklık) ve motor komutları (Start, Throttle); Enter gönderir |
+
+Worksheet sekmeleri (altta) test senaryolarıdır; **Worksheets > Template** hazır dizilimler (Test Bench, Start Sequence,
+Monitoring, Calibration) ve kendi şablonlarınızı sunar. **Project Manager (`F7`)**: proje / workbase (A2L, HEX, ECU,
+protokol, baudrate, donanım); workbase açılınca A2L yüklenir ve ECU'ya bağlanılır.
+
+ECU'ya bağlanınca PC veri seti (workbase'in kayıtlı değerleri) ECU ile karşılaştırılır; fark varsa **Choose the dataset**
+sorulur (*Write PC data to ECU* / *Read data from ECU* / *Decide later*). `Diff: n` etiketine tıklayınca WP≠RP listesi açılır.
+
+**Tools** sekmesi: *Data file* (WP'yi dosyaya kaydet / dosyayı WP ile karşılaştır), *Parameter files* (proje parametre
+dosyaları), *Macro manager* (yazımları kaydet ve oynat) ve ayrı pencerelerde açılan araçlar (`Ctrl+1…7`): **Test Bench**
+(Ana Sayfa: göstergeler, eyleyici override, Acil Durdurma), **CAN Trace** (bağlantı, izleme, gönderim, CSV kaydı),
+**Calibration Tools** (A2L, CCP + flaş yazma, değişiklik geçmişi), **Analysis**, **Control Panel**, **Diagnostics**
+(CCP testi, DIAG_SERVICE, olay günlüğü, oturum, PDF / Excel rapor).
 
 ### Kalibrasyon takibi, trend analizi, kayıt ve MIL (yeni)
 
@@ -48,7 +58,8 @@ Sayfa geçişi: `Ctrl+1` … `Ctrl+7` (ya da Ribbon > Tools).
 |---|---|---|---|
 | `F2` | Variable list göster/gizle | `F9` / `Ctrl+F9` | Ölçüm / kayıt başlat-durdur |
 | `F3` | Log penceresi göster/gizle | `F10` | Ribbon sekme harfleri (`S L W T I`) |
-| `F5` | Listeyi yenile + ECU'dan oku | `F12` | Worksheet düzenini kaydet |
+| `F5` | Listeyi yenile + ECU'dan oku | `F12` | Worksheet düzenini + PC veri setini kaydet |
+| `F4` | Kayda test işareti ekle | | |
 | `F7` | Proje yöneticisi | `F8` | WP ↔ RP gösterimi |
 | `Ctrl+P/D/H/B`, `Ctrl+F` | Physical / Decimal / Hex / Binary, biçim döngüsü | `Ctrl+I` | Variable information |
 | `M` / `N` | Seçili değeri artır / azalt | `*` `/` `+` `=` | Tabloda seçili hücreleri çarp / böl / ekle / ata |

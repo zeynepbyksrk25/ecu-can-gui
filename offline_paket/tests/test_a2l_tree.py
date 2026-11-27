@@ -48,11 +48,10 @@ def test_filter_tree_nested_groups_and_empty_groups(qapp):
     assert len(_leaf_names(tree)) == 4
 
 
-def test_three_tabs_share_filter_and_keep_payload_shapes(qapp):
+def test_two_tabs_share_filter_and_keep_payload_shapes(qapp):
     from app.ui.a2l_tab import A2LTab
     from app.ui.a2l_tree import ROLE_OBJECT
     from app.ui.ccp_tab import CCPTab
-    from app.ui.map_editor_tab import MapEditorTab
     a2l = A2LTab()
     summary = a2l.db.load(os.path.join(DATA, "sample.a2l"))
     a2l.show_loaded(os.path.join(DATA, "sample.a2l"), summary)
@@ -60,9 +59,6 @@ def test_three_tabs_share_filter_and_keep_payload_shapes(qapp):
     ccp = CCPTab()
     ccp.a2l_db = a2l.db
     ccp.refresh_objects()
-    mapt = MapEditorTab()
-    mapt.a2l_db = a2l.db
-    mapt.refresh_objects()
 
     for tab in (a2l, ccp):
         tab.search_edit.setText("clbc_Fuel_pump_gain")
@@ -70,10 +66,6 @@ def test_three_tabs_share_filter_and_keep_payload_shapes(qapp):
             "clbc_Fuel_pump_gain  [SCALAR]"]
         tab.search_edit.setText("")
         assert len(_leaf_names(tab.tree)) >= 8
-    # payload biçimi: A2L/CCP ("tür", nesne); Harita Editörü doğrudan nesne
+    # payload biçimi: A2L/CCP ("tür", nesne)
     top = ccp.tree.topLevelItem(0)
     assert top.child(0).data(0, ROLE_OBJECT)[0] == "measurement"
-    mapt.search_edit.setText("zzz")
-    assert all(mapt.tree.topLevelItem(i).isHidden() for i in range(mapt.tree.topLevelItemCount()))
-    mapt.search_edit.setText("")
-    assert not any(mapt.tree.topLevelItem(i).isHidden() for i in range(mapt.tree.topLevelItemCount()))

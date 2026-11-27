@@ -1,4 +1,4 @@
-"""CCP oturumu ve kalibrasyon: arka plan CCP işleri, tek değer / harita / Parametre Listesi
+"""CCP oturumu ve kalibrasyon: arka plan CCP işleri, tek değer / harita
 okuma-yazma, tanılama ve geçmişten geri alma."""
 import contextlib
 import os
@@ -12,9 +12,8 @@ from PySide6.QtWidgets import (
 from app.ccp import codec as ccp_codec
 from app.ccp import mapio as ccp_mapio
 from app.ccp import protocol as ccp_protocol
-from app.ccp.worker import IDLE, LOST, ONLINE
+from app.ccp.worker import IDLE
 from app.paths import data_path
-from app.ui.watch_tab import parse_value_text
 from app.user_roles import (
     can_run_diagnostics, can_write_calibration, can_write_flash,
 )
@@ -288,11 +287,7 @@ class CalibrationMixin:
         self._update_ccp_chip()
 
     def _apply_ccp_state(self, state: str, info: str):
-        online = state == ONLINE
         self.ccp_tab.set_session_state(state, self.ccp_session.status_text())
-        self.watch_tab.set_live_state(state, self.ccp_session.status_text())
-        self.watch_tab.set_connected(state in (ONLINE, LOST))
-        self.map_editor_tab.set_online(online)
         self._panel_conn_state()
         self._update_ccp_chip()
 
@@ -452,12 +447,11 @@ class CalibrationMixin:
         """Reddedilen (yetki/bağlantı) yazma girişimi de kayda geçer: ne denendiği sonradan görülebilsin."""
         self._record_input(page, kind, "A2L", target or "(seçili nesne)", value, ok=False, detail=detail)
 
-    # ---- Harita Editörü (CURVE/MAP/ARRAY okuma-yazma; çoklu tablo) ----------
-    def _open_in_map_editor(self, characteristic):
-        """CCP sekmesindeki dizi/tablo nesnesini Harita Editörü'nde açar."""
-        self.map_editor_tab.open_characteristic(characteristic)
-        inner = self.kalibrasyon_tab.inner_tabs
-        inner.setCurrentWidget(self.map_editor_tab)
+    # ---- Tablolar (CURVE/MAP/ARRAY okuma-yazma; Worksheets/Modas pencereleri) ----------
+    def _open_in_modas(self, characteristic):
+        """CCP sekmesindeki dizi/tablo nesnesini Worksheets (Modas) sayfasında tablo penceresi olarak açar."""
+        self.modas_tab.add_label(characteristic)
+        self.setCurrentWidget(self.modas_tab)
 
     def _require_ccp(self, action_text: str) -> bool:
         if self.ccp_client is None:
@@ -522,7 +516,7 @@ class CalibrationMixin:
 
     def _save_table_backup(self, characteristic, old_grid) -> str:
         """Tablo yazımından önceki ECU içeriğini data_dir()/tablo_yedekleri altına JSON olarak yazar
-        (Harita Editörü > "Yedekten Yükle…" ile geri getirilir). Başarısızsa '' döner."""
+        (Worksheets > tablo penceresi sağ tık > "Yedekten Yükle…" ile geri getirilir). Başarısızsa '' döner."""
         from app.ccp import table_backup
         return table_backup.save(data_path("tablo_yedekleri"), characteristic, old_grid)
 
@@ -564,7 +558,7 @@ class CalibrationMixin:
             if isinstance(old_grid, Exception):
                 doc.set_write_result(False, f"Yazma hatası: {old_grid}")
                 self._log_event("HATA", f"{characteristic.name} tablo yazma hatası: {old_grid}")
-                self._record_input("Kalibrasyon > Harita Editörü", "Tablo yazımı (RAM)", "A2L", characteristic.name,
+                self._record_input("Worksheets > Tablo", "Tablo yazımı (RAM)", "A2L", characteristic.name,
                                    f"{len(grid)}×{len(grid[0]) if grid else 0} tablo", ok=False, detail=str(old_grid),
                                    unit=characteristic.unit or "")
                 failed += 1
@@ -572,7 +566,7 @@ class CalibrationMixin:
             backup = self._save_table_backup(characteristic, old_grid)
             rows, cols = len(grid), len(grid[0]) if grid else 0
             changed = self._count_changed_cells(old_grid, grid)
-            self._record_input("Kalibrasyon > Harita Editörü", "Tablo yazımı (RAM)", "A2L", characteristic.name,
+            self._record_input("Worksheets > Tablo", "Tablo yazımı (RAM)", "A2L", characteristic.name,
                                f"{rows}×{cols} tablo", old_value=f"{rows}×{cols} tablo",
                                detail=f"{changed} hücre değişti" + (f"; önceki içerik yedeği: {backup}" if backup else ""),
                                unit=characteristic.unit or "")
@@ -584,7 +578,7 @@ class CalibrationMixin:
             self.calibration_history.add(
                 self.current_user, self.current_role.value,
                 f"{characteristic.name} [tablo {rows}×{cols}]", None, 0.0, characteristic.unit or "",
-                persistent=False,
+                persistent=False, source="worksheets",
                 detail=f"{rows}×{cols} tablo yazıldı, {changed} hücre değişti"
                        + (f"; önceki içerik yedeği: {backup}" if backup else ""),
             )
@@ -596,188 +590,11 @@ class CalibrationMixin:
     def _write_map_doc(self, doc) -> bool:
         return self._write_map_docs([doc])[0] == 1
 
-    def _on_map_read(self):
-        doc = self.map_editor_tab.current_document()
-        if doc is None:
-            return
-        if not self._require_ccp("Harita okumadan"):
-            return
-        self._read_map_doc(doc)
-
-    def _on_map_write(self):
-        doc = self.map_editor_tab.current_document()
-        if doc is None:
-            return
-        if not self._require_ccp("Harita yazmadan"):
-            return
-        if not can_write_calibration(self.current_role):
-            doc.set_write_result(False, "Yetki yok: harita yazmak için Mühendis veya Yönetici rolü gerekir.")
-            self._record_denied_write("Kalibrasyon > Harita Editörü", "Tablo yazımı (RAM)",
-                                      "Yetki yok: Mühendis veya Yönetici rolü gerekir", doc.characteristic.name)
-            return
-        self._write_map_doc(doc)
-
-    def _on_map_read_all(self):
-        docs = self.map_editor_tab.documents()
-        if not docs or not self._require_ccp("Tabloları okumadan"):
-            return
-        ok = self._read_map_docs(docs)
-        self._log_event("KALIBRASYON", f"{ok}/{len(docs)} tablo ECU'dan okundu")
-
-    def _on_map_write_all(self):
-        docs = self.map_editor_tab.documents()
-        if not docs or not self._require_ccp("Tabloları yazmadan"):
-            return
-        if not can_write_calibration(self.current_role):
-            for d in docs:
-                d.set_write_result(False, "Yetki yok: harita yazmak için Mühendis veya Yönetici rolü gerekir.")
-                self._record_denied_write("Kalibrasyon > Harita Editörü", "Tablo yazımı (RAM)",
-                                          "Yetki yok: Mühendis veya Yönetici rolü gerekir", d.characteristic.name)
-            return
-        modified = [d for d in docs if d.is_modified()]
-        skipped = len(docs) - len(modified)
-        written, failed = self._write_map_docs(modified)
-        self._log_event(
-            "KALIBRASYON",
-            f"Toplu tablo yazma: {written} yazıldı, {skipped} değişmediği için atlandı, {failed} başarısız"
-        )
-
-    # ---- Parametre Listesi (çoklu parametre izleme/yazma) --------------------
-    def _read_phys_best_effort(self, e):
-        try:
-            return ccp_codec.read_value(self.ccp_client, e).phys
-        except (ccp_protocol.CCPError, ccp_protocol.CCPTimeoutError,
-                ccp_codec.UnknownDatatypeError, ValueError):
-            return None
-
-    def _on_watch_read(self):
-        """Parametre Listesi canlı okuma: değerler arka plan CCP iş parçacığının önbelleğinden
-        gelir (arayüz hiç beklemez); ECU yokken satırlar anında 'ECU cevap vermiyor' gösterir ve
-        ECU geri gelince değerler kendiliğinden akmaya başlar."""
-        if self.ccp_client is None:
-            return
-        for row, e in enumerate(self.watch_tab.entries()):
-            if not getattr(e, "resolved", True) or not e.datatype:
-                continue
-            try:
-                reading = ccp_codec.read_value(self.ccp_reader, e)
-            except ccp_protocol.CCPTimeoutError as exc:
-                self.watch_tab.set_row_error(row, str(exc) or "ECU cevap vermedi")
-                continue
-            except (ccp_protocol.CCPError, ccp_codec.UnknownDatatypeError, ValueError) as exc:
-                self.watch_tab.set_row_error(row, str(exc))
-                continue
-            except Exception as exc:
-                self.watch_tab.set_row_error(row, f"Okuma hatası: {exc}")
-                continue
-            self.watch_tab.set_row_value(row, reading.raw_bytes, reading.phys)    # Parametre Listesi HAM BAYT bekler
-
-    def _on_watch_write(self, rows: list):
-        """Parametre Listesi: Değer hücresine Enter ile onaylanan değerleri RAM'e yazar (anında).
-        Yazılamayanlarda bekleyen metin atılır (hücre canlı değere döner); yazılanlar ECU'dan geri
-        okunarak doğrulanır (bkz. WatchTab.commit_written / set_row_value)."""
-        def record_denied(detail: str):
-            for row in rows:
-                if 0 <= row < len(self.watch_tab.entries()):
-                    e = self.watch_tab.entries()[row]
-                    text = self.watch_tab.pending_text(row)
-                    self._record_input("Kalibrasyon > Parametre Listesi", "RAM yazımı", "A2L", e.name,
-                                       text, ok=False, detail=detail, unit=e.unit or "")
-
-        if self.ccp_client is None:
-            record_denied("CCP bağlı değil")
-            self.watch_tab.discard_pending(rows)
-            self.watch_tab.set_write_result(False, "CCP bağlı değil; değer yazılamadı (bağlantı kurulunca tekrar deneyin).")
-            return
-        if not can_write_calibration(self.current_role):
-            record_denied("Yetki yok: Mühendis veya Yönetici rolü gerekir")
-            self.watch_tab.discard_pending(rows)
-            self.watch_tab.set_write_result(
-                False, "Yetki yok: kalibrasyon yazmak için Mühendis veya Yönetici rolü gerekir "
-                       "(sağ üstteki ⚙ Ayarlar penceresinden rol seçin).")
-            return
-        entries = self.watch_tab.entries()
-        done = 0
-        problems: list[str] = []
-        failed_rows: list[int] = []
-        todo = []                               # (satır, giriş, fiziksel değer)
-        for row in rows:
-            if row < 0 or row >= len(entries):
-                continue
-            e = entries[row]
-            text = self.watch_tab.pending_text(row)
-            if text is None or e.read_only or not getattr(e, "resolved", True):
-                continue
-            try:
-                todo.append((row, e, parse_value_text(text)))
-            except ValueError:
-                problems.append(f"{e.name}: geçersiz sayı ({text!r})")
-                failed_rows.append(row)
-        client = self.ccp_client
-
-        def work():
-            out = []                            # (eski değer, hata | None)
-            for _row, e, phys in todo:
-                try:
-                    old = ccp_codec.read_value(client, e).phys
-                except _CCP_IO_ERRORS:
-                    old = None
-                try:
-                    # doğrulama (sonlu, tür aralığı, A2L min/max, READ_ONLY) + güvenli dönüşüm
-                    raw_bytes = ccp_codec.encode_for_write(e, phys)
-                    # yazdıktan sonra geri okuyup doğrular; fark varsa CCPVerifyError (satır "yazılamadı" olur)
-                    client.write_memory(e.address, raw_bytes, e.address_extension or 0, verify=True)
-                    out.append((old, None))
-                except _CCP_IO_ERRORS as exc:
-                    out.append((old, exc))
-            return out
-
-        try:
-            results = self._ccp_job("Parametreler yazılıyor", work) if todo else []
-        except (ValueError, RuntimeError) as exc:
-            results = [(None, exc)] * len(todo)
-        for (row, e, phys), (old_phys, exc) in zip(todo, results):
-            if isinstance(exc, ccp_protocol.CCPTimeoutError):
-                problems.append(f"{e.name}: {str(exc) or 'ECU cevap vermedi'}")
-                self._log_event("HATA", f"{e.name} RAM yazma: ECU cevap vermedi")
-                self._note_failed_write(e.name, old_phys, phys, e.unit or "", str(exc) or "ECU cevap vermedi", "watch")
-                self.watch_tab.mark_write_failed(row, str(exc) or "ECU cevap vermedi")
-                self._record_input("Kalibrasyon > Parametre Listesi", "RAM yazımı", "A2L", e.name, phys, ok=False,
-                                   detail=str(exc) or "ECU cevap vermedi", unit=e.unit or "")
-                failed_rows.append(row)
-                continue
-            if exc is not None:
-                problems.append(f"{e.name}: {exc}")
-                self._log_event("HATA", f"{e.name} RAM yazma hatası: {exc}")
-                self._note_failed_write(e.name, old_phys, phys, e.unit or "", str(exc), "watch")
-                self.watch_tab.mark_write_failed(row, str(exc))
-                self._record_input("Kalibrasyon > Parametre Listesi", "RAM yazımı", "A2L", e.name, phys, ok=False,
-                                   detail=str(exc), unit=e.unit or "")
-                failed_rows.append(row)
-                continue
-            self.watch_tab.commit_written(row, phys, old=old_phys)
-            self._record_cal_sample(e.name, phys, e.unit or "")
-            self._log_event("KALIBRASYON", f"{e.name} = {phys} {e.unit or ''} (RAM, Parametre Listesi) yazıldı")
-            self.calibration_history.add(
-                self.current_user, self.current_role.value, e.name, old_phys, phys, e.unit or "",
-                persistent=False, source="watch",
-            )
-            self._record_input("Kalibrasyon > Parametre Listesi", "RAM yazımı", "A2L", e.name, phys,
-                               old_value=old_phys, unit=e.unit or "")
-            done += 1
-        self.watch_tab.discard_pending(failed_rows)
-        self.history_tab.refresh()
-        if problems:
-            self.watch_tab.set_write_result(
-                False, f"{done} parametre yazıldı; sorunlar: " + "; ".join(problems))
-        elif done:
-            self.watch_tab.set_write_result(True, f"{done} parametre RAM'e yazıldı; ECU'dan doğrulanıyor…")
-
     # ---- Grafik (canlı Measurement çizimi) ---------------------------------
     def _iter_a2l_samples(self, names: list):
         """Verilen A2L ölçüm adlarını (önbellekten, beklemeden) okuyup ``(ad, ölçüm, Reading)``
         üretir. Okunamayanlar (A2L'de yok, adres yok, ECU cevap vermiyor, bilinmeyen veri tipi)
-        sessizce atlanır; ayrıntılı hata gösterimi isteyenler (Ana Sayfa, Parametre Listesi)
+        sessizce atlanır; ayrıntılı hata gösterimi isteyenler (Ana Sayfa, Worksheets)
         ``ccp_codec.read_value`` ile kendileri okur."""
         if self.ccp_client is None:
             return

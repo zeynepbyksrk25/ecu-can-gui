@@ -4,13 +4,13 @@ from datetime import datetime
 from PySide6.QtCore import QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QGuiApplication, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QFrame, QGraphicsDropShadowEffect, QLabel, QMainWindow,
-    QMessageBox, QPushButton, QScrollArea, QSizePolicy, QStackedWidget, QTabBar,
-    QVBoxLayout, QWidget,
+    QApplication, QFrame, QGraphicsDropShadowEffect, QLabel, QMainWindow,
+    QMessageBox, QPushButton, QScrollArea, QVBoxLayout, QWidget,
 )
 
 from app import theme
 from app.can_worker import CanConnection
+from app.change_tracker import ChangeTracker
 from app.ccp.worker import IDLE, CcpSession
 from app import control_panel as cpanel
 from app.ui.control_panel_tab import ControlPanelTab
@@ -37,20 +37,21 @@ from app.ui.tanilama_tab import TanilamaTab
 from app.ui.settings_dialog import SettingsDialog
 from app.ui.user_tab import UserTab
 from app.user_roles import (
-    Role, can_override_actuator, can_write_calibration,
+    Role, can_override_actuator,
 )
 
 # Eski içe aktarma yolu (app.ui.main_window) çalışmaya devam etsin diye yeniden dışa aktarılır.
 from app.ui.mainwin.common import (  # noqa: F401
     CCP_AUTO_CONNECT_DELAY_MS, CCP_JOB_INLINE_S, CONNECTION_LOSS_CONFIRM_S, CcpBusyError,
     HEALTH_CHECK_INTERVAL_MS, RECONNECT_INTERVAL_MS, RX_POLL_INTERVAL_MS, SAFETY_A2L_ATTEMPTS,
-    SAFETY_REPEAT_COUNT, SAFETY_REPEAT_MS, SILENT_NOTICE_S, WATCH_FAIL_STREAK_LIMIT, _CCP_IO_ERRORS,
+    SAFETY_REPEAT_COUNT, SAFETY_REPEAT_MS, SILENT_NOTICE_S, _CCP_IO_ERRORS,
 )
 from app.ui.mainwin.calibration import CalibrationMixin
 from app.ui.mainwin.connection import ConnectionMixin
 from app.ui.mainwin.dashboard import DashboardMixin
 from app.ui.mainwin.exports import ExportMixin
 from app.ui.mainwin.modas import ModasMixin
+from app.ui.mainwin.modas_tools import ModasToolsMixin
 from app.ui.mainwin.panel import PanelMixin
 from app.ui.mainwin.profiles import ProfilesMixin
 from app.ui.mainwin.recording import RecordingMixin
@@ -69,8 +70,25 @@ class _ClickLabel(QLabel):
         super().mouseReleaseEvent(event)
 
 
+class _ToolWindow(QWidget):
+    """Bağımsız araç penceresi (Modas 'Tools'): eski sayfanın widget'ını sarar; kapatılınca gizlenir, silinmez
+    (sayfa arka planda canlı kalır)."""
+
+    def __init__(self, title: str, body: QWidget, owner: QWidget):
+        super().__init__(owner, Qt.Window)
+        self.setWindowTitle(f"{title} — OpenECU")
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.addWidget(body)
+        self.resize(1180, 780)
+
+    def closeEvent(self, event):  # noqa: N802
+        event.ignore()
+        self.hide()
+
+
 class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, ProfilesMixin, ExportMixin, ModasMixin,
-                 RecordingMixin, QMainWindow):
+                 ModasToolsMixin, RecordingMixin, QMainWindow):
     """Ana pencere: pencere çatısı, sayfalar, sinyal bağlantıları ve kapanış. İş mantığı alanlara bölünmüş
     parçalardadır (bkz. ``app/ui/mainwin``): bağlantı, CCP/kalibrasyon, Ana Sayfa, Kontrol Paneli, profiller."""
 
@@ -105,7 +123,6 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self.backend_mode = "REAL"                       # REAL | MIL | VIRTUAL (bağlantı sayfasından seçilir)
         self._resume_ccp_after_reconnect = False
         self._loss_box: QMessageBox | None = None
-        self._watch_fail_streak = 0
         self._ccp_busy = False               # arka planda uzun bir CCP işi sürüyor (bkz. _ccp_job)
         self._job_progress = ""              # işin durum çubuğunda gösterilen ilerleme metni
 
@@ -134,8 +151,6 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
 
         self.kalibrasyon_tab = KalibrasyonTab(self.a2l_tab)   # A2L ilk iç sekme (a2l_tab takma adı korunur)
         self.ccp_tab = self.kalibrasyon_tab.ccp
-        self.watch_tab = self.kalibrasyon_tab.watch
-        self.map_editor_tab = self.kalibrasyon_tab.map_editor
         self.history_tab = self.kalibrasyon_tab.history
 
         self.workspace_tab = WorkspaceTab(WorkspaceLayoutStore(data_path("workspace_layouts.json")))
@@ -154,54 +169,38 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         # Profil artık üst sekme değil: komut şeridindeki "⚙ Ayarlar" penceresi (rol + profiller)
         self.settings_dialog = SettingsDialog(self.user_tab, self)
 
-        # ---- Sol kenar çubuğu navigasyonu + sayfa yığını (QStackedWidget).
-        # Eskiden burada üstte bir QTabWidget sekme çubuğu vardı; kullanıcı
-        # referans tasarıma göre bunu soldaki dikey navigasyona taşımamızı
-        # istedi. Sayfa widget'larının KENDİSİ (dashboard_tab, vb.) hiç
-        # değişmedi — yalnızca aralarında geçiş yöntemi değişti, bu yüzden
-        # MainWindow'un geri kalanındaki `self.xxx_tab` referansları aynen
-        # çalışmaya devam eder.
+        # ---- Tek ana pencere (Modas). Eski sayfa widget'ları değişmedi; aşağıdaki takma adlar `self.xxx_tab`
+        # referanslarının çalışmasını sağlar. Sayfalar artık yığın değil, Tools sekmesinden açılan araç pencereleridir.
         # Modas Sport tarzı çalışma alanı (ilk sayfa) + Ribbon; bkz. app/ui/modas ve app/ui/mainwin/modas.py
         self.modas_tab = ModasWorkspace(ModasSheetStore(data_path("modas_worksheets.json")))
         self.modas_ribbon = ModasRibbon()
         self.page_model = PageModel()
 
+        # Tek ana pencere = Modas (ribbon + worksheet'ler). Diğer eski sayfalar ARAÇ PENCERELERİ olarak (Tools sekmesi)
+        # ayrı, bağımsız pencerelerde açılır; sayfa yığını / üst sayfa sekmeleri yoktur.
         self._nav_pages = [
             ("📑", "Worksheets", self.modas_tab),
-            ("🏠", "Ana Sayfa", self.dashboard_tab),
-            ("📶", "CAN Monitor", self.can_monitor_tab),
-            ("⚙", "Kalibrasyon", self.kalibrasyon_tab),
-            ("📈", "Analiz", self.analiz_tab),
-            ("🎛", "Kontrol Paneli", self.control_panel_tab),
-            ("🛡", "Tanılama ve Oturum", self.tanilama_tab),
+            ("🧪", "Test Bench", self.dashboard_tab),
+            ("📶", "CAN Trace", self.can_monitor_tab),
+            ("⚙", "Calibration Tools", self.kalibrasyon_tab),
+            ("📈", "Analysis", self.analiz_tab),
+            ("🎛", "Control Panel", self.control_panel_tab),
+            ("🛡", "Diagnostics", self.tanilama_tab),
         ]
-        # Her sayfa kendi QScrollArea'sı içinde yaşar: pencere sayfa
-        # içeriğinden KÜÇÜKSE (düşük çözünürlüklü laptop vb.) içerik aşağıdan
-        # dışarı taşıp erişilemez olmak yerine dikey/yatay kaydırılabilir.
-        # Pencere büyükse sayfa alanı doldurur (widgetResizable).
+        self._tool_pages = {label: page for _i, label, page in self._nav_pages[1:]}
+        self._tool_windows: dict = {}
         self._cap_form_widths([p for _i, _l, p in self._nav_pages
                                if p not in (self.modas_tab, self.dashboard_tab, self.analiz_tab, self.performance_tab,
                                          self.control_panel_tab, self.workspace_tab)])
-        self.stack = QStackedWidget()
         self._page_scrolls: dict[QWidget, QScrollArea] = {}
         # Koyu temaya geçirilmiş sayfalar (koyu gövdeye sarılır); diğerleri henüz açık temada.
         self._dark_pages = {self.tanilama_tab, self.session_tab, self.kalibrasyon_tab, self.analiz_tab, self.performance_tab, self.workspace_tab, self.control_panel_tab}
-        for _icon, _label, page in self._nav_pages:
-            # Ana Sayfa ve Worksheets kaydırılmaz: Ana Sayfa 16" ekrana sığar (bkz. DashboardTab); Worksheets kendi
-            # MDI alanı / bölücüleriyle pencereyi doldurur.
-            self.stack.addWidget(page if page in (self.dashboard_tab, self.modas_tab) else self._make_scrollable_page(page))
-
-        # Boyut ilkeleri İLK asgari boyut hesabından önce kurulur (aksi halde pencere gizli Ana Sayfa'ya göre büyür).
-        self._stack_policies = {self.stack.widget(i): self.stack.widget(i).sizePolicy() for i in range(self.stack.count())}
-        self.stack.currentChanged.connect(self._on_stack_page_changed)
-        self._on_stack_page_changed(self.stack.currentIndex())
         self._build_ui_chrome()
 
         self.dashboard_tab.set_config(self.dashboard_config_store.load())
         self._load_trend_layout()
         self._migrate_control_bindings()
         self._rebuild_dash_can_map()
-        self.watch_tab.set_storage_path(data_path("watchlist.json"))
 
         # İzleme sekmesi, Gönderim sekmesindeki DBC ile AYNI nesneyi kullanır;
         # böylece DBC yüklenince ikisi de aynı anda görür.
@@ -213,12 +212,6 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self.ccp_tab.a2l_db = self.a2l_tab.db
         self.a2l_tab.a2l_loaded.connect(self.ccp_tab.refresh_objects)
 
-        self.map_editor_tab.a2l_db = self.a2l_tab.db
-        self.a2l_tab.a2l_loaded.connect(self.map_editor_tab.refresh_objects)
-
-        self.watch_tab.a2l_db = self.a2l_tab.db
-        self.a2l_tab.a2l_loaded.connect(self.watch_tab.refresh_objects)
-        self.watch_tab.refresh_objects()
 
         # Çalışma Alanı: A2L/DBC listeleri, CCP okuma isteği, giriş/gösterge beslemesi.
         self.a2l_tab.a2l_loaded.connect(self._sync_workspace_a2l)
@@ -250,7 +243,8 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self._wire_recording()
         self.session_tab.excel_requested.connect(self._on_excel_export_requested)
         self.history_tab.history = self.calibration_history
-        self.change_tracker = self.watch_tab.tracker   # tek ortak değişiklik takibi (Parametre Listesi, CCP, geçmiş)
+        self.session_tab.host_provider = lambda: self
+        self.change_tracker = ChangeTracker()          # tek ortak değişiklik takibi (Worksheets, CCP, geçmiş)
         self.user_tab.set_profiles(self.profile_store.names())
 
         self.dashboard_tab.motor_start_requested.connect(self._on_motor_start)
@@ -271,7 +265,7 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self._wire_signals()
         self._install_shortcuts_and_accessibility()
         self._wire_modas()
-        self.watch_tab.set_write_allowed(can_write_calibration(self.current_role))
+        self._wire_modas_tools()
         for sig in (self.transmit_tab.dbc_loaded, self.a2l_tab.a2l_loaded, self.dashboard_tab.config_saved,
                     self.user_tab.role_applied):
             sig.connect(self._schedule_minimum_size_refresh)
@@ -317,10 +311,30 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         return scroll
 
     def current_page(self) -> QWidget | None:
-        """Şu an görünen sayfanın KENDİ widget'ı (QScrollArea / koyu gövde sarmalayıcısı değil)."""
-        scroll = self.stack.currentWidget()
-        inner = scroll.widget() if isinstance(scroll, QScrollArea) else scroll
-        return getattr(inner, "inner", inner)
+        """Etkin araç penceresinin sayfa widget'ı; araç penceresi etkin değilse ana pencerenin Worksheets sayfası."""
+        active = QApplication.activeWindow()
+        for page, win in self._tool_windows.items():
+            if win is active:
+                return page
+        return self.modas_tab
+
+    def open_tool(self, label_or_page) -> QWidget | None:
+        """Araç penceresini (Test Bench, CAN Trace, Calibration Tools …) açar / öne getirir. Pencere ilk açılışta kurulur;
+        sayfa widget'ı arka planda her zaman canlıdır (CAN/CCP besleme kodu bundan etkilenmez)."""
+        page = self._tool_pages.get(label_or_page, label_or_page)
+        if page is self.modas_tab or page not in self._tool_pages.values():
+            self.activateWindow()
+            self.raise_()
+            return None
+        win = self._tool_windows.get(page)
+        if win is None:
+            label = next(l for l, p in self._tool_pages.items() if p is page)
+            win = _ToolWindow(label, self._make_scrollable_page(page), self)
+            self._tool_windows[page] = win
+        win.show()
+        win.raise_()
+        win.activateWindow()
+        return win
 
     def _apply_initial_geometry(self):
         """İlk pencere boyutu EKRANA sığmalı: sabit 1600x950, 1366x768 gibi
@@ -352,7 +366,7 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         central_layout.setContentsMargins(0, 0, 0, 0)
         central_layout.setSpacing(0)
         central_layout.addWidget(self._build_modas_chrome())
-        central_layout.addWidget(self.stack, stretch=1)
+        central_layout.addWidget(self.modas_tab, stretch=1)
 
         self.setCentralWidget(central)
         self.statusBar().setSizeGripEnabled(False)
@@ -369,15 +383,6 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self._clock_timer.timeout.connect(self._update_clock)
         self._clock_timer.start()
         self._update_clock()
-
-    def _on_stack_page_changed(self, index: int):
-        """Pencerenin asgari boyutu yalnızca GÖRÜNEN sayfaya göre hesaplanır: QStackedWidget normalde gizli sayfaların
-        da asgari boyutunun en büyüğünü ister (kaydırılmayan Ana Sayfa ~1400×800), bu da Worksheets'i gereksiz büyük açardı.
-        Gizli sayfaların boyut ilkesi Ignored yapılır; sayfa açılınca özgün ilkesine döner ve pencere gerekirse büyür."""
-        for i in range(self.stack.count()):
-            page = self.stack.widget(i)
-            page.setSizePolicy(self._stack_policies[page] if i == index else QSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored))
-        self._schedule_minimum_size_refresh()
 
     def _refresh_minimum_size(self):
         """Pencerenin asgari boyutunu İÇERİĞE göre yeniden hesaplar ve gerekirse pencereyi büyütür.
@@ -430,17 +435,8 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         """Üst şerit = Modas Ribbon (bkz. app/ui/modas/ribbon.py). Eski başlık + komut şeridindeki tüm widget'lar
         (bağlantı hapı, CCP durumu, rol, Ayarlar, Eşleşmeler, Motor Başlat/Durdur/ACİL DURDURMA) aynı adlarla yaşar:
         durum alanı sekme satırının sağında, Motor grubu HER sekmede görünen sağ bölmede (Acil Durdurma gizlenmez).
-        ``nav_bar`` görünmez bir sayfa modeli olarak kalır (sayfa geçişi: Tools sekmesi, Ctrl+1…7, bağlantı hapı)."""
+        Araç pencereleri: Tools sekmesi, Ctrl+1…7, bağlantı hapı (bkz. ``open_tool``)."""
         rb = self.modas_ribbon
-        self.nav_bar = QTabBar(self)
-        self.nav_bar.setObjectName("topNav")
-        self.nav_bar.setMovable(False)
-        self.nav_bar.setTabsClosable(False)
-        for _icon, label, _page in self._nav_pages:
-            self.nav_bar.addTab(label)
-        self.nav_bar.setCurrentIndex(0)
-        self.nav_bar.currentChanged.connect(self.stack.setCurrentIndex)
-        self.nav_bar.hide()
         rb.set_pages([(icon, label) for icon, label, _p in self._nav_pages])
 
         self.header_conn_pill = _ClickLabel("●  Bağlı değil")
@@ -503,7 +499,7 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         for i, (_icon, label, _page) in enumerate(self._nav_pages[:9]):      # Ctrl+1..7: sayfa geçişi
             sc = QShortcut(QKeySequence(f"Ctrl+{i + 1}"), self)
             sc.setContext(Qt.ApplicationShortcut)
-            sc.activated.connect(lambda idx=i: self.nav_bar.setCurrentIndex(idx))
+            sc.activated.connect(lambda _c=False, pg=_page: self.open_tool(pg))
         self._install_record_shortcuts()
         dt.estop_hint = f"Kısayol: {self.ESTOP_SHORTCUT}"
         dt.update_estop_tooltip()
@@ -512,23 +508,19 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
             dt.stop_button: ("Motoru durdur", "Motor Stop sinyaline ON=1, OFF=0 yazar"),
             dt.estop_button: ("Acil durdurma", f"Acil Durdurma komutunu hemen gönderir. Kısayol {self.ESTOP_SHORTCUT}"),
             dt.estop_warn: ("Acil durdurma eşlenmemiş uyarısı", "Eşleşmeler penceresini açar"),
-            self.header_conn_pill: ("CAN bağlantı durumu", "CAN Monitor sayfasını açar"),
+            self.header_conn_pill: ("CAN bağlantı durumu", "CAN Trace penceresini açar"),
             self.ccp_chip: ("CCP durumu", "CCP oturumunun durumu"),
             self.header_role_label: ("Kullanıcı rolü", "Kullanıcı ve rol ayarlarını açar"),
             self.settings_button: ("Ayarlar", "Kullanıcı, rol ve profiller"),
             self.mappings_button: ("Eşleşmeler", "CAN ve A2L eşleşmeleri"),
-            self.nav_bar: ("Sayfalar", "Ctrl+1 ile Ctrl+7 arası sayfa değiştirir"),
         }
         for widget, (name, desc) in names.items():
             widget.setAccessibleName(name)
             widget.setAccessibleDescription(desc)
 
     def _open_connection_page(self):
-        """Bağlantı hapına tıklanınca CAN Monitor (bağlantı şeridi) sekmesine geç."""
-        for i, (_icon, label, _page) in enumerate(self._nav_pages):
-            if label == "CAN Monitor":
-                self.nav_bar.setCurrentIndex(i)
-                return
+        """Bağlantı hapına / ECU düğmesine tıklanınca CAN Trace (bağlantı şeridi) araç penceresini aç."""
+        self.open_tool("CAN Trace")
 
     def open_settings(self):
         """Ayarlar penceresi (kullanıcı/rol + profiller)."""
@@ -580,12 +572,8 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
                         w.setMaximumWidth(max_w)
 
     def setCurrentWidget(self, widget):
-        """Eski QTabWidget tabanlı kodun `self.setCurrentWidget(...)`
-        çağrılarının değişmeden çalışmaya devam etmesi için ince bir uyumluluk
-        katmanı: hem sayfa yığınını hem de üst sekme çubuğunu günceller."""
-        index = self.stack.indexOf(self._page_scrolls.get(widget, widget))
-        if index != -1:
-            self.nav_bar.setCurrentIndex(index)
+        """Eski sayfa-geçişi çağrılarının uyumluluk katmanı: Worksheets ana pencereyi, diğer sayfalar araç penceresini açar."""
+        self.open_tool(widget)
 
     def _wire_signals(self):
         self.connection_tab.connect_requested.connect(self._on_connect)
@@ -603,7 +591,7 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self.ccp_tab.read_requested.connect(self._on_ccp_read)
         self.ccp_tab.write_requested.connect(self._on_ccp_write)
 
-        self.ccp_tab.open_in_map_editor_requested.connect(self._open_in_map_editor)
+        self.ccp_tab.open_in_modas_requested.connect(self._open_in_modas)
 
         self.transmit_tab.dbc_loaded.connect(self._panel_sources_changed)
         self.transmit_tab.dbc_loaded.connect(lambda *_: self.tx_scheduler.refresh_frames())
@@ -620,13 +608,6 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self.tx_scheduler.recovered.connect(self._on_panel_tx_recovered)
         self.tx_scheduler.state_changed.connect(self._panel_tx_state)
         self.control_panel_tab.set_allowed(can_override_actuator(self.current_role))
-        self.watch_tab.read_requested.connect(self._on_watch_read)
-        self.watch_tab.write_requested.connect(self._on_watch_write)
-
-        self.map_editor_tab.read_requested.connect(self._on_map_read)
-        self.map_editor_tab.write_requested.connect(self._on_map_write)
-        self.map_editor_tab.read_all_requested.connect(self._on_map_read_all)
-        self.map_editor_tab.write_all_requested.connect(self._on_map_write_all)
 
         self.diagnostics_tab.test_requested.connect(self._on_diag_test_requested)
         self.diagnostics_tab.diag_requested.connect(self._on_diag_requested)
@@ -654,6 +635,10 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
             event.ignore()
             self.statusBar().showMessage("CCP işlemi sürüyor; bitince kapatabilirsiniz.", 5000)
             return
+        try:
+            self._modas_save_dataset()                   # workbase açıkken PC veri seti (son WP değerleri) kaydedilir
+        except Exception:  # noqa: BLE001 - kapanışı engellemesin
+            logging.getLogger(__name__).exception("Veri seti kapanışta kaydedilemedi")
         # Ayrı penceredeki Trend geri yerleşsin; aksi halde uygulama
         # son pencere kapanana kadar çıkmaz.
         for det in (getattr(self.dashboard_tab.trend, "detacher", None),):

@@ -390,7 +390,7 @@ def test_estop_shortcut_is_application_wide_and_buttons_have_accessible_names(wi
     win._estop_shortcut.activated.emit()
     assert sent, "kısayol Acil Durdurma'yı göndermeli"
     dt = win.dashboard_tab
-    for w in (dt.start_button, dt.stop_button, dt.estop_button, win.header_conn_pill, win.ccp_chip, win.nav_bar):
+    for w in (dt.start_button, dt.stop_button, dt.estop_button, win.header_conn_pill, win.ccp_chip):
         assert w.accessibleName(), w
     assert "Ctrl+Shift+E" in dt.estop_button.toolTip()
 
@@ -427,23 +427,22 @@ def test_table_backup_roundtrip_is_validated_and_scoped_to_its_object(tmp_path):
     assert len(table_backup.list_backups(folder, ch)) == 3          # bozuk dosya listeyi bozmaz
 
 
-def test_map_editor_restore_loads_backup_as_undoable_edit_without_writing(qapp, tmp_path, monkeypatch):
+def test_table_window_restore_from_backup_loads_as_edit_without_writing(qapp, tmp_path, monkeypatch):
     from PySide6.QtWidgets import QInputDialog
     from app.ccp import table_backup
-    from app.ui.map_editor_tab import MapEditorTab
+    from app.ui.modas.windows import TableWindow
     import app.paths as paths
     monkeypatch.setattr(paths, "_cached", str(tmp_path))
     ch = _arr()
-    tab = MapEditorTab()
-    doc = tab.open_characteristic(ch)
-    doc.set_grid_from_ecu([[0.0] * 3, [0.0] * 3])
-    assert tab.restore_button.isEnabled()
+    win = TableWindow(ch)
+    writes = []
+    win.write_requested.connect(writes.append)
+    win.set_grid_from_ecu([[0.0] * 3, [0.0] * 3])
     table_backup.save(str(tmp_path / "tablo_yedekleri"), ch, [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
     monkeypatch.setattr(QInputDialog, "getItem", staticmethod(lambda w, t, l, items, *a, **k: (items[0], True)))
-    tab._on_restore_clicked()
-    assert doc.current_grid() == [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]] and doc.is_modified()
-    doc.undo()
-    assert doc.current_grid() == [[0.0] * 3, [0.0] * 3]
+    assert win.restore_from_backup() is True
+    assert win.current_grid() == [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]] and win.is_modified()
+    assert writes == []                                             # ECU'ya YAZILMAZ; kullanıcı onaylayınca yazılır
 
 
 # ---------------------------------------------------------------- zamanlayıcı çözünürlüğü
@@ -509,17 +508,11 @@ def _luminance(hex_color: str) -> float:
     return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
 
 
-def test_map_table_headers_are_readable(qapp):
-    """Başlık zemini ile yazı rengi arasında yeterli kontrast (eskiden koyu lacivert zemin + koyu yazıydı)."""
-    import re
-    from app.ui.map_editor_tab import MapEditorTab
-    doc = MapEditorTab().open_characteristic(_arr())
-    for header in (doc.table.horizontalHeader(), doc.table.verticalHeader()):
-        css = header.styleSheet()
-        bg = re.search(r"background:(#[0-9A-Fa-f]{6})", css).group(1)
-        fg = re.search(r"(?<!-)color:(#[0-9A-Fa-f]{6})", css).group(1)
-        lo, hi = sorted((_luminance(bg), _luminance(fg)))
-        assert (hi + 0.05) / (lo + 0.05) >= 4.5, (bg, fg)
+def test_modas_table_headers_are_readable():
+    """Modas tablo başlık zemini ile yazı rengi arasında yeterli kontrast."""
+    from app import theme
+    lo, hi = sorted((_luminance(theme.MODAS_TABLE_HEAD), _luminance(theme.INK)))
+    assert (hi + 0.05) / (lo + 0.05) >= 4.5
 
 
 # ---------------------------------------------------------------- yerleşim: içerik büyüyünce metin kırpılmaz

@@ -120,12 +120,10 @@ def test_mil_calibration_via_manifest_changes_model_and_history(mil, tmp_path):
     assert w._load_sim_manifest(str(mp))
     w._apply_sim_params()
     assert w.ccp_client is not None
-    from app.ui.watch_tab import WatchEntry
-    e = WatchEntry(ch.name, "characteristic", ch.address, ch.datatype, unit=ch.unit or "", read_only=False,
-                   byte_order=ch.byte_order, compu_method=ch.compu_method)
-    w.watch_tab.add_manual_entry(e)
-    w.watch_tab._entries[0].pending_text = "3"
-    w._on_watch_write([0])
+    w._modas_sync_permissions()
+    w.modas_tab.set_summary(summary)
+    win = w.modas_tab.add_label(ch.name)
+    w._modas_write_value(win, "3")
     assert model.params[7] == pytest.approx(3.0, abs=0.01)
     assert w.calibration_history.entries[-1].object_name == ch.name and w.calibration_history.entries[-1].write_ok
     # model çalışırken tunable olmayan parametre reddedilir ve geçmişe BAŞARISIZ olarak girer
@@ -138,8 +136,7 @@ def test_mil_calibration_via_manifest_changes_model_and_history(mil, tmp_path):
     end = time.time() + 2
     while time.time() < end and w.connection.bus.model_state != 2:
         time.sleep(0.02)
-    w.watch_tab._entries[0].pending_text = "5"
-    w._on_watch_write([0])
+    w._modas_write_value(win, "5")
     assert model.params[7] == pytest.approx(3.0, abs=0.01)
     assert w.calibration_history.entries[-1].write_ok is False
 

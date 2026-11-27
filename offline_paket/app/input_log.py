@@ -1,6 +1,6 @@
 """Kullanıcının TÜM sayfalarda yaptığı girişlerin/değişikliklerin yapılandırılmış kaydı.
 
-Ana Sayfa (eyleyici, motor komutu, uçuş koşulu), Kontrol Paneli, Kalibrasyon (Parametre Listesi, Harita Editörü,
+Ana Sayfa (eyleyici, motor komutu, uçuş koşulu), Kontrol Paneli, Kalibrasyon (Worksheets değer / tabloları,
 CCP, geçmişten geri alma) hangi sayfada olursa olsun her giriş buraya bir satır olarak eklenir: ne zaman, hangi sayfa,
 hangi hedef (CAN sinyali / A2L adı), eski ve yeni değer, başarılı mı, kim/hangi rol. Excel raporunun "Girişler (tüm
 sayfalar)" sayfası bu kayıttan üretilir.
@@ -28,7 +28,7 @@ _AUTO = object()
 @dataclass
 class InputEntry:
     timestamp: float
-    page: str            # "Ana Sayfa", "Kontrol Paneli", "Kalibrasyon > Parametre Listesi" ...
+    page: str            # "Ana Sayfa", "Kontrol Paneli", "Worksheets" ...
     kind: str            # "Değer girişi", "Switch (_sw)", "Motor komutu", "Uçuş koşulu", "RAM yazımı" ...
     source: str          # "CAN" | "A2L" | "CCP"
     target: str          # "MESAJ.SİNYAL" ya da A2L adı

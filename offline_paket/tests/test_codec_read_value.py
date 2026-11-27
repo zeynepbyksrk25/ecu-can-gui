@@ -40,7 +40,7 @@ def test_byte_order_address_extension_and_compu_method():
     r = FakeReader(struct.pack("<H", 9040))
     rd = codec.read_value(r, _info(byte_order="MSB_LAST", address_extension=3, compu_method=Compu))
     assert rd.raw == 9040 and rd.phys == pytest.approx(4520.0)
-    assert rd.raw_bytes == struct.pack("<H", 9040)       # Parametre Listesi HAM BAYT bekler
+    assert rd.raw_bytes == struct.pack("<H", 9040)       # Worksheets değer penceresi HAM BAYT bekler
     assert r.calls == [(0x1000, 2, 3)]
 
 

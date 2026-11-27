@@ -6,7 +6,7 @@ sonra CCP oturumu da yeniden kurulmuyordu.
 
 NASIL:
   * Gerçek CAN/CCP giriş-çıkışı YALNIZCA bu modüldeki tek iş parçacığında yapılır.
-  * Arayüz zamanlayıcıları (Ana Sayfa, Parametre Listesi, Grafik, Çalışma Alanı...) ``reader``
+  * Arayüz zamanlayıcıları (Ana Sayfa, Worksheets, Grafik, Çalışma Alanı...) ``reader``
     üzerinden ÖNBELLEKTEN okur; hiçbir zaman beklemez. Okunmak istenen adresler ``reader``a ilk
     kez sorulunca iş parçacığının okuma listesine girer (3 sn istenmeyen adres düşer).
   * Durum makinesi:  BAĞLI DEĞİL(idle) → BAĞLANIYOR(connecting) → ÇEVRİMİÇİ(online)

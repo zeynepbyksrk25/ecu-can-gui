@@ -1,6 +1,6 @@
 """A2L nesne ağacı için ortak yardımcılar.
 
-A2L sekmesi, Kalibrasyon > CCP ve Harita Editörü aynı "arama kutusu + nesne ağacı" kalıbını ayrı ayrı
+A2L sekmesi, Kalibrasyon > CCP ve Worksheets değişken listesi aynı "arama kutusu + nesne ağacı" kalıbını ayrı ayrı
 kuruyor ve üç ayrı süzgeç fonksiyonu taşıyordu. Burada tek yerde toplanır; her sekme KENDİ gruplamasını
 (Scalar/Curves/Maps, tuneable/readonly, Eğriler/Haritalar…) kurmaya devam eder.
 """

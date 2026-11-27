@@ -113,20 +113,17 @@ def test_ccp_event_queue_is_bounded_and_keeps_the_newest_events():
     assert events[-1] == ("e", w.EVENT_QUEUE_MAX + 49) and s.events_dropped == 50
 
 
-# ---- 5 toplu yazmada geri okuma -----------------------------------------------------------------------------------------
-def test_watch_list_batch_write_verifies_by_reading_back(win, ccp):
-    from PySide6.QtWidgets import QMessageBox
+# ---- 5 yazmada geri okuma ---------------------------------------------------------------------------------------------
+def test_worksheet_value_write_verifies_by_reading_back(win, ccp):
     from app.user_roles import Role
     win.current_role = Role.ENGINEER
-    win.watch_tab.set_write_allowed(True)
-    obj = next(m for m in win.a2l_tab.db.summary.measurements if m.name == "clbc_Fuel_pump_dc_perc")
-    win.watch_tab.add_a2l_objects([("measurement", obj)])
+    win._modas_sync_permissions()
+    win.modas_tab.set_summary(win.a2l_tab.db.summary)
+    obj = next(c for c in win.a2l_tab.db.summary.characteristics if c.name == "clbc_Fuel_pump_gain")
+    w = win.modas_tab.add_label(obj.name)
     calls = []
     client = win.ccp_client
     orig = client.write_memory
     client.write_memory = lambda *a, **k: (calls.append(k), orig(*a, **k))[1]
-    QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.Yes)
-    e = win.watch_tab.entries()[0]
-    e.pending_text = "12"
-    win._on_watch_write([0])
+    win._modas_write_value(w, "12")
     assert calls and all(c.get("verify") is True for c in calls)

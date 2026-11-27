@@ -49,9 +49,20 @@ class SessionTab(QWidget):
         from app.ui.trigger_panel import TriggerPanel
         self.trigger_panel = TriggerPanel()
         layout.addWidget(self.trigger_panel)
-        self.scenario_panel = ScenarioPanel(lambda: self.window() if hasattr(self.window(), "latest_signals") else None)
+        self.host_provider = None          # MainWindow atar: sayfa araç penceresinde / sayfa dışındayken ana pencereyi verir
+        self.scenario_panel = ScenarioPanel(self._main_window)
         layout.addWidget(self.scenario_panel)
         layout.addWidget(self._build_log_card(), stretch=1)
+
+    def _main_window(self):
+        """Senaryo paneli için ana pencere: MainWindow kendini ``host_provider`` ile bildirir (sayfa Tools'tan ayrı bir
+        pencerede açılsa ya da hiç açılmamış olsa da bulunur); yoksa pencere zincirinde ``latest_signals`` taşıyan aranır."""
+        if self.host_provider is not None:
+            return self.host_provider()
+        w = self.window()
+        while w is not None and not hasattr(w, "latest_signals"):
+            w = w.parentWidget()
+        return w
 
     def _build_session_card(self):
         card, v, head = make_card("Test oturumu", "flag")
