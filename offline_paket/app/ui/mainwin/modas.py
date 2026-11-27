@@ -64,6 +64,7 @@ class ModasMixin:
         tab.value_write_requested.connect(self._modas_write_value)
         tab.table_read_requested.connect(self._modas_read_tables)
         tab.table_write_requested.connect(self._modas_write_table)
+        tab.history_requested.connect(self._modas_show_history)
         tab.measuring_changed.connect(self._modas_measuring_changed)
         tab.layout_changed.connect(self._modas_update_diff)
         self.a2l_tab.a2l_loaded.connect(self._modas_on_a2l_loaded)
@@ -234,6 +235,14 @@ class ModasMixin:
         if win.is_calibration:
             self._modas_mark_change(win)
         return True
+
+    def _modas_show_history(self, name: str):
+        """Değişiklik okuna tıklanınca: Calibration Tools > Geçmiş sekmesini açar, parametreyi süzüp son kaydı seçer."""
+        found = self.history_tab.show_object(name)
+        self.open_tool("Calibration Tools")
+        self.kalibrasyon_tab.inner_tabs.setCurrentWidget(self.history_tab)
+        if not found:
+            self.statusBar().showMessage(f"{name}: Değişiklik Geçmişi'nde kayıt yok.", 5000)
 
     def _modas_mark_change(self, win: ValueWindow):
         """Değer penceresinde son değişikliğin okunu / farkını gösterir (ortak ChangeTracker)."""

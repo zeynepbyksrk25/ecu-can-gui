@@ -10,6 +10,7 @@ import time
 
 import numpy as np
 
+from app.change_tracker import direction, format_delta
 from app.session_export import SessionData
 
 MAX_EVENT_ROWS = 500
@@ -43,6 +44,32 @@ def calibration_changes(sd: SessionData) -> list[dict]:
     return out
 
 
+def calibration_summary(cal: list[dict]) -> list[dict]:
+    """Parametre başına özet: ilk kayıtlı değer (başlangıç referansı), son değer, net sapma, artış/azalış sayısı.
+    Referans = kayıttaki İLK örnek (varsayılan uydurulmaz); ``old=None`` olan ilk örnek değişiklik sayılmaz."""
+    out: dict[str, dict] = {}
+    for c in cal:
+        r = out.setdefault(c["name"], {"name": c["name"], "unit": c["unit"], "first": c["new"], "last": c["new"],
+                                        "up": 0, "down": 0})
+        r["last"] = c["new"]
+        dr = direction(c["old"], c["new"])
+        if dr > 0:
+            r["up"] += 1
+        elif dr < 0:
+            r["down"] += 1
+    for r in out.values():
+        r["net"] = r["last"] - r["first"]
+    return list(out.values())
+
+
+def _arrow_html(old, new, unit: str = "") -> str:
+    """Kırmızı yön oku + fark (arayüzdeki ok diliyle aynı: ↑ artış, ↓ azalış); değişim yoksa ``—``."""
+    dr = direction(old, new)
+    if dr == 0:
+        return "—"
+    return f"<span class='chg'>{format_delta(old, new, unit)}</span>"
+
+
 def _fmt(x, d=5):
     return "—" if x is None or (isinstance(x, float) and not math.isfinite(x)) else f"{x:.{d}g}"
 
@@ -65,7 +92,7 @@ def build_report_html(sd: SessionData, extra_files: dict | None = None) -> str:
     parts = [f"<!doctype html><meta charset='utf-8'><title>Test raporu – {e(str(m.get('name') or ''))}</title>",
              "<style>body{font:14px Segoe UI,Arial;margin:24px;color:#121A22}table{border-collapse:collapse;margin:8px 0}"
              "td,th{border:1px solid #C9D3DC;padding:3px 8px;text-align:left}th{background:#EEF2F6}"
-             "h2{margin-top:24px}.warn{color:#C22A1D}</style>",
+             "h2{margin-top:24px}.warn{color:#C22A1D}.chg{color:#C22A1D;font-weight:600;white-space:nowrap}</style>",
              f"<h1>Test raporu: {e(str(m.get('name') or os.path.basename(sd.path)))}</h1>",
              "<h2>Test bilgileri</h2><table>"]
     info = [("Durum", status),
@@ -88,11 +115,22 @@ def build_report_html(sd: SessionData, extra_files: dict | None = None) -> str:
                      f"<td>{_fmt(r['min'])}</td><td>{_fmt(r['max'])}</td><td>{_fmt(r['mean'])}</td>"
                      f"<td>{_fmt(r['first'])}</td><td>{_fmt(r['last'])}</td></tr>")
     parts.append("</table>")
-    parts.append(f"<h2>Kalibrasyon değişiklikleri ({len(cal)})</h2><table><tr><th>t (sn)</th><th>Parametre</th>"
-                 "<th>Eski</th><th>Yeni</th><th>Birim</th></tr>")
+    summ = calibration_summary(cal)
+    parts.append(f"<h2>Kalibrasyon değişiklikleri ({len(cal)})</h2>")
+    parts.append("<p>Yön: <span class='chg'>↑ artış</span>, <span class='chg'>↓ azalış</span> (ECU'ya yazılan değerler; "
+                 "referans = kayıttaki ilk değer, A2L varsayılanı değil).</p>")
+    if summ:
+        parts.append("<table><tr><th>Parametre</th><th>İlk (başlangıç)</th><th>Son</th><th>Başlangıca göre</th>"
+                     "<th>↑ sayısı</th><th>↓ sayısı</th><th>Birim</th></tr>")
+        for r in summ:
+            parts.append(f"<tr><td>{e(r['name'])}</td><td>{_fmt(r['first'])}</td><td>{_fmt(r['last'])}</td>"
+                         f"<td>{_arrow_html(r['first'], r['last'], r['unit'])}</td><td>{r['up']}</td><td>{r['down']}</td>"
+                         f"<td>{e(r['unit'])}</td></tr>")
+        parts.append("</table>")
+    parts.append("<table><tr><th>t (sn)</th><th>Parametre</th><th>Eski</th><th>Yeni</th><th>Değişim</th><th>Birim</th></tr>")
     for c in cal[:MAX_EVENT_ROWS]:
         parts.append(f"<tr><td>{c['t']:.2f}</td><td>{e(c['name'])}</td><td>{_fmt(c['old'])}</td><td>{_fmt(c['new'])}</td>"
-                     f"<td>{e(c['unit'])}</td></tr>")
+                     f"<td>{_arrow_html(c['old'], c['new'], c['unit'])}</td><td>{e(c['unit'])}</td></tr>")
     parts.append("</table>")
     parts.append(f"<h2>Hata ve bağlantı olayları ({len(errs)})</h2><table><tr><th>t (sn)</th><th>Tür</th><th>Metin</th></tr>")
     for t, _u, k, text in errs[:MAX_EVENT_ROWS]:

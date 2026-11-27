@@ -1348,3 +1348,40 @@ def test_table_window_revert_to_original_clears_marks(qapp):
     assert w.cell_change(1, 1)[0] == "pending"
     w.table.item(1, 1).setText("50")                                        # eski değere dönüldü
     assert w.cell_change(1, 1) == ("", "", "") and not w.change_summary.isVisible()
+
+
+def test_table_window_baseline_deviation_summary(qapp):
+    w = _map_window()                                                       # ilk ECU okuması = başlangıç referansı
+    assert w.baseline_deviation() is None and not w.change_summary.isVisible()
+    w.table.item(0, 0).setText("15")                                        # +5
+    w.table.item(1, 2).setText("30")                                        # -30
+    dev = w.baseline_deviation()
+    assert dev["cells"] == 2 and dev["max_cell"] == (1, 2) and dev["max_abs"] == 30.0 and dev["mean"] == -12.5
+    txt = w.change_summary.text()
+    assert "Başlangıca göre" in txt and "oturum başı ECU değeri" in txt and "2 hücre sapmış" in txt
+    w.set_write_result(True, "ok")
+    w.set_grid_from_ecu([[15, 20, 30], [40, 50, 30]])                       # yeni okuma referansı DEĞİŞTİRMEZ
+    assert w.baseline_deviation()["cells"] == 2
+    w.table.item(0, 0).setText("10")
+    w.table.item(1, 2).setText("60")                                        # başlangıç değerlerine dönüldü
+    assert w.baseline_deviation() is None
+
+
+def test_table_window_history_requested_from_summary_link_and_value_window_arrow(summary, qapp):
+    w = _map_window()
+    got = []
+    w.history_requested.connect(got.append)
+    w.table.item(0, 1).setText("25")
+    w.set_write_result(True, "ok")
+    assert "Geçmişte göster" in w.change_summary.text()
+    w.change_summary.linkActivated.emit("history")
+    assert got == [w.characteristic.name]
+    v = _cal_window(summary)
+    got2 = []
+    v.history_requested.connect(got2.append)
+    v.set_change("↑", "+1", "", "steady")
+    from PySide6.QtCore import QPoint, Qt as _Qt
+    from PySide6.QtTest import QTest
+    QTest.mouseClick(v.change_icon, _Qt.LeftButton, pos=QPoint(5, 5))
+    QTest.mouseClick(v.change_text, _Qt.LeftButton, pos=QPoint(3, 3))
+    assert got2 == [v.obj.name, v.obj.name]

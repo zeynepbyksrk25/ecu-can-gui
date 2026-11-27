@@ -131,6 +131,16 @@ class ModasSub(QMdiSubWindow):
         widget.style().polish(widget)
 
 
+class _ClickLabel(QLabel):
+    """Tıklanabilir etiket (değişiklik oku → Değişiklik Geçmişi)."""
+    clicked = Signal()
+
+    def mouseReleaseEvent(self, event):  # noqa: N802
+        if event.button() == Qt.LeftButton:
+            self.clicked.emit()
+        super().mouseReleaseEvent(event)
+
+
 class _ValueEdit(QLineEdit):
     """Değer kutusu: değişmemişken M / N tuşları değeri artırır / azaltır (PDF §8), Esc bekleyeni atar."""
     nudge = Signal(int)
@@ -163,6 +173,7 @@ class _ValueEdit(QLineEdit):
 class ValueWindow(ModasSub):
     """Tek değer penceresi. ``obj`` MeasurementInfo ya da skaler CharacteristicInfo'dur."""
     write_requested = Signal(object, str)
+    history_requested = Signal(str)        # değişiklik okuna tıklandı: Değişiklik Geçmişi'nde bu parametreyi göster
 
     def __init__(self, obj, kind: str | None = None):
         kind = kind or kind_of_object(obj)
@@ -200,11 +211,15 @@ class ValueWindow(ModasSub):
         self.unit_label.setObjectName("modasWinUnit")
         row.addWidget(self.unit_label)
         # Değişiklik göstergesi: ok SİMGESİ (dolu kırmızı = ECU'ya yazıldı, içi boş amber = henüz yazılmadı) + fark.
-        self.change_icon = QLabel()
+        self.change_icon = _ClickLabel()
         self.change_icon.setFixedSize(14, 14)
         self.change_icon.setScaledContents(True)
-        self.change_text = QLabel("")
+        self.change_text = _ClickLabel("")
         self.change_text.setObjectName("modasWinChange")
+        for w_ in (self.change_icon, self.change_text):
+            w_.setCursor(Qt.PointingHandCursor)
+            w_.setToolTip("Değişiklik Geçmişi'nde göster")
+            w_.clicked.connect(lambda: self.history_requested.emit(self.obj.name))
         self.change_icon.setVisible(False)
         self.change_text.setVisible(False)
         row.addWidget(self.change_icon)
@@ -410,6 +425,7 @@ class TableWindow(ModasSub):
     """Eğri / harita penceresi (``MapDocument`` ile aynı doküman arayüzü)."""
     write_requested = Signal(object)
     read_requested = Signal(object)
+    history_requested = Signal(str)        # özet satırındaki bağlantı / sağ tık: Değişiklik Geçmişi'nde göster
 
     def __init__(self, characteristic):
         super().__init__(characteristic.name, theme.ACCENT)
@@ -437,7 +453,10 @@ class TableWindow(ModasSub):
         self.change_summary.setObjectName("modasTableChange")
         self.change_summary.setTextFormat(Qt.RichText)
         self.change_summary.setVisible(False)
+        self.change_summary.setTextInteractionFlags(Qt.TextBrowserInteraction)
+        self.change_summary.linkActivated.connect(lambda _h: self.history_requested.emit(self.characteristic.name))
         v.addWidget(self.change_summary)
+        self._baseline: list | None = None      # oturum başı (ilk okunan) ECU tablosu: sapma özeti için referans
         self._applied: dict[tuple[int, int], tuple[float, float]] = {}    # (satır, sütun) -> (eski, yeni): ECU'ya YAZILMIŞ
         self.table = QTableWidget(self.rows, self.cols)
         self.table.setObjectName("modasTable")
@@ -565,6 +584,8 @@ class TableWindow(ModasSub):
 
     def set_grid_from_ecu(self, grid: list):
         self._original = [list(row) for row in grid]
+        if self._baseline is None and all(v is not None for row in grid for v in row):
+            self._baseline = [list(row) for row in grid]      # ilk tam ECU okuması = başlangıç referansı (uydurma yok)
         if self._rp_view:                       # RP gösteriminde tablo referansı gösterir; yeni WP arka planda saklanır
             self._wp_backup = [list(row) for row in grid]
             return
@@ -673,6 +694,23 @@ class TableWindow(ModasSub):
             self._updating = False
         self._update_change_summary(counts)
 
+    def baseline_deviation(self) -> dict | None:
+        """Başlangıç (oturum başı ECU) tablosundan sapma: ``{'cells', 'max_abs', 'max_cell', 'mean'}`` ya da ``None``
+        (referans yok / sapma yok). Güncel tablo = bekleyen düzenleme dahil hücre değerleri."""
+        if self._baseline is None or self._rp_view:
+            return None
+        diffs = []
+        for r in range(self.rows):
+            for c in range(self.cols):
+                cur = self._cell_value(r, c)
+                if change_tracker.direction(self._baseline[r][c], cur) != 0:
+                    diffs.append(((r, c), float(cur) - float(self._baseline[r][c])))
+        if not diffs:
+            return None
+        (cell, big) = max(diffs, key=lambda x: abs(x[1]))
+        return {"cells": len(diffs), "max_abs": abs(big), "max_signed": big, "max_cell": cell,
+                "mean": sum(d for _c, d in diffs) / len(diffs)}
+
     def _update_change_summary(self, counts: dict):
         parts = []
         for key, text, color in (("pending", "Yazılmadı", theme.WARN_INK), ("applied", "ECU'ya yazıldı", theme.DANGER)):
@@ -680,8 +718,18 @@ class TableWindow(ModasSub):
             if up + down:
                 parts.append(f"<span style='color:{color}'><b>{text}:</b> {up + down} hücre "
                              f"({change_tracker.ARROW_UP}{up} {change_tracker.ARROW_DOWN}{down})</span>")
-        self.change_summary.setText("  &nbsp;·&nbsp;  ".join(parts))
-        self.change_summary.setVisible(bool(parts))
+        if self._applied:
+            parts.append("<a href='history'>Geçmişte göster</a>")
+        lines = ["  &nbsp;·&nbsp;  ".join(parts)] if parts else []
+        dev = self.baseline_deviation()
+        if dev is not None:
+            r, c = dev["max_cell"]
+            arrow = change_tracker.ARROW_UP if dev["max_signed"] > 0 else change_tracker.ARROW_DOWN
+            lines.append(f"<span style='color:{theme.INK_2}'>Başlangıca göre ({change_tracker.BASELINE_LABELS[change_tracker.BASELINE_SESSION]}): "
+                         f"{dev['cells']} hücre sapmış · en büyük {arrow} {format_phys(abs(dev['max_signed']), 5)} "
+                         f"(satır {r}, sütun {c}) · ortalama {dev['mean']:+.4g}</span>")
+        self.change_summary.setText("<br>".join(lines))
+        self.change_summary.setVisible(bool(lines))
 
     # ---- düzenleme -----------------------------------------------------------------
     def _on_item_changed(self, item: QTableWidgetItem):
@@ -768,7 +816,11 @@ class TableWindow(ModasSub):
         act_restore.setEnabled(editable and self._original is not None and bool(self._selected()))
         act_backup = menu.addAction("Yedekten Yükle…")
         act_backup.setEnabled(editable)
+        menu.addSeparator()
+        act_hist = menu.addAction("Değişiklik Geçmişi'nde göster")
         chosen = menu.exec(self.table.viewport().mapToGlobal(pos))
+        if chosen is act_hist:
+            self.history_requested.emit(self.characteristic.name)
         if chosen is act_restore:
             self.restore_selection()
         elif chosen is act_backup:
