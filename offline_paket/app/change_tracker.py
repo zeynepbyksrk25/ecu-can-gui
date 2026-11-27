@@ -41,8 +41,9 @@ def direction(old, new, eps: float = EPS) -> int:
     return 1 if d > 0 else -1
 
 
-def format_delta(old, new, unit: str = "") -> str:
-    """``↑ +0.15`` / ``↓ -5`` biçimi; değişim yoksa boş metin. Gereksiz ondalık/kayan nokta artığı yok."""
+def format_delta(old, new, unit: str = "", with_arrow: bool = True) -> str:
+    """``↑ +0.15`` / ``↓ -5`` biçimi; değişim yoksa boş metin. Gereksiz ondalık/kayan nokta artığı yok.
+    ``with_arrow=False``: yalnızca ``+0.15 rpm`` (ok ayrı bir simge olarak çiziliyorsa)."""
     dr = direction(old, new)
     if dr == 0:
         return ""
@@ -52,7 +53,7 @@ def format_delta(old, new, unit: str = "") -> str:
         text = "+" + text
     arrow = ARROW_UP if dr > 0 else ARROW_DOWN
     suffix = f" {unit}" if unit else ""
-    return f"{arrow} {text}{suffix}"
+    return f"{arrow} {text}{suffix}" if with_arrow else f"{text}{suffix}"
 
 
 def _finite(v) -> bool:
@@ -192,13 +193,29 @@ class ChangeTracker:
         mode = "blink" if t - st.changed_at < BLINK_S else "steady"
         return (ARROW_UP if dr > 0 else ARROW_DOWN), mode
 
-    def delta_text(self, name: str, now: float | None = None) -> str:
+    def delta_text(self, name: str, now: float | None = None, with_arrow: bool = True) -> str:
         st = self.params.get(name)
         if st is None:
             return ""
         if st.status == "pending":
-            return format_delta(st.ecu, st.edited, st.unit)
-        return format_delta(st.last_old, st.last_new, st.unit)
+            return format_delta(st.ecu, st.edited, st.unit, with_arrow)
+        return format_delta(st.last_old, st.last_new, st.unit, with_arrow)
+
+    def change_view(self, name: str, now: float | None = None) -> tuple[str, str, str, str]:
+        """Arayüz için tek kaynak: ``(durum, ok, fark, mod)``.
+
+        durum: ``pending`` (yazılmadı) | ``applied`` (ECU'ya yazıldı) | ``failed`` (yazma başarısız, ECU değişmedi)
+        | ``""``. ``failed`` durumunda ok/fark BOŞTUR: ECU'da değişen bir şey yok, ok gösterilmemeli.
+        ``fark`` ok içermez (ok ayrı simge); ``mod`` için bkz. ``arrow``."""
+        st = self.params.get(name)
+        if st is None:
+            return "", "", "", ""
+        if st.status == "failed":
+            return "failed", "", "", ""
+        arrow, mode = self.arrow(name, now)
+        if not arrow:
+            return "", "", "", ""
+        return st.status, arrow, self.delta_text(name, now, with_arrow=False), mode
 
     def delta_from_baseline(self, name: str) -> str:
         st = self.params.get(name)

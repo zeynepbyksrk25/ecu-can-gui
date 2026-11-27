@@ -72,7 +72,9 @@ def test_worksheet_write_feeds_tracker_history_and_arrow(win, ccp):
     assert st.last_write_ok is True and st.last_new == 21.0 and st.baseline is not None
     entry = win.calibration_history.entries[-1]
     assert entry.object_name == obj.name and entry.write_ok and entry.source == "worksheets"
-    assert "↑" in w.unit_label.text() or "↓" in w.unit_label.text()       # son değişimin yönü pencerede görünür
+    assert w.change_state == "applied" and w.change_icon.property("arrow") in ("↑", "↓")   # yön ok simgesiyle
+    assert w.change_text.text() and "↑" not in w.change_text.text() and "↓" not in w.change_text.text()   # çift ok yok
+    assert w.unit_label.text() == (obj.unit or "")
     assert "Son değişim" in w.edit.toolTip()
 
 
@@ -90,3 +92,4 @@ def test_worksheet_failed_write_is_recorded_as_failed_in_history_and_tracker(win
     entry = win.calibration_history.entries[-1]
     assert entry.object_name == obj.name and entry.write_ok is False and entry.source == "worksheets"
     assert win.change_tracker.state(obj.name).last_write_ok is False
+    assert w.change_state == "failed" and not w.change_icon.isVisible()      # başarısız yazma ok göstermez

@@ -12,6 +12,7 @@ Pencereler CCP/CAN işi YAPMAZ; yalnızca sinyal yayar ve sonucu MainWindow geri
 from __future__ import annotations
 
 import math
+import time
 
 from PySide6.QtCore import QSize, QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QIcon, QPixmap
@@ -20,9 +21,10 @@ from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
-from app import theme
+from app import change_tracker, theme
 from app.ccp import codec as ccp_codec
 from app.ccp import mapio
+from app.ui.change_icons import arrow_icon
 from app.value_text import parse_value_text
 
 FORMATS = ("phys", "dec", "hex", "bin")
@@ -197,6 +199,18 @@ class ValueWindow(ModasSub):
         self.unit_label = QLabel(getattr(obj, "unit", "") or "")
         self.unit_label.setObjectName("modasWinUnit")
         row.addWidget(self.unit_label)
+        # Değişiklik göstergesi: ok SİMGESİ (dolu kırmızı = ECU'ya yazıldı, içi boş amber = henüz yazılmadı) + fark.
+        self.change_icon = QLabel()
+        self.change_icon.setFixedSize(14, 14)
+        self.change_icon.setScaledContents(True)
+        self.change_text = QLabel("")
+        self.change_text.setObjectName("modasWinChange")
+        self.change_icon.setVisible(False)
+        self.change_text.setVisible(False)
+        row.addWidget(self.change_icon)
+        row.addWidget(self.change_text)
+        self.change_state = ""             # "" | "applied" | "pending" | "failed"
+        self._change = ("", "", "", False)  # (ok, fark, mod, başarısız) — ChangeTracker'dan gelen son görünüm
         self.setWidget(body)
         self.resize(max(230, 150 + 8 * len(obj.name)), 54)
         self._apply_editable()
@@ -211,12 +225,57 @@ class ValueWindow(ModasSub):
     def has_pending(self) -> bool:
         return self._pending
 
-    def set_change(self, arrow: str, delta: str, summary: str):
-        """Değişiklik takibi göstergesi (ok + fark): son yazım yönü ve miktarı birim etiketinin yanında, ayrıntı ipucunda."""
-        self._change_text = f"  {arrow} {delta}".rstrip() if arrow else ""
+    def set_change(self, arrow: str, delta: str, summary: str, mode: str = "steady", failed: bool = False,
+                   now: float | None = None):
+        """Değişiklik takibi göstergesi (ChangeTracker.change_view çıktısı): son yazımın yönü (ok simgesi) ve miktarı.
+        ``delta`` ok İÇERMEZ. ``mode='blink'``: yazımdan sonraki kısa süre yanıp söner. ``failed``: yazma başarısız,
+        ECU değişmedi → ok yok, "uygulanmadı" uyarısı. Kullanıcı yazılmamış bir değer girdiyse (bekleyen) o gösterilir."""
+        self._change = (arrow, delta, mode, failed)
         self._change_summary = summary
-        self.unit_label.setText(((getattr(self.obj, "unit", "") or "") + self._change_text).strip())
+        self._update_change_view(now)
         self.edit.setToolTip(self._tooltip())
+
+    def _typed_change(self):
+        """Kutuya yazılmış ama ECU'ya gönderilmemiş değerin (ok, fark): son okunan değere göre."""
+        if self._last_reading is None:
+            return "", ""
+        try:
+            new = parse_value_text(self.edit.text())
+            old = float(self._last_reading.phys)
+        except (TypeError, ValueError):
+            return "", ""
+        dr = change_tracker.direction(old, new)
+        if dr == 0:
+            return "", ""
+        return (change_tracker.ARROW_UP if dr > 0 else change_tracker.ARROW_DOWN,
+                change_tracker.format_delta(old, new, "", with_arrow=False))
+
+    def _update_change_view(self, now: float | None = None):
+        arrow, delta, mode, failed = self._change
+        state, icon_arrow, text, hollow, tone = "", "", "", False, theme.DANGER
+        if self._pending and not self.edit.isReadOnly():
+            icon_arrow, text = self._typed_change()
+            if icon_arrow:
+                state, hollow, tone = "pending", True, theme.WARN_INK
+                text += "  (yazılmadı)"
+        elif failed:
+            state, text = "failed", "✕ uygulanmadı"
+        elif arrow:
+            state, icon_arrow, text = "applied", arrow, delta
+        self.change_state = state
+        up = icon_arrow == change_tracker.ARROW_UP
+        if icon_arrow:
+            self.change_icon.setPixmap(arrow_icon(up, 14, hollow=hollow).pixmap(14, 14))
+            t = time.monotonic() if now is None else now
+            blink_off = state == "applied" and mode == "blink" and int(t * 4) % 2 == 1
+            self.change_icon.setVisible(not blink_off)
+            self.change_icon.setProperty("arrow", icon_arrow)
+        else:
+            self.change_icon.setVisible(False)
+            self.change_icon.setProperty("arrow", "")
+        self.change_text.setText(text)
+        self.change_text.setVisible(bool(text))
+        self.change_text.setStyleSheet(f"color:{tone}; font-size:11px; font-weight:600; background:transparent;")
 
     def _tooltip(self) -> str:
         o = self.obj
@@ -303,10 +362,12 @@ class ValueWindow(ModasSub):
         self._pending = on
         self.edit.setProperty("pending", on)
         self.refresh_style(self.edit)
+        self._update_change_view()
 
     def _on_text_edited(self, _text: str):
         if not self.edit.isReadOnly():
             self._set_pending(True)
+            self._update_change_view()
 
     def discard_pending(self):
         if self._pending:

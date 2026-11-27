@@ -238,8 +238,8 @@ class ModasMixin:
     def _modas_mark_change(self, win: ValueWindow):
         """Değer penceresinde son değişikliğin okunu / farkını gösterir (ortak ChangeTracker)."""
         name = win.obj.name
-        arrow, _mode = self.change_tracker.arrow(name)
-        win.set_change(arrow, self.change_tracker.delta_text(name) if arrow else "", self.change_tracker.summary(name))
+        state, arrow, delta, mode = self.change_tracker.change_view(name)
+        win.set_change(arrow, delta, self.change_tracker.summary(name), mode, failed=(state == "failed"))
 
     def _modas_tick(self):
         """Ölçüm turu (250 ms): tüm değer pencereleri arka plan CCP önbelleğinden okunur (arayüz beklemez)."""
@@ -432,6 +432,7 @@ class ModasMixin:
             self._log_event("HATA", f"{obj.name} RAM yazma hatası: {detail}")
             self.change_tracker.failed(obj.name, detail, unit)
             self._note_failed_write(obj.name, None, phys, unit, detail, "worksheets")
+            self._modas_mark_change(win)
             return deny(detail)
         win.set_write_result(True, "RAM'e yazıldı (ECU'dan doğrulandı).")
         self.macro_recorder.add("value", obj.name, phys)

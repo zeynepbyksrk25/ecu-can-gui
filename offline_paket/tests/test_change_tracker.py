@@ -80,3 +80,29 @@ def test_nan_inputs_ignored():
     t.observe("X", 1.0)
     t.edit("X", math.inf)
     assert t.state("X").edited is None
+
+
+def test_delta_without_arrow_and_change_view_states():
+    from app.change_tracker import format_delta
+    assert format_delta(10, 12.5, "rpm") == "↑ +2.5 rpm"
+    assert format_delta(10, 12.5, "rpm", with_arrow=False) == "+2.5 rpm"      # ok ayrı simge: çift ok olmaz
+    assert format_delta(5, 5, "rpm", with_arrow=False) == ""
+    t = ChangeTracker()
+    assert t.change_view("yok") == ("", "", "", "")
+    t.observe("Kp", 1.2, "bar")
+    t.edit("Kp", 1.35)
+    state, arrow, delta, mode = t.change_view("Kp")
+    assert (state, arrow, delta, mode) == ("pending", "↑", "+0.15 bar", "pending")
+    t.applied("Kp", 1.2, 1.35, "bar", now=100.0)
+    assert t.change_view("Kp", now=100.5)[0:2] == ("applied", "↑") and t.change_view("Kp", now=100.5)[3] == "blink"
+    assert t.change_view("Kp", now=100.0 + BLINK_S + 0.1)[3] == "steady"
+    t.applied("Kp", 1.35, 1.0, "bar", now=200.0)
+    assert t.change_view("Kp", now=200.1)[1:3] == ("↓", "-0.35 bar")
+
+
+def test_change_view_failed_write_shows_no_arrow():
+    t = ChangeTracker()
+    t.observe("Ki", 0.8, "")
+    t.applied("Ki", 0.7, 0.8, now=1.0)                  # önceki başarılı yazım
+    t.failed("Ki", "zaman aşımı")
+    assert t.change_view("Ki", now=1.1) == ("failed", "", "", "")          # ECU değişmedi: ok yok, hata durumu var

@@ -1232,3 +1232,68 @@ def test_tools_tab_has_file_and_macro_buttons(qapp):
     texts = [a.text() for a in b["data_file"].menu().actions()]
     assert texts == ["Save WP to file…", "Compare file with WP…"]
     w.close()
+
+
+def _cal_window(summary):
+    cal = next(c for c in summary.characteristics if c.name == "clbc_Temp_limit")
+    w = ValueWindow(cal)
+    w.show()
+    w.set_reading(_reading(10.0))
+    return w
+
+
+def test_value_window_applied_change_shows_single_red_arrow_icon_and_delta(summary, qapp):
+    from app.change_tracker import ChangeTracker
+    w = _cal_window(summary)
+    ct = ChangeTracker()
+    ct.observe(w.obj.name, 10.0, w.obj.unit or "")
+    ct.applied(w.obj.name, 10.0, 12.5, w.obj.unit or "", now=50.0)
+    state, arrow, delta, mode = ct.change_view(w.obj.name, now=60.0)
+    w.set_change(arrow, delta, ct.summary(w.obj.name), mode, now=60.0)
+    assert w.change_state == "applied"
+    assert w.change_icon.isVisible() and w.change_icon.property("arrow") == "↑"
+    assert w.change_text.text() == "+2.5 rpm"                                # çift ok / çift birim YOK
+    assert w.unit_label.text() == (w.obj.unit or "")                         # birim etiketi yalnızca birim
+    assert "↑" not in w.change_text.text() and "↑" not in w.unit_label.text()
+    ct.applied(w.obj.name, 12.5, 8.0, w.obj.unit or "", now=70.0)
+    state, arrow, delta, mode = ct.change_view(w.obj.name, now=80.0)
+    w.set_change(arrow, delta, "", mode, now=80.0)
+    assert w.change_icon.property("arrow") == "↓" and w.change_text.text().startswith("-")
+
+
+def test_value_window_arrow_blinks_only_right_after_write(summary, qapp):
+    w = _cal_window(summary)
+    w.set_change("↑", "+1", "", "blink", now=0.0)          # faz 0: görünür
+    assert w.change_icon.isVisible()
+    w.set_change("↑", "+1", "", "blink", now=0.25)         # faz 1: sönük
+    assert not w.change_icon.isVisible()
+    w.set_change("↑", "+1", "", "steady", now=0.25)        # blink bitti: sabit
+    assert w.change_icon.isVisible()
+
+
+def test_value_window_pending_typed_value_is_distinct_hollow_arrow(summary, qapp):
+    w = _cal_window(summary)
+    w.set_change("↓", "-3", "", "steady", now=0.0)          # önceki uygulanmış değişim
+    w.edit.setText("14")
+    w._on_text_edited("14")                                  # kullanıcı yazdı, Enter yok
+    assert w.change_state == "pending"
+    assert w.change_icon.property("arrow") == "↑"            # yön ECU'daki (10) değere göre
+    assert "yazılmadı" in w.change_text.text() and "+4" in w.change_text.text()
+    w.discard_pending()                                      # Esc: bekleyen biter, uygulanmış gösterim geri gelir
+    assert w.change_state == "applied" and w.change_icon.property("arrow") == "↓"
+
+
+def test_value_window_failed_write_shows_warning_not_arrow(summary, qapp):
+    w = _cal_window(summary)
+    w.set_change("", "", "Son yazma BAŞARISIZ", "", failed=True)
+    assert w.change_state == "failed"
+    assert not w.change_icon.isVisible() and "uygulanmadı" in w.change_text.text()
+
+
+def test_arrow_icons_distinguish_applied_and_pending(qapp):
+    from app.ui.change_icons import arrow_icon
+    filled, hollow = arrow_icon(True, 16).pixmap(16, 16).toImage(), arrow_icon(True, 16, hollow=True).pixmap(16, 16).toImage()
+    assert filled != hollow                                  # dolu ≠ içi boş
+    assert arrow_icon(True, 16).pixmap(16, 16).toImage() != arrow_icon(False, 16).pixmap(16, 16).toImage()
+    c = filled.pixelColor(8, 10)                              # gövde ortası dolu kırmızı
+    assert c.red() > 150 and c.green() < 80 and c.alpha() > 200
