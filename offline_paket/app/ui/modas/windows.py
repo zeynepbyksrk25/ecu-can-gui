@@ -433,6 +433,12 @@ class TableWindow(ModasSub):
         self.info.setObjectName("modasTableInfo")
         self.info.setWordWrap(True)
         v.addWidget(self.info)
+        self.change_summary = QLabel("")
+        self.change_summary.setObjectName("modasTableChange")
+        self.change_summary.setTextFormat(Qt.RichText)
+        self.change_summary.setVisible(False)
+        v.addWidget(self.change_summary)
+        self._applied: dict[tuple[int, int], tuple[float, float]] = {}    # (satır, sütun) -> (eski, yeni): ECU'ya YAZILMIŞ
         self.table = QTableWidget(self.rows, self.cols)
         self.table.setObjectName("modasTable")
         self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
@@ -573,6 +579,8 @@ class TableWindow(ModasSub):
         self.info.setText(self._info_text() + f"<br><span style='color:{theme.DANGER}'>⚠ {message}</span>")
 
     def set_write_result(self, ok: bool, message: str):
+        if ok:
+            self._mark_applied(self._original, self.current_grid())        # yazılan hücreler: kalıcı kırmızı ok
         self._original = self.current_grid() if ok else self._original
         color = theme.OK if ok else theme.DANGER
         self.info.setText(self._info_text() + f"<br><span style='color:{color}'>{'✔' if ok else '⚠'} {message}</span>")
@@ -607,9 +615,38 @@ class TableWindow(ModasSub):
         self._apply_editable()
         self._refresh_pending()
 
+    def _mark_applied(self, old_grid, new_grid):
+        """Başarılı yazımdan sonra değişen hücreleri (eski → yeni) kaydeder; ok yönü eski değere göredir."""
+        if old_grid is None:
+            return
+        for r in range(self.rows):
+            for c in range(self.cols):
+                a, b = old_grid[r][c], new_grid[r][c]
+                if change_tracker.direction(a, b) != 0:
+                    self._applied[(r, c)] = (float(a), float(b))
+
+    def cell_change(self, r: int, c: int) -> tuple[str, str, str]:
+        """Hücrenin değişiklik durumu: ``(durum, ok, fark)``. durum ``pending`` (düzenlendi, ECU'ya yazılmadı: içi boş
+        amber ok) | ``applied`` (ECU'ya yazıldı: dolu kırmızı ok) | ``""``. Yön ECU'daki (eski) değere göredir."""
+        cur = self._cell_value(r, c)
+        if self._original is not None:
+            old = self._original[r][c]
+            dr = change_tracker.direction(old, cur)
+            if dr != 0:
+                return "pending", (change_tracker.ARROW_UP if dr > 0 else change_tracker.ARROW_DOWN), \
+                    change_tracker.format_delta(old, cur, "", with_arrow=False)
+        mark = self._applied.get((r, c))
+        if mark is not None:
+            dr = change_tracker.direction(*mark)
+            if dr != 0:
+                return "applied", (change_tracker.ARROW_UP if dr > 0 else change_tracker.ARROW_DOWN), \
+                    change_tracker.format_delta(mark[0], mark[1], "", with_arrow=False)
+        return "", "", ""
+
     def _refresh_pending(self):
         if self._rp_view:
             return
+        counts = {"pending": [0, 0], "applied": [0, 0]}                    # [artış, azalış]
         self._updating = True
         try:
             for r in range(self.rows):
@@ -621,8 +658,30 @@ class TableWindow(ModasSub):
                                (self._cell_value(r, c) is None or
                                 abs((self._original[r][c] or 0.0) - (self._cell_value(r, c) or 0.0)) > 1e-9))
                     it.setBackground(QColor(theme.PENDING_BG) if changed else QColor(theme.MODAS_CAL_BG))
+                    state, arrow, delta = self.cell_change(r, c)
+                    if state:
+                        up = arrow == change_tracker.ARROW_UP
+                        counts[state][0 if up else 1] += 1
+                        it.setIcon(arrow_icon(up, 12, hollow=(state == "pending")))
+                        label = "ECU'ya yazıldı" if state == "applied" else "yazılmadı (bekleyen)"
+                        base = (self._original[r][c] if state == "pending" else self._applied[(r, c)][0])
+                        it.setToolTip(f"{arrow} {delta}  ·  eski {format_phys(base, 6)} · {label}")
+                    else:
+                        it.setIcon(QIcon())
+                        it.setToolTip("")
         finally:
             self._updating = False
+        self._update_change_summary(counts)
+
+    def _update_change_summary(self, counts: dict):
+        parts = []
+        for key, text, color in (("pending", "Yazılmadı", theme.WARN_INK), ("applied", "ECU'ya yazıldı", theme.DANGER)):
+            up, down = counts[key]
+            if up + down:
+                parts.append(f"<span style='color:{color}'><b>{text}:</b> {up + down} hücre "
+                             f"({change_tracker.ARROW_UP}{up} {change_tracker.ARROW_DOWN}{down})</span>")
+        self.change_summary.setText("  &nbsp;·&nbsp;  ".join(parts))
+        self.change_summary.setVisible(bool(parts))
 
     # ---- düzenleme -----------------------------------------------------------------
     def _on_item_changed(self, item: QTableWidgetItem):

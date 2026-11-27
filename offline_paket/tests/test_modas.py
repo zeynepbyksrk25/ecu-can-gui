@@ -1297,3 +1297,54 @@ def test_arrow_icons_distinguish_applied_and_pending(qapp):
     assert arrow_icon(True, 16).pixmap(16, 16).toImage() != arrow_icon(False, 16).pixmap(16, 16).toImage()
     c = filled.pixelColor(8, 10)                              # gövde ortası dolu kırmızı
     assert c.red() > 150 and c.green() < 80 and c.alpha() > 200
+
+
+def _map_window():
+    w = TableWindow(make_map(rows=2, cols=3))
+    w.show()
+    w.set_grid_from_ecu([[10, 20, 30], [40, 50, 60]])
+    return w
+
+
+def test_table_window_pending_cells_show_hollow_arrow_by_direction_and_summary(qapp):
+    w = _map_window()
+    assert w.cell_change(0, 0) == ("", "", "") and not w.change_summary.isVisible()
+    w.table.item(0, 1).setText("25")        # artış
+    w.table.item(1, 2).setText("45")        # azalış
+    assert w.cell_change(0, 1) == ("pending", "↑", "+5")
+    assert w.cell_change(1, 2) == ("pending", "↓", "-15")
+    assert not w.table.item(0, 1).icon().isNull() and not w.table.item(1, 2).icon().isNull()
+    assert w.table.item(0, 0).icon().isNull()                              # değişmeyen hücre işaretsiz
+    assert "Yazılmadı" in w.change_summary.text() and "2 hücre" in w.change_summary.text()
+    assert "↑1" in w.change_summary.text() and "↓1" in w.change_summary.text()
+    assert "yazılmadı" in w.table.item(0, 1).toolTip() and "eski 20" in w.table.item(0, 1).toolTip()
+
+
+def test_table_window_applied_cells_keep_red_arrow_after_successful_write(qapp):
+    w = _map_window()
+    w.table.item(0, 1).setText("25")
+    w.table.item(1, 0).setText("30")
+    w.set_write_result(True, "yazıldı")
+    assert w.cell_change(0, 1) == ("applied", "↑", "+5") and w.cell_change(1, 0) == ("applied", "↓", "-10")
+    assert "ECU'ya yazıldı" in w.change_summary.text() and "Yazılmadı" not in w.change_summary.text()
+    w.set_grid_from_ecu([[10, 25, 30], [30, 50, 60]])                       # doğrulama okuması işareti silmez
+    assert w.cell_change(0, 1)[0] == "applied"
+    w.table.item(0, 1).setText("100")                                       # yeniden düzenleme: bekleyen öncelikli
+    assert w.cell_change(0, 1) == ("pending", "↑", "+75")
+    assert "eski 25" in w.table.item(0, 1).toolTip()
+
+
+def test_table_window_failed_write_leaves_cells_pending_without_applied_arrows(qapp):
+    w = _map_window()
+    w.table.item(0, 0).setText("11")
+    w.set_write_result(False, "ECU reddetti")
+    assert w.cell_change(0, 0)[0] == "pending"                              # hâlâ yazılmadı
+    assert not any(state == "applied" for state in (w.cell_change(r, c)[0] for r in range(2) for c in range(3)))
+
+
+def test_table_window_revert_to_original_clears_marks(qapp):
+    w = _map_window()
+    w.table.item(1, 1).setText("99")
+    assert w.cell_change(1, 1)[0] == "pending"
+    w.table.item(1, 1).setText("50")                                        # eski değere dönüldü
+    assert w.cell_change(1, 1) == ("", "", "") and not w.change_summary.isVisible()

@@ -74,4 +74,5 @@ QTableWidget#modasTable { background: @@MODAS_CAL_BG@@; gridline-color: @@MODAS_
 QTableWidget#modasTable QHeaderView::section { background: @@MODAS_TABLE_HEAD@@; color: @@INK@@; border: 1px solid @@MODAS_WIN_LINE@@;
     padding: 0 4px; font-size: 11px; }
 QLabel#modasTableInfo { color: @@INK@@; font-size: 11px; background: transparent; }
+QLabel#modasTableChange { font-size: 11px; background: transparent; }
 """)
