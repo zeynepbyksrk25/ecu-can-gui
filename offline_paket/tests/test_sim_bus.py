@@ -1,4 +1,5 @@
 """MIL UDP CAN backend (sahte model ile; GERÇEK Simulink ile doğrulanmadı)."""
+from tests.qt_helpers import dispose
 import os
 import time
 
@@ -176,7 +177,7 @@ def test_main_window_mil_connect_records_mode_and_no_ccp(qapp, tmp_path, monkeyp
     finally:
         if w.connection.is_connected:
             w._on_disconnect()
-        w.close()
+        dispose(w)
 
 
 def test_gui_sends_heartbeat_so_model_knows_gui_is_alive():

@@ -1,4 +1,5 @@
 """MIL entegrasyonu (sahte model; gerçek Simulink ile doğrulanmadı): Dashboard, Kontrol, CAN Monitor, trend, kayıt."""
+from tests.qt_helpers import dispose
 import json
 import os
 import time
@@ -32,7 +33,7 @@ def mil(qapp, tmp_path, monkeypatch):
     model.close()
     if w.connection.is_connected:
         w._on_disconnect()
-    w.close()
+    dispose(w)
 
 
 def _pump(w, cond, t=3.0):

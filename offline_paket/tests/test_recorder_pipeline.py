@@ -1,4 +1,5 @@
 """Kayıt altyapısı (Aşama 3): asenkron yazma, duraklat/sürdür, olay/işaret, ham CAN (ASC), üst veri, veri kaybı sayaçları."""
+from tests.qt_helpers import dispose
 import csv
 import json
 import os
@@ -178,7 +179,7 @@ def test_main_window_record_controls_meta_markers_and_chip(qapp, tmp_path, monke
     kinds = [r[2] for r in _rows(m_events(meta_path))[1:]]
     assert "MARKER" in kinds and "HATA" in kinds and "DURAKLATMA" in kinds and "DEVAM" in kinds
     assert ["cal:Kp", "1.35"] == [r[1:3] for r in _rows(path)[1:] if r[1] == "cal:Kp"][0]
-    w.close()
+    dispose(w)
 
 
 def m_events(meta_path):
@@ -231,7 +232,7 @@ def test_record_and_freeze_shortcuts(qapp, tmp_path, monkeypatch):
         keys["Ctrl+Shift+R"].activated.emit()
         assert not w.session_recorder.is_active
     finally:
-        w.close()
+        dispose(w)
 
 
 def test_start_failure_leaves_recorder_clean_and_reusable(tmp_path):
@@ -278,4 +279,4 @@ def test_control_inputs_and_sensor_overrides_are_recorded_as_time_series(qapp, t
         assert rows == [["input:OVERRIDE.pump_dc", "42.5"]]
         assert json.load(open(meta, encoding="utf-8"))["signals"]["input:OVERRIDE.pump_dc"]["source"] == "Kullanıcı girişi"
     finally:
-        w.close()
+        dispose(w)
