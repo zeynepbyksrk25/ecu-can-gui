@@ -1035,13 +1035,13 @@ def test_record_prefills_name_and_operator_and_f4_marks_only_while_recording(liv
     w._modas_workbase = (pr, wb)
     assert not rb.buttons["mark"].isEnabled() and not rb.buttons["open_record"].isEnabled()
     w._modas_add_marker()                                              # kayıt yokken işaret eklenmez
-    assert not [e for e in w.event_log.entries if e.category == "İŞARET"]
+    assert not [e for e in w.event_log.entries if e.category == "ISARET"]
     rb.buttons["record"].click()                                       # tek tuş: ad ve operatör otomatik
     assert st.name_edit.text().startswith(f"{pr.name}_Tezgah_") and st.operator_edit.text() == "Zeynep"
     assert rb.buttons["mark"].isEnabled() and not st.start_button.isEnabled()
     w._modas_add_marker()
     w._modas_add_marker()
-    marks = [e.message for e in w.event_log.entries if e.category == "İŞARET"]
+    marks = [e.message for e in w.event_log.entries if e.category == "ISARET"]
     assert marks == ["Test işareti #1", "Test işareti #2"]
     rb.buttons["record"].click()
     assert st.start_button.isEnabled() and not rb.buttons["mark"].isEnabled()

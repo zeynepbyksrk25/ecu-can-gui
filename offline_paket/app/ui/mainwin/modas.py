@@ -384,8 +384,7 @@ class ModasMixin:
             return
         self._modas_marker_count += 1
         n = self._modas_marker_count
-        self.event_log.add("İŞARET", f"Test işareti #{n}", self.current_user, self.current_role.value)
-        self.session_tab.refresh_log()
+        self._on_record_marker(f"Test işareti #{n}")          # kayıt dosyası (events + ASC), olay günlüğü ve trend
         self.modas_tab.log_panel.add_text(f"İşaret #{n} eklendi ({time.strftime('%H:%M:%S')})")
         self.statusBar().showMessage(f"İşaret #{n} kayda eklendi.", 3000)
 
