@@ -211,12 +211,20 @@ class ValueWindow(ModasSub):
     def has_pending(self) -> bool:
         return self._pending
 
+    def set_change(self, arrow: str, delta: str, summary: str):
+        """Değişiklik takibi göstergesi (ok + fark): son yazım yönü ve miktarı birim etiketinin yanında, ayrıntı ipucunda."""
+        self._change_text = f"  {arrow} {delta}".rstrip() if arrow else ""
+        self._change_summary = summary
+        self.unit_label.setText(((getattr(self.obj, "unit", "") or "") + self._change_text).strip())
+        self.edit.setToolTip(self._tooltip())
+
     def _tooltip(self) -> str:
         o = self.obj
         addr = f"0x{o.address:X}" if getattr(o, "address", None) else "-"
         kind = "Kalibrasyon (ayarlanabilir)" if self.is_calibration else "Ölçüm (salt okunur)"
+        extra = getattr(self, "_change_summary", "")
         return (f"{o.name}\n{getattr(o, 'description', '') or ''}\n{kind} · {getattr(o, 'datatype', '')} · adres {addr}\n"
-                "M / N: değeri artır / azalt · Enter: yaz · Esc: vazgeç")
+                "M / N: değeri artır / azalt · Enter: yaz · Esc: vazgeç" + (f"\n\n{extra}" if extra else ""))
 
     def _editable(self) -> bool:
         return (self.is_calibration and self._allowed and self.fmt == "phys" and not self._rp_view

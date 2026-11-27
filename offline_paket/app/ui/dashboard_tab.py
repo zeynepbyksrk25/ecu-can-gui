@@ -254,7 +254,11 @@ class DashboardTab(QWidget):
 
         right = QVBoxLayout()
         right.setSpacing(10)
+        from app.ui.sim_model_panel import SimModelPanel
+        self.sim_panel = SimModelPanel()          # yalnızca MIL modunda görünür
+        right.addWidget(self.sim_panel, 0)
         right.addWidget(self._build_gauges_card(), 11)
+        self.signal_source = "CAN"   # g: sinyallerinin kaynağı (MIL modunda "Simulink MIL"); trend tablosunda gösterilir
         self.trend = TrendPanel()
         self.trend.pick_requested.connect(self._on_pick_graph_signals)
         right.addWidget(self.trend, 10)
@@ -1141,6 +1145,13 @@ class DashboardTab(QWidget):
         if persist:
             self.config_saved.emit(self.config)
 
+    def set_signal_source(self, source: str):
+        """Gösterge/trend sinyallerinin kaynak etiketi (PCAN, Simulink MIL, Sanal...)."""
+        if source != self.signal_source:
+            self.signal_source = source
+            self._trend_sig = None
+            self._rebuild_trend_series()
+
     def _rebuild_trend_series(self):
         from app.ui.graph_signal_dialog import signal_label
         specs = []
@@ -1148,10 +1159,12 @@ class DashboardTab(QWidget):
             if sid.startswith("g:"):
                 k = sid[2:]
                 unit = GAUGE_RANGES[k][2] if k in GAUGE_RANGES else ""
-                specs.append({"key": sid, "label": GAUGE_DISPLAY_LABELS.get(k, k), "unit": unit})
+                specs.append({"key": sid, "label": GAUGE_DISPLAY_LABELS.get(k, k), "unit": unit,
+                              "source": self.signal_source})
             elif sid.startswith("m:"):
-                specs.append({"key": sid, "label": signal_label(sid), "unit": self._measurement_units.get(sid[2:], "")})
-        sig = [(s["key"], s["label"], s["unit"]) for s in specs]
+                specs.append({"key": sid, "label": signal_label(sid), "unit": self._measurement_units.get(sid[2:], ""),
+                              "source": "CCP (A2L)"})
+        sig = [(s["key"], s["label"], s["unit"], s["source"]) for s in specs]
         if sig == getattr(self, "_trend_sig", None):
             return          # değişmediyse eksenleri/ViewBox'ları yeniden kurma (Kaydet sonrası sağ taraf bozuluyordu)
         self._trend_sig = sig

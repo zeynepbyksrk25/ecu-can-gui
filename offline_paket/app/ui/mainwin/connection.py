@@ -44,15 +44,20 @@ class ConnectionMixin:
         self._dismiss_loss_box()
         self.periodic_manager = PeriodicManager(lambda: self.connection.bus, on_sent=self.connection.note_tx)
         self.connection_tab.set_connected(True)
-        self.monitor_tab.set_bitrate(bitrate if interface != "virtual" else None)
+        self.backend_mode = {"pcan": "REAL", "sim_udp": "MIL"}.get(interface, "VIRTUAL")
+        self.monitor_tab.set_bitrate(bitrate if interface not in ("virtual", "sim_udp") else None)
+        self.dashboard_tab.set_signal_source({"REAL": "PCAN", "MIL": "Simulink MIL"}.get(self.backend_mode, "Sanal"))
         self.rx_timer.start()
         self._panel_conn_state()
         self._log_event(
             "BAGLANTI",
             f"CAN hattına {'yeniden ' if reconnected else ''}bağlanıldı ({interface}, {channel}, {bitrate} bps)"
+            if interface != "sim_udp" else
+            f"MIL / Simulink UDP'ye {'yeniden ' if reconnected else ''}bağlanıldı ({channel}); fiziksel CAN hattı DEĞİL, "
+            "bitrate yok; model verisi heartbeat ile izlenir"
         )
         self._conn_state.update(connected=True, lost=False, interface=f"{interface}/{channel}",
-                                version=f"{bitrate} bps")
+                                version=f"{bitrate} bps" if interface != "sim_udp" else "UDP (bitrate yok)")
         self._update_connection_display()
 
         # can.Bus() hata firlatmamis olmasi, donanimin GERCEKTEN saglikli
@@ -65,6 +70,9 @@ class ConnectionMixin:
         # CAN'a bağlanınca CCP'yi de otomatik bağla (kutu işaretliyse; ya da
         # bağlantı koptuğunda CCP açıktıysa yeniden kurulumda). Manuel
         # CCP Bağlan / Kes düğmeleri ayrıca çalışmaya devam eder.
+        if interface == "sim_udp":
+            self._apply_sim_params()    # MIL: CCP yok; kalibrasyon MIL parametre kanalından (manifest + A2L)
+            return
         if self.ccp_tab.auto_connect_enabled() or self._resume_ccp_after_reconnect:
             self._resume_ccp_after_reconnect = False
             self._auto_ccp_connect()
@@ -104,6 +112,9 @@ class ConnectionMixin:
         self._drain_tx_queue()               # son gönderilen kareler de izleme/kayıtta görünsün
         self.rx_timer.stop()
         self.health_timer.stop()
+        if getattr(self, "model_ctl", None) is not None:       # MIL: model denetimi bağlantıyla birlikte kapanır
+            self.model_ctl.close()
+            self.model_ctl = None
         self.connection.disconnect()
         self.connection_tab.set_connected(False)
         self._panel_conn_state()
@@ -257,12 +268,39 @@ class ConnectionMixin:
             except queue.Empty:
                 break
             n += 1
+            if self.latest_signals_enabled or self.trigger_engine is not None:
+                self._note_latest_signals(msg)
             self.monitor_tab.add_message(msg, direction="RX")
             self.control_panel_tab.on_can_frame(msg.arbitration_id, bytes(msg.data))
             self.performance_tab.on_can_frame(msg.arbitration_id, bytes(msg.data))
             self.workspace_tab.on_can_frame(msg.arbitration_id, bytes(msg.data))
             self._dash_on_can_frame(msg.arbitration_id, bytes(msg.data))
         self._drain_tx_queue()
+
+    def _note_latest_signals(self, msg):
+        """Senaryo çalışırken: her DBC mesajının son çözülmüş sinyal değerleri (MESAJ.SINYAL -> (değer, zaman))."""
+        dbc = self.transmit_tab.dbc
+        if not getattr(dbc, "is_loaded", False):
+            return
+        m = dbc.get_message_by_frame_id(msg.arbitration_id)
+        if m is None:
+            return
+        try:
+            vals = m.decode(bytes(msg.data), decode_choices=False)
+        except Exception:  # noqa: BLE001 - bozuk/kısa kare: yok say
+            return
+        t = getattr(msg, "timestamp", None) or time.time()
+        eng = self.trigger_engine
+        for k, v in vals.items():
+            if isinstance(v, (int, float)):
+                sid = f"{m.name}.{k}"
+                self.latest_signals[sid] = (float(v), t)
+                if eng is not None:
+                    fired = eng.feed(sid, v, t)
+                    if fired is not None:
+                        self._on_trigger_fired(fired)
+        if eng is not None and eng.should_stop(t):
+            self._on_trigger_done()
 
     def _drain_tx_queue(self):
         """Gönderilen kareleri (elle, periyodik, Kontrol Paneli, güvenlik tekrarları; hangi iş parçacığı

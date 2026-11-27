@@ -229,7 +229,17 @@ class ModasMixin:
             win.set_error(f"Okuma hatası: {exc}")
             return False
         win.set_reading(reading)
+        self.change_tracker.observe(obj.name, reading.phys, getattr(obj, "unit", "") or "",
+                                    writable=win.is_calibration and not getattr(obj, "read_only", False))
+        if win.is_calibration:
+            self._modas_mark_change(win)
         return True
+
+    def _modas_mark_change(self, win: ValueWindow):
+        """Değer penceresinde son değişikliğin okunu / farkını gösterir (ortak ChangeTracker)."""
+        name = win.obj.name
+        arrow, _mode = self.change_tracker.arrow(name)
+        win.set_change(arrow, self.change_tracker.delta_text(name) if arrow else "", self.change_tracker.summary(name))
 
     def _modas_tick(self):
         """Ölçüm turu (250 ms): tüm değer pencereleri arka plan CCP önbelleğinden okunur (arayüz beklemez)."""
@@ -421,12 +431,17 @@ class ModasMixin:
         except _CCP_IO_ERRORS + (RuntimeError, ValueError) as exc:
             detail = str(exc) or "ECU cevap vermedi"
             self._log_event("HATA", f"{obj.name} RAM yazma hatası: {detail}")
+            self.change_tracker.failed(obj.name, detail, unit)
+            self._note_failed_write(obj.name, None, phys, unit, detail, "worksheets")
             return deny(detail)
         win.set_write_result(True, "RAM'e yazıldı (ECU'dan doğrulandı).")
         self.macro_recorder.add("value", obj.name, phys)
         self._log_event("KALIBRASYON", f"{obj.name} = {phys} {unit} (RAM, Worksheets) yazıldı")
         self.calibration_history.add(self.current_user, self.current_role.value, obj.name, old, phys, unit,
-                                     persistent=False)
+                                     persistent=False, source="worksheets")
+        self.change_tracker.applied(obj.name, old, phys, unit)
+        self._modas_mark_change(win)
+        self._record_cal_sample(obj.name, phys, unit)
         self._record_input(PAGE, "RAM yazımı", "A2L", obj.name, phys, old_value=old, unit=unit)
         self.history_tab.refresh()
         self._modas_read_window(win)

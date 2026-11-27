@@ -1,0 +1,13 @@
+{
+  "name": "ÖRNEK: Motor start (limit içermez)",
+  "description": "Örnek akış. Sinyal adları DBC'ye göre uyarlanmalıdır. Hiçbir limit/gereksinim tanımlı değildir; bu yüzden otomatik PASS/FAIL kararı üretilmez. Gerçek eşikler model gereksinimlerinden eklenmelidir (requirement alanı).",
+  "steps": [
+    {"do": "model", "cmd": "start"},
+    {"do": "marker", "label": "Test başladı"},
+    {"do": "set", "signal": "CMD.start_req", "value": 1},
+    {"do": "wait", "signal": "ENG_STATUS.rpm", "op": ">", "value": 0, "timeout": 30},
+    {"do": "marker", "label": "RPM > 0"},
+    {"do": "check", "signal": "ENG_STATUS.rpm", "op": ">", "value": 0},
+    {"do": "model", "cmd": "stop"}
+  ]
+}

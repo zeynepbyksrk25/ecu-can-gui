@@ -1,3 +1,4 @@
+import time
 import csv
 
 from app.session_recorder import SessionRecorder
@@ -88,7 +89,15 @@ def test_write_error_stops_recording(tmp_path):
             raise OSError("disk dolu")
     rec._writer = Bad()
     rec.record("s", 1.0)
+    # Yazma artık ayrı iş parçacığında: hata asenkron görünür (arayüz iş parçacığı disk gecikmesini beklemez).
+    deadline = time.time() + 3
+    while rec.error is None and time.time() < deadline:
+        time.sleep(0.01)
     assert rec.error == "disk dolu" and not rec.is_active
+    assert rec.state == "HATA"
+    assert rec.record("s", 2.0) is False        # hata sonrası yeni örnek alınmaz
+    rec.stop()
+    assert rec.meta["status"] == "error"
 
 
 def test_main_window_session_writes_csv(qapp, tmp_path, monkeypatch):
