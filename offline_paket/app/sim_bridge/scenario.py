@@ -24,7 +24,7 @@ import math
 import operator
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 OPS = {">": operator.gt, ">=": operator.ge, "<": operator.lt, "<=": operator.le, "==": operator.eq, "!=": operator.ne}
 PASS, FAIL, TIMEOUT, SKIPPED, ABORTED, DONE, ERROR = "PASS", "FAIL", "TIMEOUT", "SKIPPED", "ABORTED", "DONE", "ERROR"

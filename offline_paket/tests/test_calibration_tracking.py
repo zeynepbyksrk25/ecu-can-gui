@@ -1,7 +1,6 @@
 """Kalibrasyon değişiklik takibi: ok/miktar göstergesi, geçmiş, geri alma ve başlangıca dönüş (Aşama 1)."""
 import json
 
-from PySide6.QtCore import Qt
 
 from app.a2l import AxisInfo, CharacteristicInfo
 from app.history import CalibrationHistory

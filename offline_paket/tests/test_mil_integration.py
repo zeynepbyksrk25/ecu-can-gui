@@ -63,7 +63,7 @@ def test_control_panel_writes_reach_model_with_dbc_scaling(mil):
     end = time.time() + 2
     while time.time() < end and not model.received_frames:
         time.sleep(0.02)
-    cid, data, _ext = model.received_frames[0][0], model.received_frames[0][1], model.received_frames[0][2]
+    _cid, data, _ext = model.received_frames[0][0], model.received_frames[0][1], model.received_frames[0][2]
     vals = w.transmit_tab.dbc.get_message("OVERRIDE").decode(data)
     assert vals["pump_dc"] == pytest.approx(45.0, abs=0.1)
 
@@ -123,7 +123,6 @@ def test_mil_calibration_via_manifest_changes_model_and_history(mil, tmp_path):
     e = WatchEntry(ch.name, "characteristic", ch.address, ch.datatype, unit=ch.unit or "", read_only=False,
                    byte_order=ch.byte_order, compu_method=ch.compu_method)
     w.watch_tab.add_manual_entry(e)
-    from app.ccp import codec
     w.watch_tab._entries[0].pending_text = "3"
     w._on_watch_write([0])
     assert model.params[7] == pytest.approx(3.0, abs=0.01)

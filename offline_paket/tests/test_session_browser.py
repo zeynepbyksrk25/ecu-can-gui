@@ -1,10 +1,7 @@
-import time
 
-from PySide6.QtCore import Qt
 
 from app.session_recorder import SessionRecorder
 from app.ui.session_browser import AnalysisWindow, SessionBrowser, event_color
-from app import session_export as sx
 
 
 def _make(tmp_path):

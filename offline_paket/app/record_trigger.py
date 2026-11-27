@@ -10,7 +10,7 @@ from __future__ import annotations
 import math
 import operator
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 OPS = {">": operator.gt, ">=": operator.ge, "<": operator.lt, "<=": operator.le, "==": operator.eq, "!=": operator.ne}
 THRESHOLD, COUNTER_INCREASE, TRANSITION = "threshold", "counter_increase", "transition"

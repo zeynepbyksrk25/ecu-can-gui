@@ -1,8 +1,6 @@
 """Model yaşam döngüsü denetleyicisi (sahte MATLAB Engine + sahte model; gerçek MATLAB'da doğrulanmadı)."""
-import threading
 import time
 
-import pytest
 
 from app import sim_protocol as proto
 from app.sim_bridge import matlab_ctl as mc

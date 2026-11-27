@@ -1,4 +1,3 @@
-import json
 
 from app import session_export as sx
 from app import session_report as sr

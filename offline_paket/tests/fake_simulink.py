@@ -2,7 +2,6 @@
 GERÇEK Simulink ile doğrulanmış DEĞİLDİR."""
 import socket
 import threading
-import time
 
 from app import sim_protocol as proto
 

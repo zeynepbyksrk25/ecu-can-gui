@@ -2,7 +2,6 @@
 import os
 import time
 
-import pytest
 from PySide6.QtWidgets import QApplication
 
 from tests.test_mil_integration import DATA, mil  # noqa: F401 (fixture)
