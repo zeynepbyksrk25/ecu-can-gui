@@ -292,15 +292,19 @@ def test_ccp_values_are_recorded_when_they_change_with_the_read_time_not_per_ui_
     assert wait_for(lambda: tab.table.item(0, wt.COL_VALUE).text() == "12.5", pump=pump)
     w.session_tab._on_start()
     assert wait_for(lambda: w.session_recorder.rows >= 1, pump=pump)          # başlangıç değeri
+    # Yazma artık ayrı iş parçacığında: başlangıç değerinin TÜM satırları (aynı adreste birden fazla A2L adı olabilir)
+    # yazılıp kuyruk boşalana kadar bekle; sonra "değişmeyen değer tekrar yazılmaz" denetlenir.
+    assert wait_for(lambda: w.session_recorder.stats()["queue"] == 0, pump=pump)
+    base_rows = w.session_recorder.rows
     end = time.time() + 0.8                                                   # değer SABİT: onlarca okuma/yoklama
     while time.time() < end:
         pump()
         w._on_watch_read()                                                    # arayüz yoklaması da kayıt üretmemeli
         time.sleep(0.01)
-    assert w.session_recorder.rows == 1
+    assert w.session_recorder.rows == base_rows
     t1 = time.time()
     ecu.write_memory_bytes(obj.address, struct.pack("<f", 20.0))
-    assert wait_for(lambda: w.session_recorder.rows >= 2, pump=pump)
+    assert wait_for(lambda: w.session_recorder.rows > base_rows, pump=pump)
     ecu.write_memory_bytes(obj.address, struct.pack("<f", 30.0))
     assert wait_for(lambda: w.session_recorder.rows >= 3, pump=pump)
     time.sleep(0.2)
