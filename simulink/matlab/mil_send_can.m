@@ -1,0 +1,9 @@
+% Bir CAN çerçevesini GUI'ye gönderir (docs/MIL_PROTOKOL.md). Gerçek MATLAB'da DOĞRULANMADI.
+function mil_send_can(u, seq, simTime, canId, data, isExtended)
+    data = uint8(data(:)'); dlc = numel(data);
+    pkt = [typecast(uint16(hex2dec('4543')), 'uint8'), uint8(1), uint8(1), ...
+           typecast(uint32(seq), 'uint8'), typecast(double(simTime), 'uint8'), ...
+           typecast(uint32(canId), 'uint8'), uint8(isExtended), uint8(dlc), ...
+           [data zeros(1, 8-dlc, 'uint8')]];
+    write(u, pkt, "uint8", "127.0.0.1", 25001);
+end

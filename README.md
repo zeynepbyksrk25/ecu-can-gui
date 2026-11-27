@@ -23,6 +23,25 @@ worksheet sekmeleri. Motor Başlat / Durdur / **Acil Durdurma** grubu Ribbon'un 
 
 Sayfa geçişi: `Ctrl+1` … `Ctrl+7` (ya da Ribbon > Tools).
 
+### Kalibrasyon takibi, trend analizi, kayıt ve MIL (yeni)
+
+* **Kalibrasyon değişim takibi** – Parametre Listesi'nde *Değişim* sütunu (kırmızı ↑/↓ + miktar, ~1,5 sn yanıp söner),
+  Harita Editörü'nde hücre oku ve ipucu (ECU değeri / düzenlenen / başlangıç), *Düzenlemeleri Geri Al*,
+  *Seçili Hücreyi / Haritayı Başlangıca Döndür* (onaylı; ECU'ya yazmaz, normal yazma yolu kullanılır). Başlangıç referansı
+  A2L'de tanımlı varsayılan yoksa **oturum başı ECU değeri**dir ve bu açıkça yazılır. Geçmişte Δ, yazma durumu (başarısız yazma dahil) ve
+  parametre filtresi vardır.
+* **Canlı Trend** – sinyal/renk/değer tablosu (sürükle-bırak sıra, grup, renk, ofset, ölçek, ayrı şerit, kaynak), Main/Difference
+  cursor (ΔY, ΔY/Δt, aralık min/max/ort.; veri boşluğunda "veri yok"), tümü/tek sinyal **Dondur**, dikey serbest mod, A–B aralığına yakınlaştır,
+  yerleşim kaydet/yükle.
+* **Veri kaydı** – ayrı yazma iş parçacığı + sınırlı kuyruk (düşen veri görünür), Duraklat/Sürdür, işaret, REC göstergesi,
+  ham CAN → `.asc`, olaylar, `.meta.json`. Dosya grubu ve biçimler: [`docs/KAYIT_FORMATLARI.md`](docs/KAYIT_FORMATLARI.md).
+  *Tanılama ve Oturum* sayfasında kayıtlı oturumlar: analiz için aç (aynı trend araçları), **MDF4 / ASC / LOG / CSV / MAT** dışa aktar, HTML test raporu.
+  AVL Concerto ile uyumluluk **doğrulanmadı**.
+* **MIL (Simulink)** – Bağlantı sayfasında mod seçimi: REAL ECU (PCAN) / MIL / VIRTUAL. MIL, UDP üzerinden CAN çerçeveleri taşır
+  ([`docs/MIL_PROTOKOL.md`](docs/MIL_PROTOKOL.md)); fiziksel hat değildir. Ana Sayfa'da model kontrol paneli, Kalibrasyon için A2L↔Simulink
+  eşleme manifesti, simülasyon zamanı ayrı kaydedilir, JSON test senaryoları ([`simulink/`](simulink/)). **Gerçek MATLAB/Simulink ile
+  doğrulanmadı** (sahte model ile test edildi).
+
 ### Modas kısayolları
 
 | Tuş | İşlev | Tuş | İşlev |

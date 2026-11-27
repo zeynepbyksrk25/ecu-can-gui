@@ -30,6 +30,18 @@ def _qt_cleanup():
         except RuntimeError:                           # zaten silinmiş
             pass
     app.processEvents()
+    # Kapatılan ANA PENCERELER denetimli silinir: aksi halde her test bir MainWindow sızdırır (~50 MB) ve uzun paket bellekte
+    # şişer (CI'da 2 işçi birlikte bellek sınırına dayanıyordu). Yalnızca QMainWindow: diğer üst düzey widget'lara dokunulmaz.
+    from PySide6.QtCore import QEvent
+    from PySide6.QtWidgets import QMainWindow
+    for w in app.topLevelWidgets():
+        if isinstance(w, QMainWindow):
+            try:
+                w.deleteLater()
+            except RuntimeError:
+                pass
+    app.sendPostedEvents(None, QEvent.DeferredDelete)
+    app.processEvents()
     # Testin yerel widget'ları (sahipsiz sekmeler, grafikler) QApplication hâlâ YAŞARKEN, kontrollü sırayla
     # yok edilsin; yorumlayıcı kapanışına bırakılırsa PySide çöker.
     import gc

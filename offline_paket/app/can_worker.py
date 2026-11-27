@@ -82,6 +82,7 @@ class CanConnection:
         # Alınan HER kare için (alım iş parçacığında, bloklamadan) çağrılır: oturum kaydı karenin GERÇEK geliş zamanında
         # yazabilsin diye (arayüz zamanlayıcısından bağımsız). Hatası alım döngüsünü durdurmaz.
         self.frame_tap = None
+        self.tx_tap = None            # gönderilen her kare için (oturum kaydı ASC'ye Tx olarak yazar); bloklamaz
         # CCP/CAL katmanı aynı fiziksel bus'ı paylaşır; tek RX thread her
         # mesajı okuyup CCP DTO ID'sine uyanları da (rx_queue'ya EK olarak)
         # bu kuyruğa yazar. İki ayrı thread'in aynı bus.recv()'i yarışarak
@@ -103,7 +104,7 @@ class CanConnection:
             raise RuntimeError("Zaten bağlı; önce disconnect() çağırın.")
 
         kwargs = {"interface": interface, "channel": channel}
-        if interface not in ("virtual", "udp_multicast"):
+        if interface not in ("virtual", "udp_multicast", "sim_udp"):
             kwargs["bitrate"] = bitrate
         elif interface == "udp_multicast":
             kwargs["bitrate"] = bitrate  # udp_multicast bitrate kabul eder (bilgi amaçlı)
@@ -115,7 +116,11 @@ class CanConnection:
         self._open_bus_and_thread()
 
     def _open_bus_and_thread(self):
-        self.bus = self._bus_factory(**self._params)
+        if self._params.get("interface") == "sim_udp":
+            from app.sim_bus import SimulinkUdpBus      # MIL: UDP üzerinden CAN (fiziksel hat değil)
+            self.bus = SimulinkUdpBus(channel=self._params.get("channel", ""))
+        else:
+            self.bus = self._bus_factory(**self._params)
         self.rx_error_streak = 0
         self.last_rx_error = None
         self.last_rx_mono = time.monotonic()
@@ -167,6 +172,12 @@ class CanConnection:
             self.tx_queue.put_nowait(copy)
         except queue.Full:
             self.dropped_tx += 1
+        tap = self.tx_tap
+        if tap is not None:
+            try:
+                tap(copy)
+            except Exception:  # noqa: BLE001
+                log.debug("tx_tap hata verdi", exc_info=True)
 
     def link_state(self) -> tuple[str, str]:
         """Bağlantının GERÇEK durumunu sürücüden sorgular ve üç durumdan
@@ -188,6 +199,9 @@ class CanConnection:
             return "lost", "Bağlı değil"
         if self.rx_error_streak >= RX_ERROR_STREAK_LIMIT:
             return "lost", f"Okuma hatası: {self.last_rx_error or 'adaptör yanıt vermiyor'}"
+        if hasattr(self.bus, "link_state") and not hasattr(self.bus, "status"):
+            state, text = self.bus.link_state()            # MIL: heartbeat tabanlı; bitrate/bus durumu yok
+            return {"ok": ("ok", text), "waiting": ("bus_warning", text), "timeout": ("bus_warning", text)}[state]
         if hasattr(self.bus, "status"):
             try:
                 status = self.bus.status()

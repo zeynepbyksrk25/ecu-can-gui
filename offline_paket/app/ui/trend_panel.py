@@ -18,10 +18,14 @@ import pyqtgraph as pg
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QFileDialog, QFrame, QHBoxLayout, QInputDialog, QLabel, QMenu, QMessageBox,
-    QPushButton, QSizePolicy, QStackedLayout, QVBoxLayout, QWidget,
+    QPushButton, QSizePolicy, QSplitter, QStackedLayout, QVBoxLayout, QWidget,
 )
 
 from app import theme
+from app.trend_model import (
+    DEFAULT_MAX_GAP_S, SignalView, TrendLayout, apply_view_transform, cursor_rows, cut_at, range_stats, sample_at,
+)
+from app.ui import trend_signal_table as sigtab
 from app.ui.dash_widgets import (
     DK_CYAN, DK_GREEN, DK_INK, DK_LINE2, DK_MUT, DK_ORANGE, DK_PURPLE, IconButton, format_value, icon_pixmap,
 )
@@ -30,7 +34,7 @@ log = logging.getLogger(__name__)
 
 WINDOWS = [("60 sn", 60.0), ("5 dk", 300.0), ("10 dk", 600.0), ("1 sa", 3600.0)]
 MAX_HISTORY_S = 3600.0
-MAX_GAP_S = 5.0       # imleçte iki örnek arası bundan uzunsa aradaki değer UYDURULMAZ (veri yok)
+MAX_GAP_S = DEFAULT_MAX_GAP_S       # imleçte iki örnek arası bundan uzunsa aradaki değer UYDURULMAZ (veri yok)
 PALETTE = [DK_CYAN, DK_ORANGE, DK_PURPLE, DK_GREEN, "#D6336C", "#B58900", theme.BLUE, theme.DANGER]
 PLOT_BG = theme.paint("@@SURFACE_SUBTLE@@")
 
@@ -76,6 +80,14 @@ class _Series:
         self.v: list = []
         self.curve = None
         self.vb = None
+        # Görünüm durumu (veriyi DEĞİŞTİRMEZ): bkz. app/trend_model.py
+        self.visible = True
+        self.frozen_at: float | None = None   # freeze anı; veri alımı sürer, yalnızca görüntü donar
+        self.offset = 0.0
+        self.scale = 1.0
+        self.group = ""
+        self.source = ""
+        self.own_strip = False
 
     def append(self, t, v):
         self.t.append(t)
@@ -87,7 +99,21 @@ class _Series:
             del self.v[:n]
 
     def arrays(self):
-        return np.asarray(self.t, dtype=float), np.asarray(self.v, dtype=float)
+        """(t, v) numpy dizileri. Büyük (kayıtlı) serilerde her tikte listeden yeniden dönüştürmemek için önbelleklenir;
+        önbellek uzunluk + son örnek değişince geçersiz olur (canlı seride her append'de)."""
+        n = len(self.t)
+        key = (n, self.t[-1] if n else None, self.v[-1] if n else None)
+        c = getattr(self, "_arr_cache", None)
+        if c is not None and c[0] == key:
+            return c[1], c[2]
+        t, v = np.asarray(self.t, dtype=float), np.asarray(self.v, dtype=float)
+        self._arr_cache = (key, t, v)
+        return t, v
+
+    def view_arrays(self):
+        """Görüntülenen (freeze uygulanmış) HAM veri; ofset/ölçek uygulanmamıştır."""
+        t, v = self.arrays()
+        return cut_at(t, v, self.frozen_at)
 
 
 class TrendPanel(QFrame):
@@ -118,6 +144,13 @@ class TrendPanel(QFrame):
         self._strip_titles: dict = {}
         self._strip_texts: list = []      # şerit içi "ad + o anki değer" yazıları
         self._cursor_vals: tuple | None = None   # (A değerleri, B değerleri): imleç açıkken şerit yazılarında
+        self._pending_views: dict = {}    # yüklenen yerleşimdeki, henüz var olmayan sinyallerin görünüm durumu
+        self._pending_order: list = []
+        self._color_override: dict = {}   # key -> kullanıcının seçtiği renk (oturum boyunca korunur)
+        self._static = False              # True: kayıtlı oturum analizi (canlı veri gelmez)
+        self._y_free = False              # True: dikey kaydırma/yakınlaştırma serbest (otomatik ölçek kapalı)
+        self.layout_path: str | None = None   # verilirse kullanıcı değişiklikleri buraya otomatik kaydedilir
+        self._layout_dirty = False
 
         root = QVBoxLayout(self)
         root.setContentsMargins(14, 8, 14, 8)
@@ -184,6 +217,30 @@ class TrendPanel(QFrame):
         self.btn_cursor.setCheckable(True)
         self.btn_cursor.setToolTip("A/B imleçleri: görünümü durdurur, iki zamandaki değerleri ve farkı gösterir")
         self.btn_cursor.toggled.connect(self._on_cursor_toggled)
+        self.btn_table = self._tool_button("sliders", "Sinyal Tablosu")
+        self.btn_table.setCheckable(True)
+        self.btn_table.setChecked(True)
+        self.btn_table.setToolTip("Sinyal / renk / değer tablosunu göster-gizle (gizleyince grafik alanı genişler)")
+        self.btn_table.toggled.connect(self._on_table_toggled)
+        self.btn_freeze = self._tool_button("fit", "Dondur")
+        self.btn_freeze.setCheckable(True)
+        self.btn_freeze.setToolTip("TÜM grafikleri dondurur: görüntü donar, veri alımı arka planda SÜRER. "
+                                   "Tek sinyali dondurmak için tablodaki 'Dondur' kutusu.")
+        self.btn_freeze.toggled.connect(self.freeze_all)
+        self.btn_yfree = self._tool_button("zoom_in", "Dikey Serbest")
+        self.btn_yfree.setCheckable(True)
+        self.btn_yfree.setToolTip("Dikey kaydırma ve yakınlaştırma (otomatik ölçek kapanır). Fare tekerleği: yakınlaştır; "
+                                  "sürükle: kaydır. Veri değişmez.")
+        self.btn_yfree.toggled.connect(self._set_y_free)
+        self.btn_range = self._tool_button("fit", "A–B Aralığı")
+        self.btn_range.setToolTip("Görünümü A–B imleçleri arasına yakınlaştırır (imleçler açıkken)")
+        self.btn_range.clicked.connect(self.zoom_to_cursors)
+        self.btn_layout = self._tool_button("download", "Yerleşim")
+        self.btn_layout.setToolTip("Sinyal sırası, renk, görünürlük, ofset, şerit modu ve pencereyi kaydet / yükle")
+        lmenu = QMenu(self.btn_layout)
+        lmenu.addAction("Yerleşimi kaydet…", self._save_layout_dialog)
+        lmenu.addAction("Yerleşimi yükle…", self._load_layout_dialog)
+        self.btn_layout.setMenu(lmenu)
         self.btn_pick = self._tool_button("sliders", "Sinyaller")
         self.btn_pick.setToolTip("Grafikte çizilecek sinyalleri seç")
         self.btn_pick.clicked.connect(self.pick_requested.emit)
@@ -209,8 +266,15 @@ class TrendPanel(QFrame):
         for w in (self.btn_pick, self.btn_zoom_in, self.btn_zoom_out, self.btn_live, self.btn_cursor,
                   self.btn_compare, self.btn_export, self.btn_detach):
             tools.addWidget(w)
+        # Üçüncü satır: analiz araçları (tek satıra sığmayınca panelin asgari genişliği şişiyordu)
+        tools2 = QHBoxLayout()
+        tools2.setSpacing(4)
+        tools2.addStretch(1)
+        for w in (self.btn_table, self.btn_freeze, self.btn_yfree, self.btn_range, self.btn_layout):
+            tools2.addWidget(w)
         root.addLayout(head)
         root.addLayout(tools)
+        root.addLayout(tools2)
 
         # ---- gösterge satırı (renkli etiketler) + imleç özeti
         self.legend_row = QHBoxLayout()
@@ -245,7 +309,25 @@ class TrendPanel(QFrame):
         self._host_layout.setContentsMargins(0, 0, 0, 0)
         self._host_layout.addWidget(self.strips)       # 0: şerit modu
         self._host_layout.addWidget(self.plot)         # 1: tek grafik (çok eksenli)
-        root.addWidget(host, 1)
+        self.signal_table = sigtab.SignalTable()
+        self.signal_table.setMinimumWidth(180)
+        self.signal_table.order_changed.connect(self._on_table_order)
+        self.signal_table.visibility_changed.connect(self._on_table_visibility)
+        self.signal_table.freeze_changed.connect(self._on_table_freeze)
+        self.signal_table.color_changed.connect(self._on_table_color)
+        self.signal_table.offset_changed.connect(self._on_table_offset)
+        self.signal_table.scale_requested.connect(self._ask_scale)
+        self.signal_table.own_strip_changed.connect(lambda k, _on: self._toggle_own_strip(k))
+        self.signal_table.group_changed.connect(self._on_table_group)
+        self.signal_table.remove_requested.connect(self._on_table_remove)
+        self.body_split = QSplitter(Qt.Horizontal)
+        self.body_split.setChildrenCollapsible(True)
+        self.body_split.addWidget(host)
+        self.body_split.addWidget(self.signal_table)
+        self.body_split.setStretchFactor(0, 4)
+        self.body_split.setStretchFactor(1, 1)
+        self.body_split.setSizes([700, 300])
+        root.addWidget(self.body_split, 1)
 
         # imleç çizgileri
         self._cur_a = pg.InfiniteLine(angle=90, movable=True, pen=pg.mkPen(theme.INK, width=1.4),
@@ -298,14 +380,23 @@ class TrendPanel(QFrame):
     def set_series(self, specs: list):
         """specs: [{'key','label','unit'}]; mevcut geçmiş korunur."""
         new_order = [s["key"] for s in specs]
+        if self._pending_order and set(self._pending_order) & set(new_order):
+            pos = {k: i for i, k in enumerate(self._pending_order)}
+            new_order = sorted(new_order, key=lambda k: pos.get(k, len(pos)))   # kayıtlı sıra bir kez uygulanır
+            self._pending_order = []
         for s in specs:
             ser = self._series.get(s["key"])
             if ser is None:
                 ser = _Series(s["key"], s["label"], s.get("unit", ""), PALETTE[0])
                 self._series[s["key"]] = ser
+                sv = self._pending_views.pop(s["key"], None)
+                if sv is not None:
+                    ser.visible, ser.offset, ser.scale, ser.group = sv.visible, sv.offset, sv.scale, sv.group
             ser.label, ser.unit = s["label"], s.get("unit", "")
+            if s.get("source") is not None:
+                ser.source = s["source"]
         for i, key in enumerate(new_order):
-            self._series[key].color = PALETTE[i % len(PALETTE)]
+            self._series[key].color = self._color_override.get(key) or PALETTE[i % len(PALETTE)]
         derived = [k for k in self._order if k.startswith("d:") and k in self._series]
         self._order = new_order + [k for k in derived if k not in new_order]
         self._rebuild()
@@ -348,11 +439,11 @@ class TrendPanel(QFrame):
             if ser is None:
                 continue
             for g in groups:
-                if g["unit"] == ser.unit:
+                if g["unit"] == ser.unit and not ser.own_strip and not g.get("own"):
                     g["series"].append(ser)
                     break
             else:
-                groups.append({"unit": ser.unit, "series": [ser]})
+                groups.append({"unit": ser.unit, "series": [ser], "own": ser.own_strip})
         return groups
 
     def _xvb(self):
@@ -390,6 +481,8 @@ class TrendPanel(QFrame):
             self._rebuild_overlay()
         self._rebuild_legend()
         self._draw_events()
+        self._sync_table()
+        self._apply_y_free()
         self._dirty = True
 
     def _rebuild_strips(self):
@@ -529,7 +622,8 @@ class TrendPanel(QFrame):
                     parts.append(f'<span style="color:{ser.color}">●</span> {ser.label}&nbsp; A <b style="color:{DK_INK}">{fa}</b>'
                                  f'&nbsp; B <b style="color:{DK_INK}">{fb}</b>&nbsp; Δ <b style="color:{DK_INK}">{d}</b>{u}')
                 else:
-                    cur = format_value(ser.v[-1]) if ser.v else "—"
+                    vv = ser.view_arrays()[1]
+                    cur = format_value(float(vv[-1])) if len(vv) else "—"
                     parts.append(f'<span style="color:{ser.color}">●</span> {ser.label} '
                                  f'<b style="color:{DK_INK}">{cur}</b>{u}')
             text = "&nbsp;&nbsp;&nbsp;".join(parts)
@@ -622,19 +716,25 @@ class TrendPanel(QFrame):
             for ser in self._series.values():
                 if ser.curve is None:
                     continue
-                t, v = ser.arrays()
-                if len(t):
+                ser.curve.setVisible(ser.visible)
+                t, v = ser.view_arrays()
+                if len(t) and ser.visible:
                     i0 = int(np.searchsorted(t, lo - margin))
-                    ser.curve.setData(t[max(0, i0 - 1):], v[max(0, i0 - 1):])
+                    seg_t, seg_v = t[max(0, i0 - 1):], v[max(0, i0 - 1):]
+                    if ser.offset or ser.scale != 1.0:
+                        seg_v = apply_view_transform(seg_v, ser.offset, ser.scale)   # yalnızca görünüm; veri aynı
+                    ser.curve.setData(seg_t, seg_v)
                 else:
                     ser.curve.setData([], [])
             self._dirty = False
             self._update_strip_titles()
+            self._update_table_values()
         if self._test_start is not None:
             el = int(now - self._test_start)
             self.test_label.setText(f"⚑ Test süresi {el // 60:02d}:{el % 60:02d}")
         if self.btn_cursor.isChecked():
             self._update_cursor_readout()
+        self._autosave_layout()
 
     # ------------------------------------------------------------ imleçler
     def _on_cursor_toggled(self, on: bool):
@@ -643,7 +743,8 @@ class TrendPanel(QFrame):
         for pair in self._strip_lines:
             for ln in pair:
                 ln.setVisible(on)
-        self.readout.setVisible(on and not self._strip_mode)       # şerit modunda değerler şeritlerin içine yazılır
+        self.readout.setVisible(on and not self._strip_mode and not self.signal_table.isVisibleTo(self))
+        self.signal_table.set_cursor_columns(on)
         self._cursor_vals = None
         self._strip_titles = {}
         self._update_strip_titles()
@@ -677,13 +778,12 @@ class TrendPanel(QFrame):
             ser = self._series.get(key)
             if ser is None or not ser.t:
                 continue
-            ta, va = ser.arrays()
-            if t < ta[0] or t > ta[-1]:
+            ta, va = ser.view_arrays()
+            if not len(ta):
                 continue
-            j = int(np.searchsorted(ta, t))
-            if j < len(ta) and ta[j] != t and j > 0 and ta[j] - ta[j - 1] > MAX_GAP_S:
-                continue            # iki örnek arasında uzun veri boşluğu: aradaki değer uydurulmaz (veri yok)
-            out[key] = float(np.interp(t, ta, va))
+            val, _why = sample_at(ta, va, t, MAX_GAP_S)    # boşluk / kapsam dışı: değer uydurulmaz (veri yok)
+            if val is not None:
+                out[key] = val
         return out
 
     def _update_cursor_readout(self, *_):
@@ -693,6 +793,7 @@ class TrendPanel(QFrame):
         ta, tb = float(self._cur_a.value()), float(self._cur_b.value())
         ref = self.ref_time()
         va, vb = self.values_at(ta), self.values_at(tb)
+        self._fill_cursor_table(ta, tb)
         if self._strip_mode:
             self._cursor_vals = (va, vb)
             self._update_strip_titles()
@@ -715,6 +816,276 @@ class TrendPanel(QFrame):
         self.readout.adjustSize()
         self.cursor_summary.setText(
             f"İmleç A: {ta - ref:.1f} sn  ·  B: {tb - ref:.1f} sn  ·  Δt {abs(ta - tb):.1f} sn")
+
+    # ------------------------------------------------------------ sinyal tablosu / freeze / görünüm durumu
+    def _table_rows(self) -> list:
+        rows = []
+        for key in self._order:
+            ser = self._series.get(key)
+            if ser is None:
+                continue
+            rows.append({"key": key, "label": ser.label, "unit": ser.unit, "color": ser.color, "visible": ser.visible,
+                         "frozen": ser.frozen_at is not None, "source": ser.source, "offset": ser.offset,
+                         "group": ser.group, "own_strip": ser.own_strip})
+        return rows
+
+    def _sync_table(self):
+        self.signal_table.sync(self._table_rows())
+        self.signal_table.set_cursor_columns(self.btn_cursor.isChecked())
+
+    def _update_table_values(self):
+        """Tablodaki anlık değer (imleç kapalıyken) ve imleç sütunları; yalnızca metin değişince yazılır."""
+        if self.btn_cursor.isChecked():
+            return                                    # imleç açıkken değerleri _update_cursor_readout yazar
+        for key in self._order:
+            ser = self._series.get(key)
+            if ser is None:
+                continue
+            vv = ser.view_arrays()[1]
+            self.signal_table.set_value(key, sigtab.C_VALUE, format_value(float(vv[-1])) if len(vv) else "—")
+
+    def _on_table_toggled(self, on: bool):
+        self.signal_table.setVisible(on)
+        self._mark_layout_dirty()
+
+    def _on_table_order(self, keys: list):
+        rest = [k for k in self._order if k not in keys]
+        self._order = [k for k in keys if k in self._series] + rest
+        self._rebuild()
+        self._mark_layout_dirty()
+
+    def _on_table_visibility(self, key: str, vis: bool):
+        ser = self._series.get(key)
+        if ser is not None:
+            ser.visible = vis
+            self._dirty = True
+            self._mark_layout_dirty()
+
+    def _on_table_freeze(self, key: str, on: bool):
+        ser = self._series.get(key)
+        if ser is not None:
+            ser.frozen_at = time.time() if on else None
+            self._dirty = True
+
+    def load_static(self, specs: list, events: list | None = None):
+        """Kayıtlı oturum analizi: ``specs`` = [{'key','label','unit','source','t' (epoch dizisi),'v'}]. Canlı akış kapalı,
+        görünüm tüm kayıt aralığına ayarlanır; imleç/şerit/ofset/istatistik araçları canlı trendle AYNIDIR.
+        Bellekteki canlı geçmiş (MAX_HISTORY_S) ile diske kayıtlı veri ayrıdır: burada kırpma uygulanmaz."""
+        self.clear()
+        self._events = []
+        self.set_series([{k: sp[k] for k in ("key", "label", "unit", "source") if k in sp} for sp in specs])
+        t_lo, t_hi = math.inf, -math.inf
+        for sp in specs:
+            ser = self._series[sp["key"]]
+            t, v = np.asarray(sp["t"], float), np.asarray(sp["v"], float)
+            ser.t, ser.v = t.tolist(), v.tolist()
+            if len(t):
+                t_lo, t_hi = min(t_lo, float(t[0])), max(t_hi, float(t[-1]))
+        for t, label, color in (events or []):
+            self._events.append((t, label, color))
+        self._live = False
+        self._static = True
+        if math.isfinite(t_lo):
+            self._frozen_ref = t_hi
+            self._window = max(5.0, t_hi - t_lo)
+            self._apply_x(t_lo - 0.02 * (t_hi - t_lo), t_hi + 0.02 * (t_hi - t_lo))
+        self._draw_events()
+        self._dirty = True
+        self._tick()
+
+    def freeze_all(self, on: bool):
+        """Tüm sinyallerin GÖRÜNTÜSÜNÜ dondurur; veri alımı (append) sürer. Kalkınca canlı veriye dönülür."""
+        now = time.time()
+        for ser in self._series.values():
+            ser.frozen_at = now if on else None
+        if self.btn_freeze.isChecked() != bool(on):
+            self.btn_freeze.blockSignals(True)
+            self.btn_freeze.setChecked(bool(on))
+            self.btn_freeze.blockSignals(False)
+        if on:
+            self._live = False                         # donmuş görünüm kaydırılabilir/yakınlaştırılabilir
+            self._frozen_ref = now
+        else:
+            self.go_live()
+        self._sync_table()
+        self._dirty = True
+
+    def is_frozen(self, key: str | None = None) -> bool:
+        if key is not None:
+            ser = self._series.get(key)
+            return ser is not None and ser.frozen_at is not None
+        return any(s.frozen_at is not None for s in self._series.values())
+
+    def _on_table_color(self, key: str, color: str):
+        ser = self._series.get(key)
+        if ser is not None:
+            ser.color = color
+            self._color_override[key] = color
+            self._rebuild()
+            self._mark_layout_dirty()
+
+    def _on_table_offset(self, key: str, offset: float):
+        ser = self._series.get(key)
+        if ser is not None:
+            ser.offset = float(offset)
+            self._dirty = True
+            self._sync_table()
+            self._mark_layout_dirty()
+
+    def _ask_scale(self, key: str):
+        ser = self._series.get(key)
+        if ser is None:
+            return
+        val, ok = QInputDialog.getDouble(self.window(), "Dikey ölçek", "Eğriyi dikeyde çarp (yalnızca görünüm; veri değişmez):",
+                                         ser.scale, -1e6, 1e6, 6)
+        if ok and val != 0:
+            self.set_signal_scale(key, val)
+
+    def set_signal_scale(self, key: str, scale: float):
+        ser = self._series.get(key)
+        if ser is not None and math.isfinite(scale) and scale != 0:
+            ser.scale = float(scale)
+            self._dirty = True
+            self._mark_layout_dirty()
+
+    def set_signal_offset(self, key: str, offset: float):
+        if math.isfinite(offset):
+            self._on_table_offset(key, offset)
+
+    def _toggle_own_strip(self, key: str):
+        ser = self._series.get(key)
+        if ser is not None:
+            ser.own_strip = not ser.own_strip
+            self._rebuild()
+            self._mark_layout_dirty()
+
+    def _on_table_group(self, key: str, group: str):
+        ser = self._series.get(key)
+        if ser is not None:
+            ser.group = group
+            self._mark_layout_dirty()
+
+    def _on_table_remove(self, key: str):
+        if key in self._series and key in self._order:
+            self._order.remove(key)
+            self._series[key].visible = False
+            self._rebuild()
+
+    def _set_y_free(self, on: bool):
+        self._y_free = bool(on)
+        self._apply_y_free()
+
+    def _apply_y_free(self):
+        """Dikey serbest mod: fare ile dikey kaydırma/yakınlaştırma açılır, otomatik ölçek kapanır; kapalıyken
+        her grafik bağımsız otomatik ölçeklenir."""
+        vbs = [p.vb for p in self._strips] if self._strip_mode and self._strips else [self.vb]
+        for vb in vbs:
+            vb.setMouseEnabled(x=True, y=self._y_free)
+            vb.enableAutoRange(axis=pg.ViewBox.YAxis, enable=not self._y_free)
+            if not self._y_free:
+                vb.setAutoVisible(y=True)
+
+    def zoom_to_cursors(self):
+        """A–B imleçleri arasına yakınlaştır (aralık seçme)."""
+        if not self.btn_cursor.isChecked():
+            self.btn_cursor.setChecked(True)
+            return
+        ta, tb = sorted((float(self._cur_a.value()), float(self._cur_b.value())))
+        if tb - ta < 1e-6:
+            return
+        self._live = False
+        self._frozen_ref = self.ref_time() if self._live else self._frozen_ref
+        self._apply_x(ta, tb)
+        self._window = tb - ta
+        self._dirty = True
+
+    # ---- yerleşim (layout) -----------------------------------------------------------------
+    def current_layout(self) -> TrendLayout:
+        lay = TrendLayout(order=list(self._order), strip_mode=self._strip_mode, window_s=self._window,
+                          table_visible=self.btn_table.isChecked())
+        for key in self._order:
+            ser = self._series.get(key)
+            if ser is None or key.startswith("d:"):
+                continue
+            lay.views[key] = SignalView(key, ser.color, ser.visible, offset=ser.offset, scale=ser.scale,
+                                        group=ser.group)
+        lay.order = [k for k in lay.order if k in lay.views]
+        return lay
+
+    def apply_layout(self, lay: TrendLayout):
+        """Yerleşimi uygular. Yüklü olmayan sinyaller yok sayılır; sıra yalnızca mevcut sinyallere uygulanır."""
+        for key, sv in lay.views.items():
+            if sv.color:
+                self._color_override[key] = sv.color
+            ser = self._series.get(key)
+            if ser is not None:
+                ser.visible, ser.offset, ser.scale, ser.group = sv.visible, sv.offset, sv.scale, sv.group
+                if sv.color:
+                    ser.color = sv.color
+        self._pending_views = {k: sv for k, sv in lay.views.items() if k not in self._series}
+        self._pending_order = list(lay.order)
+        known = [k for k in lay.order if k in self._series and k in self._order]
+        self._order = known + [k for k in self._order if k not in known]
+        self._window = max(5.0, min(MAX_HISTORY_S, lay.window_s))
+        for secs, b in self._win_buttons:
+            b.setChecked(abs(secs - self._window) < 1e-6)
+        self.btn_table.setChecked(lay.table_visible)
+        if bool(lay.strip_mode) != self._strip_mode:
+            self.btn_strips.setChecked(bool(lay.strip_mode))      # toggled -> _set_strip_mode -> _rebuild
+        else:
+            self._rebuild()
+
+    def save_layout(self, path: str) -> bool:
+        import json
+        from app.persist import atomic_write_json
+        return atomic_write_json(path, json.loads(self.current_layout().to_json()))
+
+    def load_layout(self, path: str) -> bool:
+        try:
+            with open(path, encoding="utf-8") as f:
+                lay = TrendLayout.from_json(f.read())
+        except (OSError, ValueError) as exc:
+            log.warning("Trend yerleşimi yüklenemedi: %s", exc)
+            return False
+        self.apply_layout(lay)
+        return True
+
+    def _mark_layout_dirty(self):
+        if self.layout_path:
+            self._layout_dirty = True
+
+    def _autosave_layout(self):
+        if self._layout_dirty and self.layout_path:
+            self._layout_dirty = False
+            self.save_layout(self.layout_path)
+
+    def _save_layout_dialog(self):
+        path, _ = QFileDialog.getSaveFileName(self.window(), "Trend yerleşimini kaydet", "trend_yerlesim.json",
+                                              "JSON (*.json)")
+        if path and not self.save_layout(path):
+            QMessageBox.critical(self.window(), "Yerleşim", "Dosya yazılamadı.")
+
+    def _load_layout_dialog(self):
+        path, _ = QFileDialog.getOpenFileName(self.window(), "Trend yerleşimini yükle", "", "JSON (*.json)")
+        if path and not self.load_layout(path):
+            QMessageBox.warning(self.window(), "Yerleşim", "Yerleşim dosyası okunamadı veya geçersiz.")
+
+    def _fill_cursor_table(self, ta: float, tb: float):
+        """Main (A) ve Difference (B) imleç değerleri: gerçek zaman damgalarına göre; boşlukta 'veri yok'.
+        ΔY = B − A, ΔY/Δt işaretli; min/max/ort. A–B aralığı için."""
+        data = {k: s.view_arrays() for k, s in self._series.items() if k in self._order}
+        for row in cursor_rows(data, [k for k in self._order if k in data], ta, tb, MAX_GAP_S):
+            t, v = data[row.key]
+            st = range_stats(t, v, ta, tb)
+            tab = self.signal_table
+            tab.set_value(row.key, sigtab.C_VALUE, sigtab.NO_DATA if row.a is None else sigtab.fmt(row.a))
+            tab.set_value(row.key, sigtab.C_B, sigtab.NO_DATA if row.b is None else sigtab.fmt(row.b))
+            tab.set_value(row.key, sigtab.C_DY, "—" if row.dy is None else f"{row.dy:+.5g}")
+            rate = row.dydt(ta, tb)
+            tab.set_value(row.key, sigtab.C_DYDT, "—" if rate is None else f"{rate:+.5g}")
+            tab.set_value(row.key, sigtab.C_MIN, sigtab.fmt(st["min"]))
+            tab.set_value(row.key, sigtab.C_MAX, sigtab.fmt(st["max"]))
+            tab.set_value(row.key, sigtab.C_MEAN, sigtab.fmt(st["mean"]))
 
     # ------------------------------------------------------------ iki sinyal farkı
     def _on_compare(self):
@@ -905,7 +1276,8 @@ def write_mdf(path: str, data: dict, events: list):
     mdf = MDF(version="4.10")
     sigs = [Signal(samples=np.asarray(v, float), timestamps=np.asarray(t, float), name=n, unit=u)
             for n, (t, v, u) in data.items()]
-    mdf.append(sigs)
+    for sg in sigs:                       # her sinyal kendi zaman damgalarıyla ayrı grupta (ortak zaman varsayılmaz)
+        mdf.append(sg)
     if events:
         mdf.append([Signal(samples=np.arange(1, len(events) + 1, dtype=float),
                            timestamps=np.asarray([e[0] for e in events], float),

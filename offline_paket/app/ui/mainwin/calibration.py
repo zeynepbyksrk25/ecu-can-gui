@@ -1,11 +1,12 @@
 """CCP oturumu ve kalibrasyon: arka plan CCP işleri, tek değer / harita / Parametre Listesi
 okuma-yazma, tanılama ve geçmişten geri alma."""
 import contextlib
+import os
 import threading
 
 from PySide6.QtCore import QEventLoop, QTimer, Qt
 from PySide6.QtWidgets import (
-    QApplication, QMessageBox,
+    QApplication, QFileDialog, QMessageBox,
 )
 
 from app.ccp import codec as ccp_codec
@@ -129,6 +130,104 @@ class CalibrationMixin:
             return
         with cm:
             yield
+
+    # ---- MIL model yaşam döngüsü (Start/Pause/Resume/Stop/Reset, hız) -------------------------
+    def _on_model_connect(self, model: str, backend: str):
+        from app.sim_bridge import matlab_ctl as mc
+        if getattr(self, "backend_mode", "") != "MIL" or not self.connection.is_connected:
+            QMessageBox.information(self, "Model", "Önce MIL modunda UDP bağlantısını açın (CAN Monitor sekmesi).")
+            return
+        if self.model_ctl is not None:
+            self.model_ctl.close()
+        bus = self.connection.bus
+        be = mc.UdpControlBackend(bus) if backend == "udp" else mc.MatlabEngineBackend()
+        self.simulink_model_name = model
+        self.model_ctl = mc.ModelController(be, bus=bus)
+        self._model_events_seen = 0
+        self.model_ctl.connect(model)
+        self._log_event("MODEL", f"Model denetimi bağlanıyor ({be.name}{', ' + model if model else ''})")
+
+    def _on_model_command(self, cmd: str, arg: float):
+        ctl = self.model_ctl
+        if ctl is None:
+            return
+        ok = ctl.set_speed(arg) if cmd == "speed" else ctl.command(cmd, arg)
+        if not ok:
+            self.statusBar().showMessage(f"Model komutu '{cmd}' bu durumda ({ctl.state}) geçersiz.", 4000)
+
+    def _update_model_panel(self):
+        """Panel durumu + model olaylarının kayda/olay günlüğüne aktarımı (250 ms; yalnızca GÖSTERGE)."""
+        ctl = self.model_ctl
+        panel = self.dashboard_tab.sim_panel
+        if getattr(self, "backend_mode", "") != "MIL":
+            if ctl is not None:
+                ctl.close()
+                self.model_ctl = None
+            return
+        from app.sim_bridge import matlab_ctl as mc
+        snap = ctl.snapshot() if ctl is not None else {
+            "state": mc.NOT_CONNECTED, "error": "", "sim_time": 0.0, "speed": 1.0,
+            "udp": self.connection.bus.link_state()[0] if self.connection.is_connected else "—", "udp_text": ""}
+        panel.update_from(snap, ctl.allowed if ctl is not None else (lambda _c: False))
+        if ctl is not None:
+            while self._model_events_seen < len(ctl.events):
+                t, text = ctl.events[self._model_events_seen]
+                self._model_events_seen += 1
+                self.session_recorder.record_event("MODEL", f"{text} (sim_zamanı={snap['sim_time']:.3f})", t)
+                self.event_log.add("MODEL", text, user=self.current_user, role=self.current_role.value)
+
+    # ---- MIL kalibrasyon: A2L <-> Simulink parametre eşleme --------------------------------
+    def _init_sim_manifest(self):
+        from app.persist import load_json
+        self.sim_manifest = None
+        self.sim_manifest_path = ""
+        raw = load_json(data_path("mil_manifest.json"), {}, dict)
+        path = raw.get("path", "")
+        if path:
+            self._load_sim_manifest(path, quiet=True)
+
+    def _load_sim_manifest(self, path: str, quiet: bool = False) -> bool:
+        from app.sim_bridge.parameters import ManifestError, load_manifest
+        try:
+            self.sim_manifest = load_manifest(path)
+        except ManifestError as exc:
+            self.sim_manifest = None
+            if not quiet:
+                QMessageBox.warning(self, "Parametre eşleme", str(exc))
+            self.connection_tab.manifest_label.setText("eşleme geçersiz")
+            return False
+        self.sim_manifest_path = path
+        self.connection_tab.manifest_label.setText(
+            f"{len(self.sim_manifest.params)} parametre · {os.path.basename(path)}")
+        return True
+
+    def _on_sim_manifest_requested(self):
+        from app.persist import atomic_write_json
+        path, _ = QFileDialog.getOpenFileName(self, "A2L-Simulink parametre eşleme (JSON)", "", "JSON (*.json)")
+        if not path or not self._load_sim_manifest(path):
+            return
+        atomic_write_json(data_path("mil_manifest.json"), {"path": path})
+        self._log_event("KALIBRASYON", f"MIL parametre eşlemesi yüklendi: {path}")
+        self._apply_sim_params()
+
+    def _apply_sim_params(self, *_args):
+        """MIL'de ve eşleme + A2L hazırken Kalibrasyon sayfasını model parametre kanalına bağlar: mevcut CCP
+        oturumu (önbellekli okuma, geçmiş, harita editörü) aynen kullanılır; yalnızca istemci farklıdır."""
+        if getattr(self, "backend_mode", "") != "MIL" or not self.connection.is_connected:
+            return
+        summary = self.a2l_tab.db.summary
+        manifest = getattr(self, "sim_manifest", None)
+        if summary is None or manifest is None:
+            self.statusBar().showMessage("MIL kalibrasyon: A2L ve parametre eşleme dosyası yükleyin.", 6000)
+            return
+        from app.sim_bridge.param_client import SimParamClient
+        bus = self.connection.bus
+        client = SimParamClient(bus, manifest, summary.characteristics, lambda: getattr(bus, "model_state", 0))
+        self.ccp_client = client
+        names = client.mapped_names()
+        self._log_event("KALIBRASYON", f"MIL kalibrasyon kanalı hazır: {len(names)} eşlenmiş A2L parametresi"
+                                       + (f"; eşlemesi olmayan {len(client.unmapped)} A2L parametresi okunamaz/yazılamaz"
+                                          if client.unmapped else ""))
 
     # ---- CCP (kalibrasyon) ------------------------------------------------
     def _on_ccp_connect(self, cro_id: int, dto_id: int, station_address: int):
@@ -311,6 +410,8 @@ class CalibrationMixin:
             kind = "FLAŞ" if persistent else "RAM"
             self.ccp_tab.set_write_result(False, f"Yazma hatası ({kind}): {exc}")
             self._log_event("HATA", f"{obj.name} {kind} yazma hatası: {exc}")
+            self.change_tracker.failed(obj.name, str(exc), obj.unit or "")
+            self._note_failed_write(obj.name, None, phys_value, obj.unit or "", str(exc), "ccp", persistent=persistent)
             self._record_input("Kalibrasyon > CCP", f"{kind} yazımı", "A2L", obj.name, phys_value, ok=False,
                                detail=str(exc), unit=obj.unit or "")
             return
@@ -323,11 +424,29 @@ class CalibrationMixin:
         )
         self.calibration_history.add(
             self.current_user, self.current_role.value, obj.name, old_phys, phys_value, obj.unit or "",
-            persistent=persistent,
+            persistent=persistent, source="ccp",
         )
+        self.change_tracker.applied(obj.name, old_phys, phys_value, obj.unit or "")
+        self._record_cal_sample(obj.name, phys_value, obj.unit or "")
         self._record_input("Kalibrasyon > CCP", "FLAŞ yazımı" if persistent else "RAM yazımı", "A2L", obj.name,
                            phys_value, old_value=old_phys, unit=obj.unit or "")
         self.history_tab.refresh()
+
+    def _record_cal_sample(self, name: str, value, unit: str):
+        """Uygulanan kalibrasyon değişimi kayıtta zaman serisi olarak da görünsün (cal:<ad>); olay satırı _log_event'ten."""
+        rec = self.session_recorder
+        if rec.is_active:
+            rec.register_signal(f"cal:{name}", unit, "Kalibrasyon", "wall_clock")
+            rec.record(f"cal:{name}", value)
+
+    def _note_failed_write(self, name: str, old, new, unit: str, error: str, source: str, persistent=False):
+        """Başarısız yazma da geçmişe girer (write_ok=False): ne denendiği ve neden uygulanmadığı görülsün."""
+        try:
+            self.calibration_history.add(self.current_user, self.current_role.value, name, old, float(new), unit,
+                                         persistent=persistent, detail="", write_ok=False, source=source)
+            self.history_tab.refresh()
+        except (TypeError, ValueError):
+            pass
 
     def _record_denied_write(self, page: str, kind: str, detail: str, target: str = "", value=None):
         """Reddedilen (yetki/bağlantı) yazma girişimi de kayda geçer: ne denendiği sonradan görülebilsin."""
@@ -621,6 +740,8 @@ class CalibrationMixin:
             if isinstance(exc, ccp_protocol.CCPTimeoutError):
                 problems.append(f"{e.name}: {str(exc) or 'ECU cevap vermedi'}")
                 self._log_event("HATA", f"{e.name} RAM yazma: ECU cevap vermedi")
+                self._note_failed_write(e.name, old_phys, phys, e.unit or "", str(exc) or "ECU cevap vermedi", "watch")
+                self.watch_tab.mark_write_failed(row, str(exc) or "ECU cevap vermedi")
                 self._record_input("Kalibrasyon > Parametre Listesi", "RAM yazımı", "A2L", e.name, phys, ok=False,
                                    detail=str(exc) or "ECU cevap vermedi", unit=e.unit or "")
                 failed_rows.append(row)
@@ -628,15 +749,18 @@ class CalibrationMixin:
             if exc is not None:
                 problems.append(f"{e.name}: {exc}")
                 self._log_event("HATA", f"{e.name} RAM yazma hatası: {exc}")
+                self._note_failed_write(e.name, old_phys, phys, e.unit or "", str(exc), "watch")
+                self.watch_tab.mark_write_failed(row, str(exc))
                 self._record_input("Kalibrasyon > Parametre Listesi", "RAM yazımı", "A2L", e.name, phys, ok=False,
                                    detail=str(exc), unit=e.unit or "")
                 failed_rows.append(row)
                 continue
-            self.watch_tab.commit_written(row, phys)
+            self.watch_tab.commit_written(row, phys, old=old_phys)
+            self._record_cal_sample(e.name, phys, e.unit or "")
             self._log_event("KALIBRASYON", f"{e.name} = {phys} {e.unit or ''} (RAM, Parametre Listesi) yazıldı")
             self.calibration_history.add(
                 self.current_user, self.current_role.value, e.name, old_phys, phys, e.unit or "",
-                persistent=False,
+                persistent=False, source="watch",
             )
             self._record_input("Kalibrasyon > Parametre Listesi", "RAM yazımı", "A2L", e.name, phys,
                                old_value=old_phys, unit=e.unit or "")
@@ -775,8 +899,10 @@ class CalibrationMixin:
         self.calibration_history.add(
             self.current_user, self.current_role.value, obj.name,
             entry.new_value, entry.old_value, obj.unit or "",
-            persistent=entry.persistent,
+            persistent=entry.persistent, source="geri_al",
         )
+        self.change_tracker.applied(obj.name, entry.new_value, entry.old_value, obj.unit or "")
+        self._record_cal_sample(obj.name, entry.old_value, obj.unit or "")
         self._record_input("Kalibrasyon > Geçmiş", "Geri alma (FLAŞ)" if entry.persistent else "Geri alma (RAM)", "A2L",
                            obj.name, entry.old_value, old_value=entry.new_value, unit=obj.unit or "",
                            detail="Geçmişten eski değere geri yazıldı")
