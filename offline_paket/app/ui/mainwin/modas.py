@@ -28,11 +28,10 @@ from app.modas_templates import BUILTINS, TemplateStore, build_specs
 from app.paths import data_path
 from app.ui.modas.dataset_dialogs import LATER, READ_ECU, WRITE_PC, DatasetChoiceDialog, DiffListDialog
 from app.ui.modas.project_manager import ProjectManagerDialog
-from app.ui.modas.testbench import TEST_INPUTS
 from app.ui.modas.ribbon import glyph_icon
 from app.ui.modas.windows import TableWindow, ValueWindow, format_phys
 from app.value_text import parse_value_text
-from app.user_roles import can_override_actuator, can_write_calibration
+from app.user_roles import can_write_calibration
 
 log = logging.getLogger(__name__)
 
@@ -88,24 +87,11 @@ class ModasMixin:
         b["add_label"].clicked.connect(self._modas_add_selected)
         b["remove_label"].clicked.connect(tab.remove_selected)
         b["add_scope"].clicked.connect(lambda: tab.add_scope(self._selected_var_labels()))
-        self._modas_control_values: dict = {}            # son gönderilen motor komutu değerleri (start / throttle)
-        tab.input_value_provider = self._modas_input_value
-        tab.input_submitted.connect(self._modas_send_input)
-        self.dashboard_tab.sim_inputs.values_changed.connect(tab.refresh_inputs)
         self.template_store = TemplateStore(data_path("modas_templates.json"))
         tmenu = QMenu(b["sheet_template"])
         tmenu.aboutToShow.connect(lambda: self._modas_fill_template_menu(tmenu))
         b["sheet_template"].setMenu(tmenu)
         b["sheet_template"].setPopupMode(QToolButton.InstantPopup)
-        menu = QMenu(b["add_input"])
-        for d in TEST_INPUTS:
-            menu.addAction(f"{d.label}" + (f"  [{d.unit}]" if d.unit else "")).triggered.connect(
-                lambda _c=False, k=d.key: tab.add_input(k))
-        menu.addSeparator()
-        menu.addAction("All flight conditions").triggered.connect(
-            lambda _c=False: [tab.add_input(d.key) for d in TEST_INPUTS if d.group == "flight"])
-        b["add_input"].setMenu(menu)
-        b["add_input"].setPopupMode(QToolButton.InstantPopup)
         b["var_info"].clicked.connect(self._modas_show_info)
         for key, fmt in (("fmt_phys", "phys"), ("fmt_dec", "dec"), ("fmt_hex", "hex"), ("fmt_bin", "bin")):
             b[key].clicked.connect(lambda _c=False, f=fmt: tab.set_format(f))
@@ -199,8 +185,6 @@ class ModasMixin:
 
     def _modas_sync_permissions(self):
         self.modas_tab.set_allowed(can_write_calibration(self.current_role))
-        self.modas_tab.set_inputs_allowed(can_override_actuator(self.current_role),
-                                          "Yetki yok: test girişi göndermek için Mühendis veya Yönetici rolü gerekir.")
         self._modas_last_status = None
         self._modas_sync_status(force=True)
 
@@ -698,46 +682,6 @@ class ModasMixin:
             return
         for o in objs:
             self.modas_tab.add_label(o)
-
-    # ======================================================================
-    # Test girişleri (uçuş koşulları / motor komutları): mevcut güvenli yoldan gönderilir
-    # ======================================================================
-    def _modas_input_value(self, key: str):
-        if key in self._modas_control_values:
-            return self._modas_control_values[key]
-        try:
-            return self.dashboard_tab.sim_inputs.value_of(key)         # yalnızca uçuş koşulları kutu taşır
-        except KeyError:
-            return None
-
-    def _modas_send_input(self, win, value: float):
-        d = win.defn
-        if not can_override_actuator(self.current_role):
-            reason = "Yetki yok: Mühendis veya Yönetici rolü gerekir."
-            win.set_result(False, reason)
-            self._record_input(PAGE, "Test girişi", "Worksheets", d.label, value, ok=False, detail=reason, unit=d.unit)
-            return
-        if d.group == "flight":
-            panel = self.dashboard_tab.sim_inputs
-            if not panel.is_bound(d.key):
-                reason = "Eşleşme yok: ⚙ Eşleşmeler ile DBC sinyali / A2L değişkeni seçin."
-                win.set_result(False, reason)
-                self._record_input(PAGE, "Test girişi", "Worksheets", d.label, value, ok=False, detail=reason, unit=d.unit)
-                return
-            panel.send_value(d.key, value)                              # → _on_sim_inputs (CAN / CCP, giriş kaydı, günlük)
-            text, ok = panel.last_status()
-            message = text
-        else:
-            ok, message = self.dashboard_tab.submit_control(d.key, value)
-            if not ok:
-                self._record_input(PAGE, "Test girişi", "Worksheets", d.label, value, ok=False, detail=message, unit=d.unit)
-            if ok:
-                self._modas_control_values[d.key] = float(value)
-        win.set_result(bool(ok), message)
-        if ok:
-            self.macro_recorder.add("input", win.label, float(value))
-            win.set_value(value)
-            self.statusBar().showMessage(f"{d.label} = {value:g} {d.unit} gönderildi.", 3000)
 
     # ======================================================================
     # Worksheet şablonları

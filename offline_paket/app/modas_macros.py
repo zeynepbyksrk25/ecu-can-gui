@@ -1,6 +1,6 @@
 """Macro manager (Qt'siz): kullanıcının yaptığı ayar yazımlarını kaydedip aynı sırayla yeniden oynatır.
 
-Bir macro, adım listesidir: ``{"kind": "value" | "table" | "input", "label": ..., "value": sayı | tablo}``. Macro dosyası ASLA
+Bir macro, adım listesidir: ``{"kind": "value" | "table", "label": ..., "value": sayı | tablo}``. Macro dosyası ASLA
 kendi başına bir şey yazmaz: oynatma, MainWindow'daki güvenli yazma yollarından (rol, yedek, doğrulama) geçer. Kayıt,
 yalnızca BAŞARILI yazımları ekler.
 """
@@ -15,7 +15,7 @@ from app.modas_dataset import _valid
 from app.persist import atomic_write_json
 from app.ui.modas.pages import _copy
 
-KINDS = ("value", "table", "input")
+KINDS = ("value", "table")
 EXT = ".json"
 _BAD = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
 
@@ -25,6 +25,8 @@ class MacroError(ValueError):
 
 
 def check_step(step) -> dict:
+    if isinstance(step, dict) and step.get("kind") == "input":
+        raise MacroError("Macro kaldırılmış bir 'input' (test girişi) adımı içeriyor; bu adımlar artık desteklenmiyor.")
     if not isinstance(step, dict) or step.get("kind") not in KINDS:
         raise MacroError("Geçersiz macro adımı.")
     label = step.get("label")

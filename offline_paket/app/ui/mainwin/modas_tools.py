@@ -1,7 +1,7 @@
 """MainWindow — Modas araçları: Data file manager, Parameter file manager, Macro manager.
 
 Tüm ECU yazımları ``ModasMixin``'deki güvenli yollardan (``_modas_restore_plan`` → ``_modas_write_value`` /
-``_modas_write_table`` / ``_modas_send_input``) geçer: rol denetimi, yedek, geri okuma doğrulaması, kayıt. Dosyalar ve macro'lar
+``_modas_write_table``) geçer: rol denetimi, yedek, geri okuma doğrulaması, kayıt. Dosyalar ve macro'lar
 tek başlarına hiçbir şey yazmaz.
 """
 from __future__ import annotations
@@ -19,7 +19,7 @@ from app.paths import data_path
 from app.ui.modas.dataset_dialogs import DiffListDialog
 from app.ui.modas.tools_dialogs import MacroDialog, ParameterFilesDialog
 from app.ui.modas.windows import TableWindow, ValueWindow, format_phys
-from app.user_roles import can_override_actuator, can_write_calibration
+from app.user_roles import can_write_calibration
 
 log = logging.getLogger(__name__)
 
@@ -205,8 +205,7 @@ class ModasToolsMixin:
         if self.ccp_client is None:
             return False, "ECU çevrimdışı: macro oynatılamaz."
         for s in steps:
-            need = can_override_actuator(self.current_role) if s["kind"] == "input" else can_write_calibration(self.current_role)
-            if not need:
+            if not can_write_calibration(self.current_role):
                 return False, "Yetki yok: Mühendis veya Yönetici rolü gerekir."
         windows = {w.label: w for w in self.modas_tab.windows()}
         missing = missing_labels(steps, set(windows))
@@ -230,8 +229,7 @@ class ModasToolsMixin:
     @staticmethod
     def _modas_step_window_ok(step: dict, win) -> bool:
         return ((step["kind"] == "value" and isinstance(win, ValueWindow) and win.is_calibration)
-                or (step["kind"] == "table" and isinstance(win, TableWindow))
-                or (step["kind"] == "input" and hasattr(win, "defn")))
+                or (step["kind"] == "table" and isinstance(win, TableWindow)))
 
     def _modas_play_step(self, step: dict, win) -> bool:
         """Tek adımı güvenli yoldan yazar; başarıyı pencerenin sonuç durumundan okur."""
@@ -245,7 +243,6 @@ class ModasToolsMixin:
                 win.load_grid_as_edit(step["value"])
                 self._modas_write_table(win)
                 return not win.is_modified()
-            self._modas_send_input(win, float(step["value"]))
-            return win.edit.property("bad") is not True
+            return False
         finally:
             self.macro_recorder.active = was_recording

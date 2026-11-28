@@ -62,10 +62,11 @@ def test_macro_recorder_collapses_repeats_and_validates_steps():
     r.start()
     r.add("value", "A", 1.0)
     r.add("value", "A", 2.0)                                            # art arda aynı etiket: son değer
-    r.add("input", "Input: Altitude", 8.0)
     r.add("table", "T", [[1, 2], [3, 4]])
     steps = r.stop()
-    assert [describe(s) for s in steps] == ["A = 2", "Input: Altitude = 8", "T = 2×2 tablo"]
+    assert [describe(s) for s in steps] == ["A = 2", "T = 2×2 tablo"]
+    with pytest.raises(MacroError, match="kaldırılmış"):                # eski macro'lardaki "input" adımı artık reddedilir
+        check_step({"kind": "input", "label": "Input: Altitude", "value": 8.0})
     for bad in ({"kind": "x", "label": "A", "value": 1}, {"kind": "value", "label": "", "value": 1},
                 {"kind": "value", "label": "A", "value": [[1]]}, {"kind": "table", "label": "T", "value": 1},
                 {"kind": "value", "label": "A", "value": float("nan") if False else "x"}):

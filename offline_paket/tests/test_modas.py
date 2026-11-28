@@ -863,123 +863,6 @@ def test_scope_records_only_while_measuring_and_reads_labels_that_are_not_open_w
     sc.close()
 
 
-# ------------------------------------------------------------------ Aşama 3b: test girişi pencereleri
-@pytest.fixture
-def bench(qapp, monkeypatch):
-    """DBC yüklü, CAN 'bağlı' (gönderilen kareler toplanır); Altitude CAN'a, Throttle CAN komutuna eşli."""
-    from app.dashboard_config import SOURCE_CAN, Binding, DashboardConfig, SignalMap
-    from app.ui.main_window import MainWindow
-    w = MainWindow()
-    sent = []
-    monkeypatch.setattr(type(w.connection), "is_connected", property(lambda s: True))
-    monkeypatch.setattr(w.connection, "send", lambda i, d, e: sent.append((i, bytes(d))))
-    w.transmit_tab.dbc.load(os.path.join(DATA, "sample.dbc"))
-    w.sim_config.input_map["altitude"] = "dbc:AIRCRAFT.altitude"
-    cfg = DashboardConfig()
-    cfg.actuators["throttle"] = SignalMap(value=Binding(SOURCE_CAN, "OVERRIDE", "pump_dc"))
-    w.dashboard_tab.set_config(cfg)
-    w._on_dashboard_sources_changed()
-    w._panel_sources_changed()
-    w.current_role = Role.ENGINEER
-    w.current_user = "Zeynep"
-    w.dashboard_tab.set_role(Role.ENGINEER)
-    w.dashboard_tab.sim_inputs.set_allowed(True)
-    w.control_panel_tab.set_allowed(True)
-    w._modas_sync_permissions()
-    w._sent = sent
-    yield w
-    w.close()
-
-
-def _type(win, text):
-    win.edit.selectAll()
-    QTest.keyClicks(win.edit, text)
-    QTest.keyClick(win.edit, Qt.Key_Return)
-
-
-def test_input_window_validates_range_and_goes_pending_until_result(qapp):
-    from app.ui.modas.testbench import TestInputWindow
-    w = TestInputWindow("altitude")
-    got = []
-    w.submitted.connect(lambda win, v: got.append(v))
-    w.set_value(8.0)
-    assert w.edit.text() == "8" and w.label == "Input: Altitude"
-    _type(w, "99")                                                   # 0 … 30 kft dışı
-    assert got == [] and w.edit.property("bad") is True and "aralığında" in w.edit.toolTip()
-    w.discard_pending()
-    assert w.edit.text() == "8" and w.edit.property("bad") is False
-    _type(w, "12.5")
-    assert got == [12.5] and w.has_pending                           # gönderim sonucu gelene kadar sarı
-    w.set_result(True, "gönderildi")
-    w.set_value(12.5)
-    assert not w.has_pending and w.edit.text() == "12.5"
-    w.set_allowed(False, "Yetki yok")
-    assert w.edit.isReadOnly() and "Yetki yok" in w.edit.toolTip()
-    w.set_value(3.0)                                                 # dışarıdan senkron kilitliyken de görünür
-    assert w.edit.text() == "3"
-
-
-def test_flight_input_window_sends_through_the_existing_safe_path(bench):
-    w = bench
-    win = w.modas_tab.add_input("altitude")
-    assert win.label == "Input: Altitude" and win.edit.text() == "0" and win.value == 0
-    _type(win, "8")
-    assert w.dashboard_tab.sim_inputs.value_of("altitude") == 8.0            # tek doğruluk kaynağı: Ana Sayfa kutusu
-    assert w.tx_scheduler.values_of("AIRCRAFT").get("altitude") == 8.0       # CAN mesajına işlendi
-    assert not win.has_pending and win.edit.property("bad") is not True and win.value == 8
-
-
-def test_input_window_reports_missing_mapping_and_missing_role_without_sending(bench):
-    w = bench
-    win = w.modas_tab.add_input("alfa")                                      # eşleşme yok
-    before = len(w._sent)
-    _type(win, "5")
-    assert win.edit.property("bad") is True and "Eşleşme yok" in win.edit.toolTip() and len(w._sent) == before
-    w.current_role = Role.OPERATOR
-    w._modas_sync_permissions()
-    alt = w.modas_tab.add_input("altitude")
-    assert alt.edit.isReadOnly() and "Yetki yok" in alt.edit.toolTip()       # Operatör: kutu kilitli
-    w._modas_send_input(alt, 5.0)                                            # kilidi aşan çağrı da reddedilir
-    assert alt.edit.property("bad") is True and w.dashboard_tab.sim_inputs.value_of("altitude") != 5.0
-
-
-def test_control_input_window_uses_the_motor_command_path_without_dialogs(bench, monkeypatch):
-    from PySide6.QtWidgets import QMessageBox
-    w = bench
-    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: pytest.fail("diyalog açılmamalı")))
-    monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a, **k: pytest.fail("diyalog açılmamalı")))
-    thr = w.modas_tab.add_input("throttle")
-    _type(thr, "40")
-    assert not thr.has_pending and thr.edit.property("bad") is not True and thr.value == 40
-    assert w.dashboard_tab._act_rows["throttle"]["control"].text() == "40"
-    assert w._modas_input_value("throttle") == 40.0
-    st = w.modas_tab.add_input("start")                                       # eşleşmesi yok → neden pencerede
-    _type(st, "1")
-    assert st.edit.property("bad") is True and "eşleşmesi tanımlı değil" in st.edit.toolTip()
-
-
-def test_input_windows_persist_and_survive_reload(qapp, tmp_path):
-    path = str(tmp_path / "ws.json")
-    ws = ModasWorkspace(ModasSheetStore(path))
-    a = ws.add_input("altitude")
-    assert ws.add_input("altitude") is a and ws.add_input("nope") is None    # aynı giriş tek pencere; bilinmeyen anahtar yok
-    ws.add_input("throttle")
-    assert ws.save()
-    ws.close_all()
-    ws2 = ModasWorkspace(ModasSheetStore(path))
-    assert sorted(w.key for w in ws2.input_windows()) == ["altitude", "throttle"]
-
-
-def test_ribbon_input_menu_lists_inputs_and_adds_all_flight_conditions(bench):
-    w = bench
-    menu = w.modas_ribbon.buttons["add_input"].menu()
-    texts = [a.text() for a in menu.actions() if a.text()]
-    assert any("Altitude" in t for t in texts) and any("Throttle" in t for t in texts)
-    next(a for a in menu.actions() if a.text() == "All flight conditions").trigger()
-    keys = {x.key for x in w.modas_tab.input_windows()}      # önceki testlerden kalan kayıtlı pencereler olabilir
-    assert {"altitude", "alfa", "beta", "ma", "p_total", "p_amb", "t_amb"} <= keys
-
-
 # ------------------------------------------------------------------ Aşama 3c: worksheet şablonları
 def test_template_menu_builds_a_new_worksheet_without_writing_or_measuring(live, monkeypatch, tmp_path):
     w, ecu, obj, pump = live
@@ -989,25 +872,23 @@ def test_template_menu_builds_a_new_worksheet_without_writing_or_measuring(live,
     menu = w.modas_ribbon.buttons["sheet_template"].menu()
     menu.aboutToShow.emit()
     texts = [a.text() for a in menu.actions() if a.text()]
-    assert texts[:4] == ["Test Bench", "Start Sequence", "Monitoring", "Calibration"]
+    assert texts[:2] == ["Monitoring", "Calibration"]
     before = ecu.read_memory_bytes(obj.address, 4)
     next(a for a in menu.actions() if a.text() == "Calibration").trigger()
     assert len(tab.sheets) == n_sheets + 1 and tab.current_sheet().name == "Calibration"
     labels = [x.label for x in tab.value_windows()]
     assert obj.name in labels                                             # A2L'deki ayarlanabilir değer pencereye geldi
     assert not tab.is_measuring and ecu.read_memory_bytes(obj.address, 4) == before   # yazma / ölçüm yok
-    next(a for a in menu.actions() if a.text() == "Test Bench").trigger()
-    assert tab.current_sheet().name == "Test Bench" and len(tab.input_windows(all_sheets=False)) == 7
-    assert len(tab.scope_windows(all_sheets=False)) == 1
-    next(a for a in menu.actions() if a.text() == "Test Bench").trigger()   # tekrar: ad çakışmaz
-    assert tab.current_sheet().name == "Test Bench 2"
+    next(a for a in menu.actions() if a.text() == "Monitoring").trigger()
+    assert tab.current_sheet().name == "Monitoring" and len(tab.scope_windows(all_sheets=False)) == 1
+    next(a for a in menu.actions() if a.text() == "Monitoring").trigger()   # tekrar: ad çakışmaz
+    assert tab.current_sheet().name == "Monitoring 2"
 
 
 def test_user_template_saves_current_worksheet_and_reapplies_it(live, monkeypatch):
     from PySide6.QtWidgets import QInputDialog
     w, ecu, obj, pump = live
     tab = w.modas_tab
-    tab.add_input("altitude")
     tab.add_scope([obj.name])
     monkeypatch.setattr(QInputDialog, "getText", staticmethod(lambda *a, **k: ("Benim Test", True)))
     w._modas_save_template()
@@ -1017,7 +898,6 @@ def test_user_template_saves_current_worksheet_and_reapplies_it(live, monkeypatc
     next(a for a in menu.actions() if a.text() == "Benim Test").trigger()
     cur = tab.current_sheet()
     assert cur.name == "Benim Test"
-    assert [x.key for x in tab.input_windows(all_sheets=False)] == ["altitude"]
     assert tab.scope_windows(all_sheets=False)[0].labels() == [obj.name]
     monkeypatch.setattr(QInputDialog, "getText", staticmethod(lambda *a, **k: ("Calibration", True)))
     monkeypatch.setattr("app.ui.mainwin.modas.QMessageBox.warning", staticmethod(lambda *a, **k: None))

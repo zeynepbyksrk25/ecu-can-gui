@@ -1,7 +1,7 @@
 """Worksheet şablonları (Qt'siz): hazır test / kalibrasyon dizilimleri ve kullanıcının kendi şablonları.
 
 Bir şablon, worksheet pencere tanımlarının listesidir (``ModasWorkspace`` kaydıyla aynı biçim):
-``{"kind": "value" | "table" | "scope" | "input", "name": ..., "geom": [x, y, w, h], ...}``.
+``{"kind": "value" | "table" | "scope", "name": ..., "geom": [x, y, w, h], ...}``.
 
 Hazır şablonlar A2L'deki etiketleri ADLA eşler (ör. devir / sıcaklık / basınç ölçümleri); bulunamayanlar sessizce atlanır ve
 kullanıcıya kaç etiketin eşleştiği bildirilir. Şablon uygulamak hiçbir şeyi ECU'ya yazmaz ve ölçümü başlatmaz.
@@ -14,7 +14,6 @@ from dataclasses import dataclass
 from app.persist import atomic_write_json, load_json
 from app.sim_interface import PERF_DEFS, norm
 from app.ui.modas.scope import sid_of
-from app.ui.modas.testbench import BY_KEY as INPUTS
 
 VALUE_W, VALUE_H, GAP = 260, 54, 8
 COL_X = (10, 290)
@@ -31,8 +30,6 @@ class TemplateInfo:
 
 
 BUILTINS = [
-    TemplateInfo("Test Bench", "Uçuş koşulu giriş pencereleri + osiloskop"),
-    TemplateInfo("Start Sequence", "Start / Throttle girişleri, izleme değerleri ve osiloskop"),
     TemplateInfo("Monitoring", "Motor performans çıkışları (devir, sıcaklık, basınç, yakıt) ve osiloskop"),
     TemplateInfo("Calibration", "Ayarlanabilir değerler ve ilk eğri / haritalar"),
 ]
@@ -40,10 +37,6 @@ BUILTINS = [
 
 def _value(name: str, x: int, y: int) -> dict:
     return {"kind": "value", "name": name, "geom": [x, y, VALUE_W, VALUE_H], "fmt": "phys"}
-
-
-def _input(key: str, x: int, y: int) -> dict:
-    return {"kind": "input", "name": INPUTS[key].title, "key": key, "geom": [x, y, VALUE_W, VALUE_H]}
 
 
 def _scope(labels: list, x: int, y: int, name: str = "Scope 1") -> dict:
@@ -88,16 +81,7 @@ def _monitor_names(summary) -> list:
 def build_builtin(name: str, summary) -> list:
     """Hazır şablonun pencere tanımları (A2L eşleşmeleri ``summary``'den)."""
     specs: list = []
-    if name == "Test Bench":
-        flight = [k for k, d in INPUTS.items() if d.group == "flight"]
-        specs += [_input(k, x, y) for k, x, y in _column(flight, COL_X[0])]
-        specs.append(_scope([], 560, 10))
-    elif name == "Start Sequence":
-        specs += [_input(k, x, y) for k, x, y in _column(["start", "throttle"], COL_X[0])]
-        meas = _monitor_names(summary)
-        specs += [_value(n, x, y) for n, x, y in _column(meas, COL_X[1], 10)]
-        specs.append(_scope(meas[:4], 560, 10))
-    elif name == "Monitoring":
+    if name == "Monitoring":
         meas = _monitor_names(summary)
         specs += [_value(n, x, y) for n, x, y in _column(meas, COL_X[0])]
         specs.append(_scope(meas[:4], 290, 10))
