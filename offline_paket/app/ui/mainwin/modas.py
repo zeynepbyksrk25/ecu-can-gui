@@ -435,7 +435,7 @@ class ModasMixin:
             return deny(detail)
         win.set_write_result(True, "RAM'e yazıldı (ECU'dan doğrulandı).")
         self.macro_recorder.add("value", obj.name, phys)
-        self._log_event("KALIBRASYON", f"{obj.name} = {phys} {unit} (RAM, Worksheets) yazıldı")
+        self._log_event("KALIBRASYON", f"{obj.name} = {phys} {unit} (RAM, çalışma sayfası) yazıldı")
         self.calibration_history.add(self.current_user, ROL_ADI, obj.name, old, phys, unit,
                                      persistent=False, source="worksheets")
         self.change_tracker.applied(obj.name, old, phys, unit)
