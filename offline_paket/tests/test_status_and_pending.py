@@ -284,3 +284,35 @@ def test_variable_list_favorites_filter_star_and_persist(qapp, tmp_path):
     w2.set_summary(db.summary)
     assert w2.var_panel.favorites() == [name] and w2.var_panel.table.item(0, 0).text().startswith("★ ")
     assert vp.toggle_favorite(name) is False and vp.visible_names() == []
+
+
+def test_surface_projection_orders_far_to_near_and_skips_missing_cells():
+    from app.ui.modas.surface3d import finite_range, project, quads
+    grid = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]]
+    qs = quads(grid, -0.6, 0.9)
+    assert len(qs) == 4 and [q[0] for q in qs] == sorted((q[0] for q in qs), reverse=True)
+    assert finite_range(grid) == (1.0, 9.0) and finite_range([[None, float("nan")]]) is None
+    assert len(quads([[1.0, 2.0], [3.0, None]], 0, 0.5)) == 0               # eksik hücreli dörtgen çizilmez
+    assert quads([[1.0]], 0, 0) == []
+    x0, y0, _ = project(0.0, 0.0, 0.0, 1.2, 0.7)
+    assert abs(x0) < 1e-12 and abs(y0) < 1e-12                               # merkez ekran merkezinde kalır
+
+
+def test_table_window_opens_3d_view_that_follows_the_grid(qapp):
+    from app.ui.modas.windows import TableWindow
+    from tests.test_modas import make_map
+    tw = TableWindow(make_map())
+    tw.set_grid_from_ecu([[1, 2, 3], [4, 5, 6]])
+    dlg = tw.open_surface()
+    assert dlg.canvas.grid == [[1, 2, 3], [4, 5, 6]] and "3B görünüm" in dlg.windowTitle()
+    tw.set_grid_from_ecu([[9, 8, 7], [6, 5, 4]])
+    dlg.refresh()
+    assert dlg.canvas.grid[0] == [9, 8, 7]
+    from PySide6.QtGui import QPixmap
+    pm = QPixmap(dlg.canvas.size())
+    dlg.canvas.render(pm)                                                    # çizim hatasız çalışır
+    assert not pm.isNull()
+    dlg.canvas.yaw, dlg.canvas.zoom = 0.3, 2.0
+    dlg.reset_view()
+    assert dlg.canvas.zoom == 1.0
+    dlg.close()

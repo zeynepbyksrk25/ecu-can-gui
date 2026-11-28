@@ -855,8 +855,11 @@ class TableWindow(ModasSub):
         act_heat = menu.addAction("Isı haritası")
         act_heat.setCheckable(True)
         act_heat.setChecked(self.heatmap)
+        act_3d = menu.addAction("3B görünüm…")
         act_hist = menu.addAction("Değişiklik Geçmişi'nde göster")
         chosen = menu.exec(self.table.viewport().mapToGlobal(pos))
+        if chosen is act_3d:
+            self.open_surface()
         if chosen is act_heat:
             self.set_heatmap(act_heat.isChecked())
         if chosen is act_hist:
@@ -865,6 +868,15 @@ class TableWindow(ModasSub):
             self.restore_selection()
         elif chosen is act_backup:
             self.restore_from_backup()
+
+    def open_surface(self):
+        """Tabloyu 3B yüzey olarak gösterir (salt okunur; ayrı pencere)."""
+        from app.ui.modas.surface3d import Surface3DDialog
+        if getattr(self, "_surface", None) is None or not self._surface.isVisible():
+            self._surface = Surface3DDialog(self, self.window())
+        self._surface.show()
+        self._surface.raise_()
+        return self._surface
 
     def restore_from_backup(self) -> bool:
         """Tablonun, ECU'ya yazılmadan önce otomatik alınan yedeklerinden birini hücrelere DÜZENLEME olarak yükler.
