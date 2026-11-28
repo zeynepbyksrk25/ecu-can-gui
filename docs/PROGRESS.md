@@ -57,3 +57,10 @@ Her madde bitince `[x]` yapılır; yanına test sonucu ve bilinen eksikler yazı
 
 ## Bilinen eksikler / doğrulanamayanlar
 - Gerçek MATLAB/Simulink, AVL Concerto, PCAN donanımı bu ortamda yok; ilgili her şey sahte yapıyla test edilir, "gerçek ortamda doğrulanmadı".
+
+## Kayıt / zaman / sonradan inceleme turu (2026-11-28)
+- `session_recorder.py`: `time` monotonik (gerçek zaman); `unix_time` + yeni `system_time` (okunabilir, ms) CSV ve olay dosyasında; `.meta.json` zaman bilgisi (`time_source`, UTC farkı, `clock_jumps`); saat atlaması tespiti (`SAAT` olayı); 5 sn'de bir + kapanışta `fsync`.
+- `ui/mainwin/connection.py`: hat sessizliği için "CAN trafiği kesildi (ECU kapalı olabilir)" / "geri geldi (N sn)" olayları; kayıt kesintide sürer.
+- `session_export.py`: `t_axis` (monotonik analiz ekseni), `data_gaps`, `integrity`; `ui/session_browser.py`: iki zamanlı olay çizelgesi + bütünlük özeti, grafik ekseni monotonik; `session_report.py`: bütünlük, boşluk tablosu, iki zaman sütunu.
+- Testler: `tests/test_time_and_integrity.py` (15). Gerçek ECU/PCAN ve gerçek güç kesintisinde doğrulanmadı (sahte zaman/saat atlaması ve sahte hat sessizliği ile test edildi).
+- Bilinen eksik: `.asc` zamanları ASC kuralı gereği ilk kareye göre göreli (monotonik değil, sistem saatiyle damgalı kareler); PCAN donanım damgası kaydedilmiyor.

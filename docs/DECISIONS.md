@@ -17,3 +17,7 @@ Soru sorulmadan alınan her karar: tarih/aşama – karar – gerekçe – alter
 - 2026-11-26 / MIL4 – Backend 'stopped' durumu READY/ERROR iken yok sayılır (başlatılmamış model Simulink'te de stopped).
 - 2026-11-26 / MIL5 – Simülasyon zamanı kayıt CSV'sine yeni sütun yerine `mil:sim_time` sinyali (en çok 50 ms'de bir) olarak yazılır; gerekçe: CSV biçimi/okuyucular geri uyumlu, wall-clock ile karışmaz.
 - 2026-11-26 / MIL6 – Senaryoda karar yalnızca `requirement` kimlikli adımlardan; yoksa SKIPPED ve 'TAMAMLANDI (otomatik karar yok)'. Gerekçe: GOREV 11.9 uydurma limit yasağı.
+- 2026-11-28 / KAYIT-ZAMAN – `time` sütunu monotonik saatten (gerçek zaman), `unix_time` + yeni `system_time` sistem saati; sütunlar SONA eklendi (okuyucular konumsal ve `len>=4` denetli: geriye uyumlu). Gerekçe: Windows saat atlaması süre analizini bozmasın; kullanıcı iki zamanı ayrı istedi. Alternatif: yalnız epoch (atlamada bozulur). `time`, örneğin YAŞI kadar geriye gidilerek hesaplanır (kare geliş zamanı sistem saatiyle damgalı olduğundan; kuyrukta beklerken atlama çok nadir).
+- 2026-11-28 / KAYIT-ZAMAN – "Gerçek zaman" = monotonik süre varsayıldı (kullanıcı onayladı); PCAN donanım zaman damgası eklenmedi (donanım yok, doğrulanamaz).
+- 2026-11-28 / KAYIT-DAYANIKLILIK – fsync 5 sn'de bir + kapanışta (her saniye değil: disk yükü); fsync desteklenmeyen dosya sisteminde hata yutulur.
+- 2026-11-28 / KAYIT-BÜTÜNLÜK – Boşluk analizi yalnız `dbc:` sinyalleriyle: CCP/giriş sinyalleri değişince yazıldığı için uzun sessizlikleri meşru; yoksa sahte alarm. Eşik 1 sn.

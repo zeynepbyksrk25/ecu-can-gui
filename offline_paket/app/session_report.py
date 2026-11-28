@@ -12,6 +12,7 @@ import numpy as np
 
 from app.change_tracker import direction, format_delta
 from app.session_export import SessionData
+from app.session_recorder import system_time_text
 
 MAX_EVENT_ROWS = 500
 ERROR_KINDS = ("HATA", "BAGLANTI")
@@ -99,6 +100,9 @@ def build_report_html(sd: SessionData, extra_files: dict | None = None) -> str:
             ("Başlangıç", time.strftime("%d.%m.%Y %H:%M:%S", time.localtime(start)) if start else "—"),
             ("Süre", f"{dur:.1f} sn" if isinstance(dur, (int, float)) else "—"),
             ("Kullanıcı / rol", f"{m.get('user', '—')} / {m.get('role', '—')}"), ("Operatör", m.get("operator", "—")),
+            ("Zaman tabanı (time sütunu)", "gerçek zaman: monotonik, oturum başından sn" if m.get("time_source") == "monotonic"
+             else "sistem saatinden türetilmiş (eski kayıt)"),
+            ("Sistem saati", f"UTC{m.get('utc_offset_min', 0) / 60:+g} ({m.get('timezone', '—')}), ms çözünürlük"),
             ("Mod", m.get("mode", "—")), ("Bağlantı", (m.get("connection") or {}).get("interface", "—")),
             ("Simulink modeli", m.get("simulink_model") or "—"), ("Zaman tabanı", m.get("timebase", "—")),
             ("DBC", ver(dbc)), ("A2L", ver(a2l)),
@@ -108,6 +112,19 @@ def build_report_html(sd: SessionData, extra_files: dict | None = None) -> str:
         cls = " class='warn'" if k in ("Düşen veri", "Yazma hatası") and v not in (0, "yok", None) else ""
         parts.append(f"<tr><th>{e(k)}</th><td{cls}>{v if k in ('DBC', 'A2L') else e(str(v))}</td></tr>")
     parts.append("</table>")
+    parts.append("<h2>Kayıt bütünlüğü</h2><ul>")
+    cls = {"ok": "", "warn": " class='warn'", "error": " class='warn'"}
+    for lv, txt in sd.integrity():
+        parts.append(f"<li{cls[lv]}>{e(txt)}</li>")
+    parts.append("</ul>")
+    gaps = sd.data_gaps()
+    if gaps:
+        parts.append(f"<h3>CAN veri boşlukları ({len(gaps)})</h3><table><tr><th>Başlangıç (sn)</th><th>Bitiş (sn)</th>"
+                     "<th>Süre (sn)</th><th>Neden (olaydan)</th></tr>")
+        for g in gaps[:MAX_EVENT_ROWS]:
+            parts.append(f"<tr><td>{g['start_s']:.3f}</td><td>{g['end_s']:.3f}</td><td>{g['duration_s']:.3f}</td>"
+                         f"<td>{e(g['cause']) or '<b class=warn>AÇIKLANAMAYAN</b>'}</td></tr>")
+        parts.append("</table>")
     parts.append("<h2>Sinyal istatistikleri</h2><table><tr><th>Sinyal</th><th>Birim</th><th>Kaynak</th><th>Örnek</th>"
                  "<th>Min</th><th>Max</th><th>Ort.</th><th>İlk</th><th>Son</th></tr>")
     for r in stats:
@@ -132,15 +149,15 @@ def build_report_html(sd: SessionData, extra_files: dict | None = None) -> str:
         parts.append(f"<tr><td>{c['t']:.2f}</td><td>{e(c['name'])}</td><td>{_fmt(c['old'])}</td><td>{_fmt(c['new'])}</td>"
                      f"<td>{_arrow_html(c['old'], c['new'], c['unit'])}</td><td>{e(c['unit'])}</td></tr>")
     parts.append("</table>")
-    parts.append(f"<h2>Hata ve bağlantı olayları ({len(errs)})</h2><table><tr><th>t (sn)</th><th>Tür</th><th>Metin</th></tr>")
-    for t, _u, k, text in errs[:MAX_EVENT_ROWS]:
-        parts.append(f"<tr><td>{t:.2f}</td><td>{e(k)}</td><td>{e(text)}</td></tr>")
+    parts.append(f"<h2>Hata ve bağlantı olayları ({len(errs)})</h2><table><tr><th>Gerçek zaman (sn)</th><th>Sistem saati</th><th>Tür</th><th>Metin</th></tr>")
+    for t, u, k, text in errs[:MAX_EVENT_ROWS]:
+        parts.append(f"<tr><td>{t:.3f}</td><td>{system_time_text(u)}</td><td>{e(k)}</td><td>{e(text)}</td></tr>")
     parts.append("</table>")
-    parts.append(f"<h2>Tüm olaylar ve işaretler ({len(sd.events)})</h2><table><tr><th>t (sn)</th><th>Tür</th><th>Metin</th></tr>")
-    for t, _u, k, text in sd.events[:MAX_EVENT_ROWS]:
-        parts.append(f"<tr><td>{t:.2f}</td><td>{e(k)}</td><td>{e(text)}</td></tr>")
+    parts.append(f"<h2>Tüm olaylar ve işaretler ({len(sd.events)})</h2><table><tr><th>Gerçek zaman (sn)</th><th>Sistem saati</th><th>Tür</th><th>Metin</th></tr>")
+    for t, u, k, text in sd.events[:MAX_EVENT_ROWS]:
+        parts.append(f"<tr><td>{t:.3f}</td><td>{system_time_text(u)}</td><td>{e(k)}</td><td>{e(text)}</td></tr>")
     if len(sd.events) > MAX_EVENT_ROWS:
-        parts.append(f"<tr><td colspan=3>… {len(sd.events) - MAX_EVENT_ROWS} olay daha (olay dosyasında)</td></tr>")
+        parts.append(f"<tr><td colspan=4>… {len(sd.events) - MAX_EVENT_ROWS} olay daha (olay dosyasında)</td></tr>")
     parts.append("</table><h2>Dosyalar</h2><ul>")
     files = dict(m.get("files") or {})
     files.update(extra_files or {})

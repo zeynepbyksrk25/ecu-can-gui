@@ -14,11 +14,13 @@ zamanlayıcısına (100-500 ms) bağlı örnekleme YOKTUR.
   * Kullanıcı girişleri (input:): girildikleri anda.
 
 Biçim ("uzun" CSV; Çalışma Alanı > "CSV aç" ile geri yüklenip grafikte çizilebilir):
-    time,signal,value,unix_time
-    time      : oturum başlangıcından itibaren saniye
-    signal    : sinyal kimliği (a2l:<ölçüm>, dbc:<MESAJ>.<SİNYAL>, gauge:<anahtar>, input:<anahtar>)
-    value     : fiziksel değer
-    unix_time : mutlak zaman (epoch saniye)
+    time,signal,value,unix_time,system_time
+    time        : GERÇEK ZAMAN: oturum başlangıcından itibaren saniye, MONOTONİK saatten (sistem saati atlasa/NTP
+                  düzeltse bile kesintisiz akar; süre/periyot/gecikme analizi bunun üzerinden yapılır)
+    signal      : sinyal kimliği (a2l:<ölçüm>, dbc:<MESAJ>.<SİNYAL>, gauge:<anahtar>, input:<anahtar>)
+    value       : fiziksel değer
+    unix_time   : SİSTEM ZAMANI: PC saati, epoch saniye (ms çözünürlük)
+    system_time : aynı sistem zamanı okunabilir: ``YYYY-MM-DD HH:MM:SS.mmm`` (yerel saat; UTC farkı .meta.json'da)
 Dosya yolu: <veri klasörü>/oturum_kayitlari/<oturum_adı>_<tarih_saat>.csv
 """
 from __future__ import annotations
@@ -33,12 +35,14 @@ import threading
 import time
 from pathlib import Path
 
-HEADER = ["time", "signal", "value", "unix_time"]
-EVENT_HEADER = ["time", "unix_time", "kind", "text"]
-FLUSH_EVERY_S = 1.0          # çökmede en çok bu kadar saniyelik veri kaybolur
+HEADER = ["time", "signal", "value", "unix_time", "system_time"]
+EVENT_HEADER = ["time", "unix_time", "kind", "text", "system_time"]
+FLUSH_EVERY_S = 1.0          # çökmede en çok bu kadar saniyelik veri kaybolur (uygulama çökmesi)
+FSYNC_EVERY_S = 5.0          # işletim sistemi önbelleğinden diske zorla: PC elektriği kesilirse en çok ~bu kadar kayıp
+CLOCK_JUMP_S = 0.5           # sistem saati monotonik saate göre bu kadar saparsa "saat değişti" olayı yazılır
+META_VERSION = 2
 SIM_TIME_EVERY_S = 0.05     # MIL: simülasyon zamanı eşlemesi en fazla bu sıklıkta (wall-clock) yazılır
 RECORD_QUEUE_MAX = 500_000   # yazma iş parçacığının kuyruğu (taşarsa düşen sayılır; sessiz kayıp yok)
-META_VERSION = 1
 
 _SAMPLE, _EVENT, _FRAME, _STOP = "s", "e", "f", "x"
 
@@ -59,6 +63,35 @@ def file_fingerprint(path: str | None) -> dict:
                 "sha256": h.hexdigest()[:16]}
     except OSError:
         return {"file": os.path.basename(path), "path": path, "error": "okunamadı"}
+
+
+_sys_cache: tuple[int, str] = (-1, "")
+
+
+def system_time_text(t_unix: float) -> str:
+    """Sistem zamanı okunabilir: ``YYYY-MM-DD HH:MM:SS.mmm`` (yerel saat). Saniye öneki önbelleğe alınır (her satırda
+    strftime çağrılmaz: yüksek hızlı kayıtta ucuz)."""
+    global _sys_cache
+    sec = int(t_unix // 1)
+    if _sys_cache[0] != sec:
+        _sys_cache = (sec, time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(sec)))
+    ms = min(999, int(round((t_unix - sec) * 1000.0)))
+    return f"{_sys_cache[1]}.{ms:03d}"
+
+
+def rel_text(rel: float) -> str:
+    """Gerçek zaman metni (sn, 4 hane); ``-0.0000`` yazılmaz (ölçüm gürültüsü < 0,05 ms sıfır sayılır)."""
+    return f"{rel if abs(rel) >= 5e-5 else 0.0:.4f}"
+
+
+def _mono_of(t_unix: float | None) -> float:
+    """Bir örneğin MONOTONİK zamanı. Çağıran sistem zamanı verdiyse (kare geliş zamanı, eski tetik öncesi örnek) örneğin
+    YAŞI (şimdi − damga) kadar geriye gidilir; böylece ``time`` sütunu sistem saati atlasa/NTP düzeltse bile bozulmaz
+    (yalnızca örneğin kuyrukta beklediği kısa süre içinde bir atlama olursa o örnek etkilenir)."""
+    mono = time.monotonic()
+    if t_unix is None:
+        return mono
+    return mono - (time.time() - t_unix)
 
 
 def _safe_name(name: str) -> str:
@@ -94,6 +127,10 @@ class SessionRecorder:
         self._asc_path: str | None = None
         self._base: str | None = None
         self._t0 = 0.0
+        self._t0_mono = 0.0
+        self._clock_offset0 = 0.0                  # başlangıçtaki (sistem saati − monotonik) farkı: saat atlaması tespiti
+        self._clock_jumps: list[dict] = []
+        self._last_sync = 0.0
         self._started_mono = 0.0
         self._ended_mono = 0.0
         self._last_sim_rec = 0.0
@@ -185,6 +222,10 @@ class SessionRecorder:
             self._base = root
             self._t0 = time.time()
             self._started_mono = time.monotonic()
+            self._t0_mono = self._started_mono
+            self._clock_offset0 = self._t0 - self._t0_mono
+            self._clock_jumps = []
+            self._last_sync = self._started_mono
             self._ended_mono = 0.0
             self._paused, self._paused_total, self._paused_at = False, 0.0, None
             self._last = {}
@@ -196,6 +237,10 @@ class SessionRecorder:
             self.meta = {"version": META_VERSION, "name": session_name, "status": "recording",
                          "start_unix": self._t0,
                          "start_text": datetime.datetime.fromtimestamp(self._t0).isoformat(timespec="seconds"),
+                         "time_source": "monotonic",           # `time` sütunu: monotonik (gerçek zaman); unix_time/system_time: sistem saati
+                         "utc_offset_min": round((time.localtime(self._t0).tm_gmtoff or 0) / 60),
+                         "timezone": time.tzname[time.localtime(self._t0).tm_isdst > 0],
+                         "csv_columns": list(HEADER), "events_columns": list(EVENT_HEADER),
                          "files": {"csv": os.path.basename(self.path),
                                    "events": os.path.basename(self.events_path),
                                    "asc": os.path.basename(self._asc_path)}}
@@ -272,6 +317,7 @@ class SessionRecorder:
         from app.persist import atomic_write_json
         data = dict(self.meta)
         data["signals"] = dict(self._signals)
+        data["clock_jumps"] = list(self._clock_jumps)
         atomic_write_json(self.meta_path, data)
 
     def _finish_meta(self):
@@ -323,13 +369,13 @@ class SessionRecorder:
             return False
         now = time.time() if t_unix is None else t_unix
         self._last[sid] = (now, v)
-        return self._put((_SAMPLE, sid, v, now))
+        return self._put((_SAMPLE, sid, v, now, _mono_of(t_unix)))
 
     def record_event(self, kind: str, text: str, t_unix: float | None = None) -> bool:
         """Olay/işaret: BAGLANTI_KOPTU, HATA, MARKER, KALIBRASYON, MODEL… Duraklatılmışken de yazılır."""
         if self._events_writer is None:
             return False
-        return self._put((_EVENT, str(kind), str(text), time.time() if t_unix is None else t_unix))
+        return self._put((_EVENT, str(kind), str(text), time.time() if t_unix is None else t_unix, _mono_of(t_unix)))
 
     def add_marker(self, label: str, t_unix: float | None = None) -> bool:
         """Elle işaret (Motor start, Ignition ON, Shutdown…); olay dosyasında ve ASC'de yer alır."""
@@ -375,7 +421,7 @@ class SessionRecorder:
                 try:
                     self._write_batch(batch)
                     if stop:
-                        self._flush()
+                        self._flush(sync=True)
                         return
                 except OSError as exc:               # disk dolu / sürücü çıkarıldı: görünür, kayıt durur
                     self.error = str(exc)
@@ -385,7 +431,12 @@ class SessionRecorder:
                     log.exception("Kayıt öğesi yazılamadı: %s", exc)
             if time.monotonic() - last_flush >= FLUSH_EVERY_S:
                 try:
-                    self._flush()
+                    now_m = time.monotonic()
+                    self.check_clock()
+                    sync = now_m - self._last_sync >= FSYNC_EVERY_S
+                    self._flush(sync=sync)
+                    if sync:
+                        self._last_sync = now_m
                 except OSError as exc:
                     self.error = str(exc)
                     self._fail()
@@ -400,12 +451,12 @@ class SessionRecorder:
     def _write(self, item):
         kind = item[0]
         if kind == _SAMPLE:
-            _k, sid, v, now = item
-            self._writer.writerow([f"{now - self._t0:.4f}", sid, f"{v:.9g}", f"{now:.3f}"])
+            _k, sid, v, now, mono = item
+            self._writer.writerow([rel_text(mono - self._t0_mono), sid, f"{v:.9g}", f"{now:.3f}", system_time_text(now)])
             self.rows += 1
         elif kind == _EVENT:
-            _k, ev, text, now = item
-            self._events_writer.writerow([f"{now - self._t0:.4f}", f"{now:.3f}", ev, text])
+            _k, ev, text, now, mono = item
+            self._events_writer.writerow([rel_text(mono - self._t0_mono), f"{now:.3f}", ev, text, system_time_text(now)])
             self.event_rows += 1
             if self._asc is not None:
                 self._asc.log_event(f"{ev}: {text}", now)
@@ -421,13 +472,35 @@ class SessionRecorder:
             self._asc.on_message_received(msg)
             self.frames += 1
 
-    def _flush(self):
-        if self._file is not None:
-            self._file.flush()
-        if self._events_file is not None:
-            self._events_file.flush()
-        if self._asc is not None:
-            self._asc.file.flush()
+    def _flush(self, sync: bool = False):
+        """Tamponları işletim sistemine verir; ``sync=True``: ayrıca ``fsync`` ile diske zorlar (PC elektriği kesilirse
+        işletim sistemi önbelleğindeki veri kaybolmasın). Dosya sistemi desteklemiyorsa fsync hatası yutulur."""
+        files = [self._file, self._events_file, self._asc.file if self._asc is not None else None]
+        for f in files:
+            if f is None:
+                continue
+            f.flush()
+            if sync:
+                try:
+                    os.fsync(f.fileno())
+                except (OSError, ValueError):
+                    pass
+
+    def check_clock(self, wall: float | None = None, mono: float | None = None) -> float | None:
+        """Sistem saati monotonik saate göre ``CLOCK_JUMP_S``'den fazla saptıysa (elle saat ayarı, NTP/Windows
+        senkronu, gün ışığı) bir ``SAAT`` olayı yazar ve ``meta.clock_jumps``'a ekler; sapma saniyesini döner.
+        ``time`` sütunu monotonik olduğu için ETKİLENMEZ; ``unix_time``/``system_time`` yeni saati gösterir."""
+        wall = time.time() if wall is None else wall
+        mono = time.monotonic() if mono is None else mono
+        delta = (wall - mono) - self._clock_offset0
+        if abs(delta) <= CLOCK_JUMP_S:
+            return None
+        self._clock_offset0 = wall - mono
+        self._clock_jumps.append({"at_s": round(mono - self._t0_mono, 4), "delta_s": round(delta, 3),
+                                  "system_time": system_time_text(wall)})
+        self._put((_EVENT, "SAAT", f"Sistem saati {delta:+.3f} sn değişti (elle ayar / NTP). 'time' sütunu monotonik, "
+                   "etkilenmedi; system_time yeni saati gösterir.", wall, mono))
+        return delta
 
     def _fail(self):
         """Yazma hatası: dosyalar kapatılır, kayıt durur; ``error`` görünür kalır. Kuyruk boşaltılıp düşenler sayılır."""

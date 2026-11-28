@@ -19,7 +19,7 @@ def test_records_and_survives_without_stop_flush(tmp_path):
     rec.record("a2l:Rpm", float("nan"))
     rec.stop()
     rows = _rows(path)
-    assert rows[0] == ["time", "signal", "value", "unix_time"]
+    assert rows[0] == ["time", "signal", "value", "unix_time", "system_time"]
     assert rows[1][:3] == ["1.0000", "a2l:Rpm", "1234.5"]
     assert len(rows) == 2
     rec.record("a2l:Rpm", 1.0)               # kapalıyken yazılmaz
