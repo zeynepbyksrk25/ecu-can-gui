@@ -121,6 +121,37 @@ def missing_labels(steps: list, available: set) -> list:
     return sorted({s["label"] for s in steps if s["label"] not in available})
 
 
+def delete_step(steps: list, index: int) -> list:
+    """Adımı çıkarır; en az bir adım kalmalıdır (boş macro kaydedilemez)."""
+    if not 0 <= index < len(steps):
+        raise MacroError("Geçersiz adım.")
+    if len(steps) == 1:
+        raise MacroError("Son adım silinemez; macro'yu silin.")
+    return [dict(s) for i, s in enumerate(steps) if i != index]
+
+
+def move_step(steps: list, index: int, delta: int) -> list:
+    """Adımı ``delta`` kadar kaydırır (sınırda yerinde kalır)."""
+    if not 0 <= index < len(steps):
+        raise MacroError("Geçersiz adım.")
+    out = [dict(s) for s in steps]
+    j = index + delta
+    if 0 <= j < len(out):
+        out[index], out[j] = out[j], out[index]
+    return out
+
+
+def set_step_value(steps: list, index: int, value) -> list:
+    """Tek değer adımının sayısını değiştirir (tablo adımları burada düzenlenmez). Doğrulama ``check_step``'tedir."""
+    if not 0 <= index < len(steps):
+        raise MacroError("Geçersiz adım.")
+    if steps[index]["kind"] != "value":
+        raise MacroError("Yalnızca tek değer adımlarının değeri düzenlenebilir; tablo adımı silinip yeniden kaydedilir.")
+    out = [dict(s) for s in steps]
+    out[index] = check_step({**out[index], "value": value})
+    return out
+
+
 def describe(step: dict) -> str:
     v = step["value"]
     text = f"{len(v)}×{len(v[0])} tablo" if isinstance(v, list) else f"{v:g}"

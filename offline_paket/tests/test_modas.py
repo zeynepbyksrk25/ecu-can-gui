@@ -1287,3 +1287,49 @@ def test_undo_without_history_or_window_does_nothing(live):
     w.undo_stack.push("value", "kapalı_etiket", 1.0, 2.0)
     w._modas_undo_redo(False)
     assert "pencere açık değil" in w.statusBar().currentMessage() and w.undo_stack.can_undo()
+
+
+def test_macro_step_edit_functions_validate_and_never_mutate_input():
+    from app.modas_macros import MacroError, delete_step, move_step, set_step_value
+    steps = [{"kind": "value", "label": "A", "value": 1.0}, {"kind": "value", "label": "B", "value": 2.0},
+             {"kind": "table", "label": "T", "value": [[1, 2]]}]
+    assert [s["label"] for s in move_step(steps, 2, -1)] == ["A", "T", "B"]
+    assert [s["label"] for s in move_step(steps, 0, -1)] == ["A", "B", "T"]            # sınırda yerinde
+    assert [s["label"] for s in delete_step(steps, 1)] == ["A", "T"]
+    assert set_step_value(steps, 0, 7.5)[0]["value"] == 7.5 and steps[0]["value"] == 1.0
+    for bad in (float("nan"), float("inf")):
+        with pytest.raises(MacroError):
+            set_step_value(steps, 0, bad)
+    with pytest.raises(MacroError):
+        set_step_value(steps, 2, 3.0)                                                    # tablo adımı sayıyla düzenlenmez
+    with pytest.raises(MacroError):
+        delete_step(steps[:1], 0)                                                        # son adım silinmez
+    with pytest.raises(MacroError):
+        move_step(steps, 9, 1)
+
+
+def test_macro_dialog_edits_saved_steps_on_disk(live, monkeypatch):
+    from app.ui.modas.tools_dialogs import MacroDialog
+    from PySide6.QtWidgets import QInputDialog
+    w, ecu, obj, pump = live
+    store = w._modas_macro_store()
+    store.save("E", [{"kind": "value", "label": "A", "value": 1.0}, {"kind": "value", "label": "B", "value": 2.0},
+                     {"kind": "table", "label": "T", "value": [[1, 2]]}])
+    dlg = MacroDialog(store, w.macro_recorder, w._modas_macro_toggle, w._modas_macro_play, w._modas_macro_delete)
+    dlg.list.setCurrentRow(0)
+    assert not dlg.btn_step_del.isEnabled()                                              # adım seçili değil
+    dlg.steps.setCurrentRow(1)
+    monkeypatch.setattr(QInputDialog, "getText", staticmethod(lambda *a, **k: ("5,5", True)))
+    dlg.btn_step_edit.click()
+    assert store.load("E")[1]["value"] == 5.5 and dlg.steps.item(1).text() == "2. B = 5.5"
+    dlg.btn_step_up.click()
+    assert [s["label"] for s in store.load("E")] == ["B", "A", "T"] and dlg.steps.currentRow() == 0
+    dlg.steps.setCurrentRow(2)
+    assert not dlg.btn_step_edit.isEnabled()                                             # tablo adımı: değer düzenlenmez
+    dlg.btn_step_del.click()
+    assert [s["label"] for s in store.load("E")] == ["B", "A"]
+    monkeypatch.setattr(QInputDialog, "getText", staticmethod(lambda *a, **k: ("abc", True)))
+    dlg.steps.setCurrentRow(0)
+    dlg.btn_step_edit.click()
+    assert store.load("E")[0]["value"] == 5.5 and "sayı" in dlg.status.text()           # geçersiz giriş dosyayı değiştirmez
+    dlg.close()

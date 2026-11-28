@@ -9,11 +9,11 @@ import time
 
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtWidgets import (
-    QAbstractItemView, QDialog, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QPushButton, QVBoxLayout,
+    QAbstractItemView, QDialog, QHBoxLayout, QInputDialog, QLabel, QListWidget, QListWidgetItem, QPushButton, QVBoxLayout,
 )
 
 from app import theme
-from app.modas_macros import describe
+from app.modas_macros import MacroError, delete_step, describe, move_step, set_step_value
 
 
 class ParameterFilesDialog(QDialog):
@@ -126,8 +126,22 @@ class MacroDialog(QDialog):
         v.addWidget(self.list, 1)
         v.addWidget(QLabel("Adımlar"))
         self.steps = QListWidget()
-        self.steps.setSelectionMode(QAbstractItemView.NoSelection)
+        self.steps.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.steps.itemSelectionChanged.connect(self._sync_edit_buttons)
         v.addWidget(self.steps, 1)
+        edit = QHBoxLayout()
+        self.btn_step_edit = QPushButton("Değeri düzenle…")
+        self.btn_step_up = QPushButton("▲ Yukarı")
+        self.btn_step_down = QPushButton("▼ Aşağı")
+        self.btn_step_del = QPushButton("Adımı sil")
+        self.btn_step_edit.clicked.connect(self._edit_step_value)
+        self.btn_step_up.clicked.connect(lambda: self._change_steps(lambda st, i: move_step(st, i, -1), -1))
+        self.btn_step_down.clicked.connect(lambda: self._change_steps(lambda st, i: move_step(st, i, 1), 1))
+        self.btn_step_del.clicked.connect(lambda: self._change_steps(delete_step, 0))
+        for b in (self.btn_step_edit, self.btn_step_up, self.btn_step_down, self.btn_step_del):
+            edit.addWidget(b)
+        edit.addStretch(1)
+        v.addLayout(edit)
         self.status = QLabel("")
         self.status.setWordWrap(True)
         v.addWidget(self.status)
@@ -175,6 +189,7 @@ class MacroDialog(QDialog):
         self.btn_play.setEnabled(has and not rec)
         self.btn_delete.setEnabled(has and not rec)
         self.list.setEnabled(not rec)
+        self._sync_edit_buttons()
         if rec:
             self._show_steps(self.recorder.steps, live=True)
         elif has:
@@ -185,6 +200,54 @@ class MacroDialog(QDialog):
                 self._msg(str(exc), True)
         else:
             self.steps.clear()
+
+    # ---- adım düzenleme (kayıtlı macro dosyası güvenli şekilde yeniden yazılır) -------------
+    def _step_index(self) -> int:
+        return self.steps.currentRow() if self.steps.selectedItems() else -1
+
+    def _sync_edit_buttons(self):
+        i, name = self._step_index(), self.selected()
+        ok = name is not None and not self.recorder.active and i >= 0
+        for b in (self.btn_step_edit, self.btn_step_up, self.btn_step_down, self.btn_step_del):
+            b.setEnabled(ok)
+        if ok:
+            try:
+                self.btn_step_edit.setEnabled(self._loaded_steps()[i]["kind"] == "value")
+            except (MacroError, IndexError):
+                for b in (self.btn_step_edit, self.btn_step_up, self.btn_step_down, self.btn_step_del):
+                    b.setEnabled(False)
+
+    def _loaded_steps(self) -> list:
+        return self.store.load(self.selected())
+
+    def _change_steps(self, fn, select_delta: int):
+        name, i = self.selected(), self._step_index()
+        if name is None or i < 0:
+            return
+        try:
+            steps = fn(self._loaded_steps(), i)
+            self.store.save(name, steps, overwrite=True)
+        except MacroError as exc:
+            self._msg(str(exc), True)
+            return
+        self._msg(f"'{name}' güncellendi ({len(steps)} adım).")
+        self._show_steps(steps)
+        self.steps.setCurrentRow(max(0, min(len(steps) - 1, i + select_delta)))
+
+    def _edit_step_value(self):
+        i = self._step_index()
+        if i < 0 or self.selected() is None:
+            return
+        cur = self._loaded_steps()[i]
+        text, ok = QInputDialog.getText(self, "Adım değeri", f"{cur['label']} için yeni değer:", text=f"{cur['value']:g}")
+        if not ok:
+            return
+        try:
+            value = float(text.replace(",", "."))
+        except ValueError:
+            self._msg("Geçerli bir sayı girin.", True)
+            return
+        self._change_steps(lambda st, idx: set_step_value(st, idx, value), 0)
 
     def _show_steps(self, steps: list, live: bool = False):
         self.steps.clear()
