@@ -6,7 +6,8 @@ Formatlar birbirinin yerine GEÇMEZ:
   * ASC (.asc)   – ham CAN kareleri (Vector ASCII, python-can ``ASCWriter``). Fiziksel sinyal içermez.
   * LOG (.log)   – ``log_asc``: ASC içeriği ``.log`` uzantısıyla (uzantı değişimi hedef yazılımda doğrulanmadı);
                    ``log_candump``: can-utils ``candump -L`` biçimi (``(zaman) kanal ID#VERİ``).
-  * CSV (.csv)   – uzun biçim (time,signal,value,unix_time) – kayıt dosyasının kendisi.
+  * CSV (.csv)   – uzun biçim (time,signal,value,unix_time,system_time) – kayıt dosyasının kendisi. ``time`` = gerçek zaman
+                   (monotonik, oturum başından sn), ``unix_time``/``system_time`` = sistem saati.
   * MAT (.mat)   – MATLAB: sinyal başına {time, values, unit}.
 Büyük kayıtlarda bellek: değerler ``array('d')`` ile tutulur (Python float listesinin ~1/3'ü).
 """
@@ -23,6 +24,10 @@ from dataclasses import dataclass, field
 import numpy as np
 
 
+GAP_MIN_S = 1.0                                  # bu süreden uzun CAN sessizliği "veri boşluğu" sayılır
+GAP_CAUSE_KINDS = ("DURAKLATMA", "BAGLANTI", "HATA", "SAAT", "CCP")
+
+
 @dataclass
 class SessionData:
     path: str
@@ -32,6 +37,82 @@ class SessionData:
     values: dict = field(default_factory=dict)      # sid -> array('d')
     events: list = field(default_factory=list)      # (t_rel, t_unix, kind, text)
     skipped_rows: int = 0
+
+    def start_unix(self) -> float:
+        """Oturum başlangıcı (sistem saati, epoch). Üst veride yoksa ilk örneğin ``unix_time − time`` değeri."""
+        st = self.meta.get("start_unix")
+        if st:
+            return float(st)
+        for sid in self.values:
+            if len(self.t_unix[sid]):
+                return float(self.t_unix[sid][0] - self.t_rel[sid][0])
+        return 0.0
+
+    def t_axis(self, sid: str) -> np.ndarray:
+        """Çizim/analiz zaman ekseni: ``başlangıç + gerçek zaman`` (monotonik). Kayıt sırasında sistem saati atlasa da
+        eğri bozulmaz; eksen yine mutlak saatle okunur. Eski kayıtlarda (``time`` sistem saatinden türetilmişti) ikisi aynıdır."""
+        return self.start_unix() + np.frombuffer(self.t_rel[sid], dtype=float)
+
+    def event_axis(self, t_rel: float) -> float:
+        return self.start_unix() + t_rel
+
+    def clock_jumps(self) -> list:
+        return list(self.meta.get("clock_jumps") or [])
+
+    def data_gaps(self, min_gap_s: float = GAP_MIN_S) -> list[dict]:
+        """CAN (``dbc:``) verisindeki boşluklar: tüm CAN sinyallerinin birleşik zamanında ``min_gap_s``'den uzun
+        kesintiler. Yalnızca kare-güdümlü sinyaller kullanılır (CCP/giriş sinyalleri değişince yazıldığından uzun
+        sessizlikleri meşrudur). Her boşluk, çevresindeki olaylardan (duraklatma/bağlantı/hata/saat) nedeniyle
+        etiketlenir; neden bulunamazsa ``cause`` boştur (açıklanamayan kayıp)."""
+        arrs = [np.frombuffer(self.t_rel[sid], dtype=float) for sid in self.values if sid.startswith("dbc:")
+                and len(self.t_rel[sid])]
+        if not arrs:
+            return []
+        t = np.unique(np.concatenate(arrs))
+        if t.size < 2:
+            return []
+        d = np.diff(t)
+        out = []
+        for i in np.nonzero(d > min_gap_s)[0]:
+            a, b = float(t[i]), float(t[i + 1])
+            cause = ""
+            for tr, _tu, kind, text in self.events:
+                if a - 1.0 <= tr <= b + 1.0 and kind in GAP_CAUSE_KINDS:
+                    cause = f"{kind}: {text}"[:160]
+                    break
+            out.append({"start_s": a, "end_s": b, "duration_s": b - a, "cause": cause})
+        return out
+
+    def integrity(self) -> list[tuple[str, str]]:
+        """Kaydın güvenilirlik özeti: ``(seviye, metin)`` listesi; seviye ``ok`` | ``warn`` | ``error``. Sessiz kayıp
+        yok: düşen veri, bozuk satır, yarım kalan kayıt, saat atlaması ve açıklanamayan boşluklar burada görünür."""
+        m = self.meta
+        out: list[tuple[str, str]] = []
+        status = m.get("status", "unknown")
+        if status == "error":
+            out.append(("error", f"Kayıt hata ile bitti: {m.get('error') or 'bilinmiyor'}"))
+        elif status in ("recording", "recovered"):
+            out.append(("warn", "Kayıt beklenmedik şekilde kapanmış (kurtarıldı): son ~1-5 sn eksik olabilir."))
+        elif status == "unknown":
+            out.append(("warn", "Üst veri (meta.json) yok: durum, birim ve kaynak bilgisi bilinmiyor."))
+        if m.get("dropped"):
+            out.append(("error", f"{m['dropped']} öğe kuyruk dolduğu için YAZILAMADI (veri kaybı)."))
+        if self.skipped_rows:
+            out.append(("warn", f"{self.skipped_rows} bozuk/sonlu olmayan satır atlandı."))
+        for j in self.clock_jumps():
+            out.append(("warn", f"Sistem saati kayıt sırasında {j.get('delta_s', 0):+.3f} sn değişti "
+                                f"(t={j.get('at_s', 0):.1f} sn): 'time' etkilenmedi, system_time/unix_time atlar."))
+        gaps = self.data_gaps()
+        unexplained = [g for g in gaps if not g["cause"]]
+        if gaps:
+            total = sum(g["duration_s"] for g in gaps)
+            out.append(("warn", f"{len(gaps)} CAN veri boşluğu (toplam {total:.1f} sn); {len(gaps) - len(unexplained)} tanesi "
+                                "olayla açıklanıyor (ECU gücü/bağlantı/duraklatma)."))
+        if unexplained:
+            out.append(("error", f"{len(unexplained)} boşluğun nedeni olay günlüğünde YOK (açıklanamayan veri kaybı)."))
+        if not out:
+            out.append(("ok", "Kayıt bütünlüğü: sorun bulunmadı."))
+        return out
 
     @property
     def root(self) -> str:

@@ -64,6 +64,7 @@ class ModasMixin:
         tab.value_write_requested.connect(self._modas_write_value)
         tab.table_read_requested.connect(self._modas_read_tables)
         tab.table_write_requested.connect(self._modas_write_table)
+        tab.history_requested.connect(self._modas_show_history)
         tab.measuring_changed.connect(self._modas_measuring_changed)
         tab.layout_changed.connect(self._modas_update_diff)
         self.a2l_tab.a2l_loaded.connect(self._modas_on_a2l_loaded)
@@ -235,11 +236,19 @@ class ModasMixin:
             self._modas_mark_change(win)
         return True
 
+    def _modas_show_history(self, name: str):
+        """Değişiklik okuna tıklanınca: Calibration Tools > Geçmiş sekmesini açar, parametreyi süzüp son kaydı seçer."""
+        found = self.history_tab.show_object(name)
+        self.open_tool("Calibration Tools")
+        self.kalibrasyon_tab.inner_tabs.setCurrentWidget(self.history_tab)
+        if not found:
+            self.statusBar().showMessage(f"{name}: Değişiklik Geçmişi'nde kayıt yok.", 5000)
+
     def _modas_mark_change(self, win: ValueWindow):
         """Değer penceresinde son değişikliğin okunu / farkını gösterir (ortak ChangeTracker)."""
         name = win.obj.name
-        arrow, _mode = self.change_tracker.arrow(name)
-        win.set_change(arrow, self.change_tracker.delta_text(name) if arrow else "", self.change_tracker.summary(name))
+        state, arrow, delta, mode = self.change_tracker.change_view(name)
+        win.set_change(arrow, delta, self.change_tracker.summary(name), mode, failed=(state == "failed"))
 
     def _modas_tick(self):
         """Ölçüm turu (250 ms): tüm değer pencereleri arka plan CCP önbelleğinden okunur (arayüz beklemez)."""
@@ -432,6 +441,7 @@ class ModasMixin:
             self._log_event("HATA", f"{obj.name} RAM yazma hatası: {detail}")
             self.change_tracker.failed(obj.name, detail, unit)
             self._note_failed_write(obj.name, None, phys, unit, detail, "worksheets")
+            self._modas_mark_change(win)
             return deny(detail)
         win.set_write_result(True, "RAM'e yazıldı (ECU'dan doğrulandı).")
         self.macro_recorder.add("value", obj.name, phys)

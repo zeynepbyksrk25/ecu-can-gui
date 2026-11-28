@@ -96,6 +96,26 @@ def apply_view_transform(v, offset: float = 0.0, scale: float = 1.0):
     return np.asarray(v, dtype=float) * float(scale) + float(offset)
 
 
+def break_gaps(t, v, max_gap: float = DEFAULT_MAX_GAP_S, factor: float = 20.0):
+    """Çizim için veri boşluklarında çizgiyi KOPARIR: ardışık iki örnek arası ``max(max_gap, factor × medyan aralık)``'tan
+    uzunsa araya NaN konur (``connect='finite'`` ile çizgi kesilir). Böylece ECU gücü/bağlantı kesintisi sırasında veri
+    varmış gibi düz bir çizgi ÇİZİLMEZ; yavaş (değişince yazılan) sinyallerde eşik medyanla büyüdüğü için sahte kopma olmaz.
+    Girdiyi DEĞİŞTİRMEZ. ``(t, v)`` döner."""
+    t = np.asarray(t, dtype=float)
+    v = np.asarray(v, dtype=float)
+    if t.size < 3:
+        return t, v
+    d = np.diff(t)
+    limit = max(float(max_gap), factor * float(np.median(d)))
+    idx = np.nonzero(d > limit)[0]
+    if idx.size == 0:
+        return t, v
+    pos = idx + 1
+    t2 = np.insert(t, pos, t[idx] + d[idx] / 2.0)
+    v2 = np.insert(v, pos, np.nan)
+    return t2, v2
+
+
 def cut_at(t, v, until: float | None):
     """Freeze: ``until`` anından sonraki örnekleri görüntüden çıkarır (veri alımı sürer; görünüm donar)."""
     t = np.asarray(t, dtype=float)

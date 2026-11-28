@@ -12,6 +12,7 @@ Pencereler CCP/CAN işi YAPMAZ; yalnızca sinyal yayar ve sonucu MainWindow geri
 from __future__ import annotations
 
 import math
+import time
 
 from PySide6.QtCore import QSize, QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QIcon, QPixmap
@@ -20,9 +21,10 @@ from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
-from app import theme
+from app import change_tracker, theme
 from app.ccp import codec as ccp_codec
 from app.ccp import mapio
+from app.ui.change_icons import arrow_icon
 from app.value_text import parse_value_text
 
 FORMATS = ("phys", "dec", "hex", "bin")
@@ -129,6 +131,16 @@ class ModasSub(QMdiSubWindow):
         widget.style().polish(widget)
 
 
+class _ClickLabel(QLabel):
+    """Tıklanabilir etiket (değişiklik oku → Değişiklik Geçmişi)."""
+    clicked = Signal()
+
+    def mouseReleaseEvent(self, event):  # noqa: N802
+        if event.button() == Qt.LeftButton:
+            self.clicked.emit()
+        super().mouseReleaseEvent(event)
+
+
 class _ValueEdit(QLineEdit):
     """Değer kutusu: değişmemişken M / N tuşları değeri artırır / azaltır (PDF §8), Esc bekleyeni atar."""
     nudge = Signal(int)
@@ -161,6 +173,7 @@ class _ValueEdit(QLineEdit):
 class ValueWindow(ModasSub):
     """Tek değer penceresi. ``obj`` MeasurementInfo ya da skaler CharacteristicInfo'dur."""
     write_requested = Signal(object, str)
+    history_requested = Signal(str)        # değişiklik okuna tıklandı: Değişiklik Geçmişi'nde bu parametreyi göster
 
     def __init__(self, obj, kind: str | None = None):
         kind = kind or kind_of_object(obj)
@@ -197,6 +210,22 @@ class ValueWindow(ModasSub):
         self.unit_label = QLabel(getattr(obj, "unit", "") or "")
         self.unit_label.setObjectName("modasWinUnit")
         row.addWidget(self.unit_label)
+        # Değişiklik göstergesi: ok SİMGESİ (dolu kırmızı = ECU'ya yazıldı, içi boş amber = henüz yazılmadı) + fark.
+        self.change_icon = _ClickLabel()
+        self.change_icon.setFixedSize(14, 14)
+        self.change_icon.setScaledContents(True)
+        self.change_text = _ClickLabel("")
+        self.change_text.setObjectName("modasWinChange")
+        for w_ in (self.change_icon, self.change_text):
+            w_.setCursor(Qt.PointingHandCursor)
+            w_.setToolTip("Değişiklik Geçmişi'nde göster")
+            w_.clicked.connect(lambda: self.history_requested.emit(self.obj.name))
+        self.change_icon.setVisible(False)
+        self.change_text.setVisible(False)
+        row.addWidget(self.change_icon)
+        row.addWidget(self.change_text)
+        self.change_state = ""             # "" | "applied" | "pending" | "failed"
+        self._change = ("", "", "", False)  # (ok, fark, mod, başarısız) — ChangeTracker'dan gelen son görünüm
         self.setWidget(body)
         self.resize(max(230, 150 + 8 * len(obj.name)), 54)
         self._apply_editable()
@@ -211,12 +240,57 @@ class ValueWindow(ModasSub):
     def has_pending(self) -> bool:
         return self._pending
 
-    def set_change(self, arrow: str, delta: str, summary: str):
-        """Değişiklik takibi göstergesi (ok + fark): son yazım yönü ve miktarı birim etiketinin yanında, ayrıntı ipucunda."""
-        self._change_text = f"  {arrow} {delta}".rstrip() if arrow else ""
+    def set_change(self, arrow: str, delta: str, summary: str, mode: str = "steady", failed: bool = False,
+                   now: float | None = None):
+        """Değişiklik takibi göstergesi (ChangeTracker.change_view çıktısı): son yazımın yönü (ok simgesi) ve miktarı.
+        ``delta`` ok İÇERMEZ. ``mode='blink'``: yazımdan sonraki kısa süre yanıp söner. ``failed``: yazma başarısız,
+        ECU değişmedi → ok yok, "uygulanmadı" uyarısı. Kullanıcı yazılmamış bir değer girdiyse (bekleyen) o gösterilir."""
+        self._change = (arrow, delta, mode, failed)
         self._change_summary = summary
-        self.unit_label.setText(((getattr(self.obj, "unit", "") or "") + self._change_text).strip())
+        self._update_change_view(now)
         self.edit.setToolTip(self._tooltip())
+
+    def _typed_change(self):
+        """Kutuya yazılmış ama ECU'ya gönderilmemiş değerin (ok, fark): son okunan değere göre."""
+        if self._last_reading is None:
+            return "", ""
+        try:
+            new = parse_value_text(self.edit.text())
+            old = float(self._last_reading.phys)
+        except (TypeError, ValueError):
+            return "", ""
+        dr = change_tracker.direction(old, new)
+        if dr == 0:
+            return "", ""
+        return (change_tracker.ARROW_UP if dr > 0 else change_tracker.ARROW_DOWN,
+                change_tracker.format_delta(old, new, "", with_arrow=False))
+
+    def _update_change_view(self, now: float | None = None):
+        arrow, delta, mode, failed = self._change
+        state, icon_arrow, text, hollow, tone = "", "", "", False, theme.DANGER
+        if self._pending and not self.edit.isReadOnly():
+            icon_arrow, text = self._typed_change()
+            if icon_arrow:
+                state, hollow, tone = "pending", True, theme.WARN_INK
+                text += "  (yazılmadı)"
+        elif failed:
+            state, text = "failed", "✕ uygulanmadı"
+        elif arrow:
+            state, icon_arrow, text = "applied", arrow, delta
+        self.change_state = state
+        up = icon_arrow == change_tracker.ARROW_UP
+        if icon_arrow:
+            self.change_icon.setPixmap(arrow_icon(up, 14, hollow=hollow).pixmap(14, 14))
+            t = time.monotonic() if now is None else now
+            blink_off = state == "applied" and mode == "blink" and int(t * 4) % 2 == 1
+            self.change_icon.setVisible(not blink_off)
+            self.change_icon.setProperty("arrow", icon_arrow)
+        else:
+            self.change_icon.setVisible(False)
+            self.change_icon.setProperty("arrow", "")
+        self.change_text.setText(text)
+        self.change_text.setVisible(bool(text))
+        self.change_text.setStyleSheet(f"color:{tone}; font-size:11px; font-weight:600; background:transparent;")
 
     def _tooltip(self) -> str:
         o = self.obj
@@ -303,10 +377,12 @@ class ValueWindow(ModasSub):
         self._pending = on
         self.edit.setProperty("pending", on)
         self.refresh_style(self.edit)
+        self._update_change_view()
 
     def _on_text_edited(self, _text: str):
         if not self.edit.isReadOnly():
             self._set_pending(True)
+            self._update_change_view()
 
     def discard_pending(self):
         if self._pending:
@@ -349,6 +425,7 @@ class TableWindow(ModasSub):
     """Eğri / harita penceresi (``MapDocument`` ile aynı doküman arayüzü)."""
     write_requested = Signal(object)
     read_requested = Signal(object)
+    history_requested = Signal(str)        # özet satırındaki bağlantı / sağ tık: Değişiklik Geçmişi'nde göster
 
     def __init__(self, characteristic):
         super().__init__(characteristic.name, theme.ACCENT)
@@ -372,6 +449,15 @@ class TableWindow(ModasSub):
         self.info.setObjectName("modasTableInfo")
         self.info.setWordWrap(True)
         v.addWidget(self.info)
+        self.change_summary = QLabel("")
+        self.change_summary.setObjectName("modasTableChange")
+        self.change_summary.setTextFormat(Qt.RichText)
+        self.change_summary.setVisible(False)
+        self.change_summary.setTextInteractionFlags(Qt.TextBrowserInteraction)
+        self.change_summary.linkActivated.connect(lambda _h: self.history_requested.emit(self.characteristic.name))
+        v.addWidget(self.change_summary)
+        self._baseline: list | None = None      # oturum başı (ilk okunan) ECU tablosu: sapma özeti için referans
+        self._applied: dict[tuple[int, int], tuple[float, float]] = {}    # (satır, sütun) -> (eski, yeni): ECU'ya YAZILMIŞ
         self.table = QTableWidget(self.rows, self.cols)
         self.table.setObjectName("modasTable")
         self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
@@ -498,6 +584,8 @@ class TableWindow(ModasSub):
 
     def set_grid_from_ecu(self, grid: list):
         self._original = [list(row) for row in grid]
+        if self._baseline is None and all(v is not None for row in grid for v in row):
+            self._baseline = [list(row) for row in grid]      # ilk tam ECU okuması = başlangıç referansı (uydurma yok)
         if self._rp_view:                       # RP gösteriminde tablo referansı gösterir; yeni WP arka planda saklanır
             self._wp_backup = [list(row) for row in grid]
             return
@@ -512,6 +600,8 @@ class TableWindow(ModasSub):
         self.info.setText(self._info_text() + f"<br><span style='color:{theme.DANGER}'>⚠ {message}</span>")
 
     def set_write_result(self, ok: bool, message: str):
+        if ok:
+            self._mark_applied(self._original, self.current_grid())        # yazılan hücreler: kalıcı kırmızı ok
         self._original = self.current_grid() if ok else self._original
         color = theme.OK if ok else theme.DANGER
         self.info.setText(self._info_text() + f"<br><span style='color:{color}'>{'✔' if ok else '⚠'} {message}</span>")
@@ -546,9 +636,38 @@ class TableWindow(ModasSub):
         self._apply_editable()
         self._refresh_pending()
 
+    def _mark_applied(self, old_grid, new_grid):
+        """Başarılı yazımdan sonra değişen hücreleri (eski → yeni) kaydeder; ok yönü eski değere göredir."""
+        if old_grid is None:
+            return
+        for r in range(self.rows):
+            for c in range(self.cols):
+                a, b = old_grid[r][c], new_grid[r][c]
+                if change_tracker.direction(a, b) != 0:
+                    self._applied[(r, c)] = (float(a), float(b))
+
+    def cell_change(self, r: int, c: int) -> tuple[str, str, str]:
+        """Hücrenin değişiklik durumu: ``(durum, ok, fark)``. durum ``pending`` (düzenlendi, ECU'ya yazılmadı: içi boş
+        amber ok) | ``applied`` (ECU'ya yazıldı: dolu kırmızı ok) | ``""``. Yön ECU'daki (eski) değere göredir."""
+        cur = self._cell_value(r, c)
+        if self._original is not None:
+            old = self._original[r][c]
+            dr = change_tracker.direction(old, cur)
+            if dr != 0:
+                return "pending", (change_tracker.ARROW_UP if dr > 0 else change_tracker.ARROW_DOWN), \
+                    change_tracker.format_delta(old, cur, "", with_arrow=False)
+        mark = self._applied.get((r, c))
+        if mark is not None:
+            dr = change_tracker.direction(*mark)
+            if dr != 0:
+                return "applied", (change_tracker.ARROW_UP if dr > 0 else change_tracker.ARROW_DOWN), \
+                    change_tracker.format_delta(mark[0], mark[1], "", with_arrow=False)
+        return "", "", ""
+
     def _refresh_pending(self):
         if self._rp_view:
             return
+        counts = {"pending": [0, 0], "applied": [0, 0]}                    # [artış, azalış]
         self._updating = True
         try:
             for r in range(self.rows):
@@ -560,8 +679,57 @@ class TableWindow(ModasSub):
                                (self._cell_value(r, c) is None or
                                 abs((self._original[r][c] or 0.0) - (self._cell_value(r, c) or 0.0)) > 1e-9))
                     it.setBackground(QColor(theme.PENDING_BG) if changed else QColor(theme.MODAS_CAL_BG))
+                    state, arrow, delta = self.cell_change(r, c)
+                    if state:
+                        up = arrow == change_tracker.ARROW_UP
+                        counts[state][0 if up else 1] += 1
+                        it.setIcon(arrow_icon(up, 12, hollow=(state == "pending")))
+                        label = "ECU'ya yazıldı" if state == "applied" else "yazılmadı (bekleyen)"
+                        base = (self._original[r][c] if state == "pending" else self._applied[(r, c)][0])
+                        it.setToolTip(f"{arrow} {delta}  ·  eski {format_phys(base, 6)} · {label}")
+                    else:
+                        it.setIcon(QIcon())
+                        it.setToolTip("")
         finally:
             self._updating = False
+        self._update_change_summary(counts)
+
+    def baseline_deviation(self) -> dict | None:
+        """Başlangıç (oturum başı ECU) tablosundan sapma: ``{'cells', 'max_abs', 'max_cell', 'mean'}`` ya da ``None``
+        (referans yok / sapma yok). Güncel tablo = bekleyen düzenleme dahil hücre değerleri."""
+        if self._baseline is None or self._rp_view:
+            return None
+        diffs = []
+        for r in range(self.rows):
+            for c in range(self.cols):
+                cur = self._cell_value(r, c)
+                if change_tracker.direction(self._baseline[r][c], cur) != 0:
+                    diffs.append(((r, c), float(cur) - float(self._baseline[r][c])))
+        if not diffs:
+            return None
+        (cell, big) = max(diffs, key=lambda x: abs(x[1]))
+        return {"cells": len(diffs), "max_abs": abs(big), "max_signed": big, "max_cell": cell,
+                "mean": sum(d for _c, d in diffs) / len(diffs)}
+
+    def _update_change_summary(self, counts: dict):
+        parts = []
+        for key, text, color in (("pending", "Yazılmadı", theme.WARN_INK), ("applied", "ECU'ya yazıldı", theme.DANGER)):
+            up, down = counts[key]
+            if up + down:
+                parts.append(f"<span style='color:{color}'><b>{text}:</b> {up + down} hücre "
+                             f"({change_tracker.ARROW_UP}{up} {change_tracker.ARROW_DOWN}{down})</span>")
+        if self._applied:
+            parts.append("<a href='history'>Geçmişte göster</a>")
+        lines = ["  &nbsp;·&nbsp;  ".join(parts)] if parts else []
+        dev = self.baseline_deviation()
+        if dev is not None:
+            r, c = dev["max_cell"]
+            arrow = change_tracker.ARROW_UP if dev["max_signed"] > 0 else change_tracker.ARROW_DOWN
+            lines.append(f"<span style='color:{theme.INK_2}'>Başlangıca göre ({change_tracker.BASELINE_LABELS[change_tracker.BASELINE_SESSION]}): "
+                         f"{dev['cells']} hücre sapmış · en büyük {arrow} {format_phys(abs(dev['max_signed']), 5)} "
+                         f"(satır {r}, sütun {c}) · ortalama {dev['mean']:+.4g}</span>")
+        self.change_summary.setText("<br>".join(lines))
+        self.change_summary.setVisible(bool(lines))
 
     # ---- düzenleme -----------------------------------------------------------------
     def _on_item_changed(self, item: QTableWidgetItem):
@@ -648,7 +816,11 @@ class TableWindow(ModasSub):
         act_restore.setEnabled(editable and self._original is not None and bool(self._selected()))
         act_backup = menu.addAction("Yedekten Yükle…")
         act_backup.setEnabled(editable)
+        menu.addSeparator()
+        act_hist = menu.addAction("Değişiklik Geçmişi'nde göster")
         chosen = menu.exec(self.table.viewport().mapToGlobal(pos))
+        if chosen is act_hist:
+            self.history_requested.emit(self.characteristic.name)
         if chosen is act_restore:
             self.restore_selection()
         elif chosen is act_backup:

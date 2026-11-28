@@ -52,3 +52,25 @@ def test_browser_report_button(qapp, tmp_path):
     b.table.selectRow(0)
     out = b.report_selected(str(tmp_path / "r.html"))
     assert out and "Test raporu" in open(out, encoding="utf-8").read()
+
+
+def test_report_calibration_uses_red_arrow_language_and_summary(tmp_path):
+    sd = _session(tmp_path)
+    h = sr.build_report_html(sd)
+    assert "<span class='chg'>↑ +5 </span>" not in h                      # birimsiz parametrede sondaki boşluk yok
+    assert "↑ +5</span>" in h                                              # 90 → 95: kırmızı artış oku + fark
+    assert ".chg{color:#C22A1D" in h                                       # ok rengi kırmızı (arayüzle aynı)
+    assert "referans = kayıttaki ilk değer" in h                           # referans açıkça belirtilir (uydurma yok)
+    summ = {r["name"]: r for r in sr.calibration_summary(sr.calibration_changes(sd))}
+    r = summ["FuelLimit"]
+    assert (r["first"], r["last"], r["net"], r["up"], r["down"]) == (90.0, 95.0, 5.0, 1, 0)   # ilk örnek değişiklik sayılmaz
+
+
+def test_report_arrow_down_unchanged_and_first_sample_have_no_arrow():
+    assert "↓ -10" in sr._arrow_html(100.0, 90.0) and "chg" in sr._arrow_html(100.0, 90.0)
+    assert sr._arrow_html(5.0, 5.0) == "—" and sr._arrow_html(None, 5.0) == "—"
+    cal = [{"t": 0.0, "name": "K", "old": None, "new": 1.0, "unit": ""},
+           {"t": 1.0, "name": "K", "old": 1.0, "new": 3.0, "unit": ""},
+           {"t": 2.0, "name": "K", "old": 3.0, "new": 2.0, "unit": ""}]
+    r = sr.calibration_summary(cal)[0]
+    assert (r["up"], r["down"], r["net"]) == (1, 1, 1.0)

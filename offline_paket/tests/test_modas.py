@@ -1232,3 +1232,156 @@ def test_tools_tab_has_file_and_macro_buttons(qapp):
     texts = [a.text() for a in b["data_file"].menu().actions()]
     assert texts == ["Save WP to file…", "Compare file with WP…"]
     w.close()
+
+
+def _cal_window(summary):
+    cal = next(c for c in summary.characteristics if c.name == "clbc_Temp_limit")
+    w = ValueWindow(cal)
+    w.show()
+    w.set_reading(_reading(10.0))
+    return w
+
+
+def test_value_window_applied_change_shows_single_red_arrow_icon_and_delta(summary, qapp):
+    from app.change_tracker import ChangeTracker
+    w = _cal_window(summary)
+    ct = ChangeTracker()
+    ct.observe(w.obj.name, 10.0, w.obj.unit or "")
+    ct.applied(w.obj.name, 10.0, 12.5, w.obj.unit or "", now=50.0)
+    state, arrow, delta, mode = ct.change_view(w.obj.name, now=60.0)
+    w.set_change(arrow, delta, ct.summary(w.obj.name), mode, now=60.0)
+    assert w.change_state == "applied"
+    assert w.change_icon.isVisible() and w.change_icon.property("arrow") == "↑"
+    assert w.change_text.text() == "+2.5 rpm"                                # çift ok / çift birim YOK
+    assert w.unit_label.text() == (w.obj.unit or "")                         # birim etiketi yalnızca birim
+    assert "↑" not in w.change_text.text() and "↑" not in w.unit_label.text()
+    ct.applied(w.obj.name, 12.5, 8.0, w.obj.unit or "", now=70.0)
+    state, arrow, delta, mode = ct.change_view(w.obj.name, now=80.0)
+    w.set_change(arrow, delta, "", mode, now=80.0)
+    assert w.change_icon.property("arrow") == "↓" and w.change_text.text().startswith("-")
+
+
+def test_value_window_arrow_blinks_only_right_after_write(summary, qapp):
+    w = _cal_window(summary)
+    w.set_change("↑", "+1", "", "blink", now=0.0)          # faz 0: görünür
+    assert w.change_icon.isVisible()
+    w.set_change("↑", "+1", "", "blink", now=0.25)         # faz 1: sönük
+    assert not w.change_icon.isVisible()
+    w.set_change("↑", "+1", "", "steady", now=0.25)        # blink bitti: sabit
+    assert w.change_icon.isVisible()
+
+
+def test_value_window_pending_typed_value_is_distinct_hollow_arrow(summary, qapp):
+    w = _cal_window(summary)
+    w.set_change("↓", "-3", "", "steady", now=0.0)          # önceki uygulanmış değişim
+    w.edit.setText("14")
+    w._on_text_edited("14")                                  # kullanıcı yazdı, Enter yok
+    assert w.change_state == "pending"
+    assert w.change_icon.property("arrow") == "↑"            # yön ECU'daki (10) değere göre
+    assert "yazılmadı" in w.change_text.text() and "+4" in w.change_text.text()
+    w.discard_pending()                                      # Esc: bekleyen biter, uygulanmış gösterim geri gelir
+    assert w.change_state == "applied" and w.change_icon.property("arrow") == "↓"
+
+
+def test_value_window_failed_write_shows_warning_not_arrow(summary, qapp):
+    w = _cal_window(summary)
+    w.set_change("", "", "Son yazma BAŞARISIZ", "", failed=True)
+    assert w.change_state == "failed"
+    assert not w.change_icon.isVisible() and "uygulanmadı" in w.change_text.text()
+
+
+def test_arrow_icons_distinguish_applied_and_pending(qapp):
+    from app.ui.change_icons import arrow_icon
+    filled, hollow = arrow_icon(True, 16).pixmap(16, 16).toImage(), arrow_icon(True, 16, hollow=True).pixmap(16, 16).toImage()
+    assert filled != hollow                                  # dolu ≠ içi boş
+    assert arrow_icon(True, 16).pixmap(16, 16).toImage() != arrow_icon(False, 16).pixmap(16, 16).toImage()
+    c = filled.pixelColor(8, 10)                              # gövde ortası dolu kırmızı
+    assert c.red() > 150 and c.green() < 80 and c.alpha() > 200
+
+
+def _map_window():
+    w = TableWindow(make_map(rows=2, cols=3))
+    w.show()
+    w.set_grid_from_ecu([[10, 20, 30], [40, 50, 60]])
+    return w
+
+
+def test_table_window_pending_cells_show_hollow_arrow_by_direction_and_summary(qapp):
+    w = _map_window()
+    assert w.cell_change(0, 0) == ("", "", "") and not w.change_summary.isVisible()
+    w.table.item(0, 1).setText("25")        # artış
+    w.table.item(1, 2).setText("45")        # azalış
+    assert w.cell_change(0, 1) == ("pending", "↑", "+5")
+    assert w.cell_change(1, 2) == ("pending", "↓", "-15")
+    assert not w.table.item(0, 1).icon().isNull() and not w.table.item(1, 2).icon().isNull()
+    assert w.table.item(0, 0).icon().isNull()                              # değişmeyen hücre işaretsiz
+    assert "Yazılmadı" in w.change_summary.text() and "2 hücre" in w.change_summary.text()
+    assert "↑1" in w.change_summary.text() and "↓1" in w.change_summary.text()
+    assert "yazılmadı" in w.table.item(0, 1).toolTip() and "eski 20" in w.table.item(0, 1).toolTip()
+
+
+def test_table_window_applied_cells_keep_red_arrow_after_successful_write(qapp):
+    w = _map_window()
+    w.table.item(0, 1).setText("25")
+    w.table.item(1, 0).setText("30")
+    w.set_write_result(True, "yazıldı")
+    assert w.cell_change(0, 1) == ("applied", "↑", "+5") and w.cell_change(1, 0) == ("applied", "↓", "-10")
+    assert "ECU'ya yazıldı" in w.change_summary.text() and "Yazılmadı" not in w.change_summary.text()
+    w.set_grid_from_ecu([[10, 25, 30], [30, 50, 60]])                       # doğrulama okuması işareti silmez
+    assert w.cell_change(0, 1)[0] == "applied"
+    w.table.item(0, 1).setText("100")                                       # yeniden düzenleme: bekleyen öncelikli
+    assert w.cell_change(0, 1) == ("pending", "↑", "+75")
+    assert "eski 25" in w.table.item(0, 1).toolTip()
+
+
+def test_table_window_failed_write_leaves_cells_pending_without_applied_arrows(qapp):
+    w = _map_window()
+    w.table.item(0, 0).setText("11")
+    w.set_write_result(False, "ECU reddetti")
+    assert w.cell_change(0, 0)[0] == "pending"                              # hâlâ yazılmadı
+    assert not any(state == "applied" for state in (w.cell_change(r, c)[0] for r in range(2) for c in range(3)))
+
+
+def test_table_window_revert_to_original_clears_marks(qapp):
+    w = _map_window()
+    w.table.item(1, 1).setText("99")
+    assert w.cell_change(1, 1)[0] == "pending"
+    w.table.item(1, 1).setText("50")                                        # eski değere dönüldü
+    assert w.cell_change(1, 1) == ("", "", "") and not w.change_summary.isVisible()
+
+
+def test_table_window_baseline_deviation_summary(qapp):
+    w = _map_window()                                                       # ilk ECU okuması = başlangıç referansı
+    assert w.baseline_deviation() is None and not w.change_summary.isVisible()
+    w.table.item(0, 0).setText("15")                                        # +5
+    w.table.item(1, 2).setText("30")                                        # -30
+    dev = w.baseline_deviation()
+    assert dev["cells"] == 2 and dev["max_cell"] == (1, 2) and dev["max_abs"] == 30.0 and dev["mean"] == -12.5
+    txt = w.change_summary.text()
+    assert "Başlangıca göre" in txt and "oturum başı ECU değeri" in txt and "2 hücre sapmış" in txt
+    w.set_write_result(True, "ok")
+    w.set_grid_from_ecu([[15, 20, 30], [40, 50, 30]])                       # yeni okuma referansı DEĞİŞTİRMEZ
+    assert w.baseline_deviation()["cells"] == 2
+    w.table.item(0, 0).setText("10")
+    w.table.item(1, 2).setText("60")                                        # başlangıç değerlerine dönüldü
+    assert w.baseline_deviation() is None
+
+
+def test_table_window_history_requested_from_summary_link_and_value_window_arrow(summary, qapp):
+    w = _map_window()
+    got = []
+    w.history_requested.connect(got.append)
+    w.table.item(0, 1).setText("25")
+    w.set_write_result(True, "ok")
+    assert "Geçmişte göster" in w.change_summary.text()
+    w.change_summary.linkActivated.emit("history")
+    assert got == [w.characteristic.name]
+    v = _cal_window(summary)
+    got2 = []
+    v.history_requested.connect(got2.append)
+    v.set_change("↑", "+1", "", "steady")
+    from PySide6.QtCore import QPoint, Qt as _Qt
+    from PySide6.QtTest import QTest
+    QTest.mouseClick(v.change_icon, _Qt.LeftButton, pos=QPoint(5, 5))
+    QTest.mouseClick(v.change_text, _Qt.LeftButton, pos=QPoint(3, 3))
+    assert got2 == [v.obj.name, v.obj.name]

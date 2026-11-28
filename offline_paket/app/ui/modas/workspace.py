@@ -108,6 +108,7 @@ class ModasWorkspace(QWidget):
     value_write_requested = Signal(object, str)
     table_read_requested = Signal(list)
     table_write_requested = Signal(object)
+    history_requested = Signal(str)             # değişiklik okuna tıklandı: parametrenin geçmişini göster
     measuring_changed = Signal(bool)
     page_changed = Signal(str)
     layout_changed = Signal()                 # pencere eklendi / silindi / sayfa değişti (Diff yeniden hesaplanır)
@@ -395,6 +396,7 @@ class ModasWorkspace(QWidget):
         if kind in ("curve", "map"):
             win: ModasSub = TableWindow(obj)
             win.write_requested.connect(self.table_write_requested.emit)
+            win.history_requested.connect(self.history_requested.emit)
             win.read_requested.connect(lambda w: self.table_read_requested.emit([w]))
             win.set_allowed(self._allowed)
             if fmt:
@@ -402,6 +404,7 @@ class ModasWorkspace(QWidget):
         else:
             win = ValueWindow(obj, "cal" if kind == "value" else "meas")
             win.write_requested.connect(self.value_write_requested.emit)
+            win.history_requested.connect(self.history_requested.emit)
             win.set_allowed(self._allowed and self._online)
             if fmt:
                 win.set_format(fmt)

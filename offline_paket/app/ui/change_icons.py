@@ -2,14 +2,17 @@
 yön yalnızca ok biçimiyle ayrılır (bkz. docs/GOREV.md 2.1)."""
 from app import theme
 from PySide6.QtCore import QPointF, Qt
-from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap, QPolygonF
+from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap, QPolygonF
 
 ARROW_COLOR = QColor(theme.DANGER)
-_cache: dict[tuple[bool, int], QIcon] = {}
+PENDING_COLOR = QColor(theme.WARN_INK)
+_cache: dict[tuple[bool, int, bool], QIcon] = {}
 
 
-def arrow_icon(up: bool, size: int = 14) -> QIcon:
-    key = (up, size)
+def arrow_icon(up: bool, size: int = 14, hollow: bool = False) -> QIcon:
+    """Dolu kırmızı ok: değişiklik ECU'ya UYGULANDI. ``hollow=True``: içi boş (konturlu) amber ok: düzenlendi ama
+    HENÜZ yazılmadı (bekleyen); iki durum şekilden de ayırt edilir (renk körlüğü)."""
+    key = (up, size, hollow)
     icon = _cache.get(key)
     if icon is not None:
         return icon
@@ -17,8 +20,12 @@ def arrow_icon(up: bool, size: int = 14) -> QIcon:
     pm.fill(Qt.transparent)
     p = QPainter(pm)
     p.setRenderHint(QPainter.Antialiasing)
-    p.setPen(Qt.NoPen)
-    p.setBrush(ARROW_COLOR)
+    if hollow:
+        p.setPen(QPen(PENDING_COLOR, max(1.0, size / 12)))
+        p.setBrush(Qt.NoBrush)
+    else:
+        p.setPen(Qt.NoPen)
+        p.setBrush(ARROW_COLOR)
     m = size * 0.12
     w = size - 2 * m
     cx = size / 2

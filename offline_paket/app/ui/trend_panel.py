@@ -23,7 +23,8 @@ from PySide6.QtWidgets import (
 
 from app import theme
 from app.trend_model import (
-    DEFAULT_MAX_GAP_S, SignalView, TrendLayout, apply_view_transform, cursor_rows, cut_at, range_stats, sample_at,
+    DEFAULT_MAX_GAP_S, SignalView, TrendLayout, apply_view_transform, break_gaps, cursor_rows, cut_at, range_stats,
+    sample_at,
 )
 from app.ui import trend_signal_table as sigtab
 from app.ui.dash_widgets import (
@@ -521,7 +522,7 @@ class TrendPanel(QFrame):
                 left.setLabel(f"[{g['unit']}]" if g["unit"] else "",
                               color=first.color if len(g["series"]) == 1 else DK_MUT)
                 for ser in g["series"]:
-                    ser.curve = pg.PlotDataItem(pen=pg.mkPen(ser.color, width=2), name=ser.label)
+                    ser.curve = pg.PlotDataItem(pen=pg.mkPen(ser.color, width=2), name=ser.label, connect="finite")
                     ser.curve.setClipToView(True)
                     ser.curve.setDownsampling(auto=True, method="peak")
                     vb.addItem(ser.curve)
@@ -587,7 +588,7 @@ class TrendPanel(QFrame):
                 ax.setWidth(62)       # her sağ eksen kendi sütununda: başlık + etiketler çakışmaz
             g["vb"] = vb
             for ser in g["series"]:
-                ser.curve = pg.PlotDataItem(pen=pg.mkPen(ser.color, width=2), name=ser.label)
+                ser.curve = pg.PlotDataItem(pen=pg.mkPen(ser.color, width=2), name=ser.label, connect="finite")
                 ser.curve.setClipToView(True)
                 ser.curve.setDownsampling(auto=True, method="peak")
                 vb.addItem(ser.curve)
@@ -721,9 +722,10 @@ class TrendPanel(QFrame):
                 if len(t) and ser.visible:
                     i0 = int(np.searchsorted(t, lo - margin))
                     seg_t, seg_v = t[max(0, i0 - 1):], v[max(0, i0 - 1):]
+                    seg_t, seg_v = break_gaps(seg_t, seg_v)                # veri boşluğunda çizgi kopar (düz çizgi yok)
                     if ser.offset or ser.scale != 1.0:
                         seg_v = apply_view_transform(seg_v, ser.offset, ser.scale)   # yalnızca görünüm; veri aynı
-                    ser.curve.setData(seg_t, seg_v)
+                    ser.curve.setData(seg_t, seg_v, connect="finite")
                 else:
                     ser.curve.setData([], [])
             self._dirty = False

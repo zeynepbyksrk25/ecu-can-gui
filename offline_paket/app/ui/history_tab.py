@@ -113,6 +113,18 @@ class HistoryTab(QWidget):
             self.table.setItem(row, 8, ok_item)
         self.table.scrollToBottom()
 
+    def show_object(self, name: str) -> bool:
+        """Parametrenin geçmişini gösterir: filtre o parametreye alınır ve en son kayıt seçilir. Kayıt yoksa False."""
+        self.refresh()
+        idx = self.filter_combo.findData(name)
+        if idx < 0:
+            return False
+        self.filter_combo.setCurrentIndex(idx)              # refresh() tetiklenir
+        if self.table.rowCount():
+            self.table.selectRow(self.table.rowCount() - 1)
+            self.table.scrollToBottom()
+        return True
+
     def _on_revert(self):
         row = self.table.currentRow()
         if row < 0 or row >= len(self._shown):

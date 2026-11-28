@@ -72,7 +72,9 @@ def test_worksheet_write_feeds_tracker_history_and_arrow(win, ccp):
     assert st.last_write_ok is True and st.last_new == 21.0 and st.baseline is not None
     entry = win.calibration_history.entries[-1]
     assert entry.object_name == obj.name and entry.write_ok and entry.source == "worksheets"
-    assert "↑" in w.unit_label.text() or "↓" in w.unit_label.text()       # son değişimin yönü pencerede görünür
+    assert w.change_state == "applied" and w.change_icon.property("arrow") in ("↑", "↓")   # yön ok simgesiyle
+    assert w.change_text.text() and "↑" not in w.change_text.text() and "↓" not in w.change_text.text()   # çift ok yok
+    assert w.unit_label.text() == (obj.unit or "")
     assert "Son değişim" in w.edit.toolTip()
 
 
@@ -90,3 +92,28 @@ def test_worksheet_failed_write_is_recorded_as_failed_in_history_and_tracker(win
     entry = win.calibration_history.entries[-1]
     assert entry.object_name == obj.name and entry.write_ok is False and entry.source == "worksheets"
     assert win.change_tracker.state(obj.name).last_write_ok is False
+    assert w.change_state == "failed" and not w.change_icon.isVisible()      # başarısız yazma ok göstermez
+
+
+def test_clicking_change_arrow_opens_history_filtered_on_parameter(win, ccp):
+    from PySide6.QtCore import QPoint, Qt
+    from PySide6.QtTest import QTest
+    from app.user_roles import Role
+    win.current_role = Role.ENGINEER
+    win._modas_sync_permissions()
+    obj, w = _fuel(win)
+    win._modas_write_value(w, "21")
+    win._modas_write_value(w, "22")
+    w.show()
+    w.change_icon.show()
+    QTest.mouseClick(w.change_icon, Qt.LeftButton, pos=QPoint(4, 4))
+    ht = win.history_tab
+    assert ht.filter_combo.currentData() == obj.name                       # parametreye süzüldü
+    n = sum(1 for e in win.calibration_history.entries if e.object_name == obj.name)   # (win paylaşımlı: önceki yazımlar da var)
+    assert n >= 2 and ht.table.rowCount() == n and ht.table.currentRow() == n - 1      # yalnız bu parametre, son kayıt seçili
+    assert win.kalibrasyon_tab.inner_tabs.currentWidget() is ht            # Geçmiş sekmesi açık
+
+
+def test_history_requested_for_unknown_parameter_reports_in_statusbar(win):
+    win._modas_show_history("HİÇ_YAZILMAMIŞ")
+    assert "kayıt yok" in win.statusBar().currentMessage()

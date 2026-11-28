@@ -95,6 +95,7 @@ class ConnectionMixin:
         """CAN bağlantısına bağlı her şeyi kapatır. graceful=False: adaptör
         gitmiş olduğu için CCP DISCONNECT gibi bus'a yazan adımlar ATLANIR
         (aksi halde zaman aşımlarında arayüz bloklanırdı)."""
+        self._bus_silent_since = None
         self._release_overrides_on_teardown(graceful)   # CCP/CAN hâlâ açıkken: override'ları bırakmayı dene
         if self.ccp_session.state != IDLE:
             if graceful:
@@ -169,6 +170,7 @@ class ConnectionMixin:
 
         ok = state == "ok"
         silent = self.connection.silent_for()
+        self._track_bus_silence(silent)
         if state == "bus_warning" and self.connection.recovering:
             message = f"Hat hatalı, kurtarılıyor: {message} (son mesaj {silent:.0f} sn önce)"
         elif ok and silent > SILENT_NOTICE_S:
@@ -180,6 +182,19 @@ class ConnectionMixin:
             self._log_event("HATA", f"CAN hat durumu uyarısı: {message}")
         self._last_health_state = state
         self._update_connection_display(health_message=message)
+
+    def _track_bus_silence(self, silent: float, now: float | None = None):
+        """Hat trafiği kesilince / geri gelince OLAY yazar (kayıtta ve olay günlüğünde): ECU gücü gidince kayıt
+        sürer, veri boşluğu olay çizelgesinde net görünür. Süre, SON mesajın geldiği andan ölçülür."""
+        now = time.monotonic() if now is None else now
+        since = getattr(self, "_bus_silent_since", None)
+        if silent > SILENT_NOTICE_S and since is None:
+            self._bus_silent_since = now - silent
+            self._log_event("BAGLANTI", f"CAN trafiği kesildi: {silent:.1f} sn'dir mesaj yok "
+                                        "(ECU kapalı / güç gitmiş olabilir; kayıt sürüyor, boşluk olarak işaretlenir)")
+        elif silent <= SILENT_NOTICE_S and since is not None:
+            self._bus_silent_since = None
+            self._log_event("BAGLANTI", f"CAN trafiği geri geldi (kesinti ≈ {now - since:.1f} sn sürdü)")
 
     def _handle_connection_lost(self, reason: str, elapsed: float):
         """Bağlantı KOPTU: her şeyi temizle, kullanıcıya açıkça bildir ve

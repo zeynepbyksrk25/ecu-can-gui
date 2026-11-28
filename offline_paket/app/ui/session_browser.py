@@ -8,6 +8,7 @@ import os
 import time
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QCheckBox, QDialog, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox,
     QPushButton, QSplitter, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget, QAbstractItemView,
@@ -59,6 +60,15 @@ class AnalysisWindow(QDialog):
         self.sim_axis_check.setToolTip("Eksen = modelin simülasyon zamanı (mil:sim_time). Gerçek alım zamanı ile "
                                        "karıştırılmaz; eşleme yoksa/yeniden başlatma varsa kapalıdır.")
         self.sim_axis_check.toggled.connect(lambda _c: self.apply_selection())
+        self.events_table = QTableWidget(0, 4)
+        self.events_table.setHorizontalHeaderLabels(["Gerçek zaman (sn)", "Sistem saati", "Tür", "Olay"])
+        self.events_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.events_table.verticalHeader().setVisible(False)
+        self.events_table.horizontalHeader().setStretchLastSection(True)
+        self.events_table.setMaximumHeight(170)
+        self.events_table.setToolTip("Olay çizelgesi: her olay iki zamanla (gerçek zaman + sistem saati). ECU gücü kesintisi, "
+                                     "bağlantı, hata, saat değişimi ve işaretler burada görünür.")
+        self._fill_events()
         self.add_button = QPushButton("Seçilenleri grafiğe uygula")
         self.add_button.clicked.connect(self.apply_selection)
         self.info = QLabel(self._info_text())
@@ -66,7 +76,7 @@ class AnalysisWindow(QDialog):
         left = QWidget()
         lv = QVBoxLayout(left)
         lv.setContentsMargins(0, 0, 0, 0)
-        for w in (self.info, self.filter_edit, self.sig_list, self.sim_axis_check, self.add_button):
+        for w in (self.info, self.filter_edit, self.sig_list, self.sim_axis_check, self.add_button, self.events_table):
             lv.addWidget(w)
         self.trend = TrendPanel()
         self.trend.btn_pick.setVisible(False)            # sinyal seçimi soldaki listeden
@@ -82,12 +92,32 @@ class AnalysisWindow(QDialog):
             self.sig_list.item(i).setCheckState(Qt.Checked)
         self.apply_selection()
 
+    def _fill_events(self):
+        from app.session_recorder import system_time_text
+        t = self.events_table
+        evs = self.sd.events
+        t.setRowCount(len(evs))
+        for i, (tr, tu, kind, text) in enumerate(evs):
+            vals = (f"{tr if abs(tr) >= 5e-4 else 0.0:.3f}", system_time_text(tu), kind, text)
+            col = event_color(kind)
+            for c, v in enumerate(vals):
+                it = QTableWidgetItem(v)
+                if col and c == 2:
+                    it.setForeground(QColor(col))
+                if c == 3:
+                    it.setToolTip(text)
+                t.setItem(i, c, it)
+        t.resizeColumnsToContents()
+
     def _info_text(self) -> str:
         m = self.sd.meta
         st = STATUS_TEXT.get(m.get("status", "unknown"), "?")
+        colors = {"ok": theme.OK, "warn": theme.WARN_INK, "error": theme.DANGER}
+        icons = {"ok": "✔", "warn": "⚠", "error": "✖"}
+        integ = "".join(f"<br><span style='color:{colors[lv]}'>{icons[lv]} {txt}</span>" for lv, txt in self.sd.integrity())
         return (f"<b>{m.get('name') or os.path.basename(self.sd.path)}</b><br>Durum: {st} · kaynak: {m.get('mode') or '-'}"
                 f" · kullanıcı: {m.get('user') or '-'}<br>{len(self.sd.signals())} sinyal, {len(self.sd.events)} olay"
-                + (f"<br>Atlanan bozuk satır: {self.sd.skipped_rows}" if self.sd.skipped_rows else ""))
+                f"<br>Zaman: <b>gerçek zaman</b> (monotonik, sn) ve <b>sistem saati</b> ayrı kaydedildi" + integ)
 
     def _apply_filter(self, text: str):
         t = text.strip().lower()
@@ -104,13 +134,14 @@ class AnalysisWindow(QDialog):
         t0 = sd.meta.get("start_unix") or 0.0
         specs = []
         for sid in self.selected_ids():
-            tu = sd.t_unix[sid]
+            tu = sd.t_axis(sid)              # başlangıç + gerçek zaman (monotonik): sistem saati atlasa da eğri bozulmaz
             if sim:
-                tu = sd.to_sim_time(tu)
+                tu = sd.to_sim_time(sd.t_unix[sid])
             specs.append({"key": sid, "label": sid.split(":", 1)[-1], "unit": sd.unit(sid), "source": sd.source(sid),
                           "t": list(tu), "v": list(sd.values[sid])})
         events = []
-        for _tr, tu, kind, text in sd.events:
+        for tr, tu, kind, text in sd.events:
+            tu = sd.event_axis(tr)
             if sim:
                 tu = float(sd.to_sim_time([tu])[0])
                 if tu != tu:
