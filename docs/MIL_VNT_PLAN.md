@@ -1,5 +1,15 @@
 # MIL – Vehicle Network Toolbox (CAN Pack/Unpack) + UDP Uygulama Planı
 
+## 0. Durum özeti (son güncelleme 2026-11-28)
+
+| Alan | Durum |
+|---|---|
+| MIL UDP haberleşme altyapısı (`sim_protocol.py`, `sim_bus.py`), model paneli, kayıt/analiz, senaryo | **Yapıldı** (sahte modelle test; gerçek MATLAB'da doğrulanmadı) |
+| **Kalibrasyon: `.m` (Simulink.Parameter/LookupTable) + MATLAB Engine, modelde değişiklik YOK** | **Yapıldı** (PR #37; sahte engine ile test; gerçek MATLAB'da doğrulanmadı) — bkz. bölüm 8 |
+| **CAN giriş/çıkış: VNT CAN Pack/Unpack + UDP (bu planın 4.x bölümleri)** | **YAPILMADI — sıradaki iş** |
+
+Kullanıcının kararları (yeniden sorma): kalibrasyon MATLAB Engine ile yapılır (UDP parametre kanalı gerekmez); GUI, modelin çalıştığı AÇIK MATLAB oturumuna bağlanır (`matlab.engine.shareEngine`); parametre `.m` dosyası GUI'de dosya seçiciyle verilir; parametre listesinde harita/eğri de vardır; CAN tarafı VNT Pack/Unpack ile; modelde (algoritmada) değişiklik istenmez, yalnızca OpenECU CAN blokları yerine `MIL_IO` sarmalayıcısı eklenir.
+
 > Bu doküman repodaki yapay zekâ ajanı (ve geliştirici) içindir. Önce `CLAUDE.md`, `docs/GOREV.md` (bölüm 11), `docs/MIL_PROTOKOL.md`, `docs/PROGRESS.md`, `docs/DECISIONS.md` okunmalıdır. Bu plan **yeni bir altyapı kurmaz**; mevcut MIL UDP altyapısının (`app/sim_protocol.py`, `app/sim_bus.py`, `app/sim_bridge/`) Simulink tarafını tamamlar.
 
 ## 1. Amaç ve bağlam
@@ -51,7 +61,7 @@ MATLAB bu ortamda yok. Bu yüzden:
 
 ### 4.4 DBC'den kurulum listesi/otomasyon
 - `simulink/matlab/mil_make_io_plan.py` (veya `app/` altında küçük CLI): DBC'yi `app/dbc.py` ile okuyup (yeni DBC ayrıştırıcı yazma) hangi mesaj ID/ad/periyot/sinyaller **giriş (Unpack)** ve **çıkış (Pack)** olur, bir tablo (Markdown/CSV) çıkarır. Yön ayrımı için node/gönderici bilgisi DBC'de varsa onu kullan; yoksa kullanıcıdan gelen bir yön listesi (JSON) kabul et — **yön tahmini uydurma**.
-- Kalibrasyon: algoritma sabitleri Simulink'te **tunable** (`Simulink.Parameter`) yapılır; JSON manifest şablonu (`app/sim_bridge/parameters.py` biçimi) DBC/A2L'den üretilemeyen kısımlar için elle doldurulacak alanlarla boş şablon olarak üretilir.
+- Kalibrasyon bu bölümün konusu DEĞİLDİR: `.m` + MATLAB Engine ile yapıldı (bölüm 8). JSON manifest/UDP parametre kanalı (tür 4) yedek yol olarak kalır, genişletilmez.
 
 ### 4.5 Kılavuz
 - `simulink/README.md` genişletilir: blok blok kurulum (Library Browser yolu, `CAN Pack/Unpack` parametreleri, `UDP Send/Receive`, örnek zamanları, heartbeat, pacing, MIL_IO sarmalayıcı, gerçek ECU'ya dönüş).
@@ -74,4 +84,17 @@ MATLAB bu ortamda yok. Bu yüzden:
 - Sinyal veri tipleri (genelde `double`), mesaj periyotları ve yönler DBC/kullanıcıdan alınır; **sinyal adı, birim, limit uydurma**.
 
 ## 7. Dışarıda kalanlar
-- GUI/arayüz değişikliği gerekmez (Mod = MIL mevcut). ACK ile "uygulanan değer" geri bildirimi (sensör override) ve model tarafında parametre paketlerini (tür 4) işleyen Simulink örneği ayrı iştir (`PROGRESS.md` "Eksik" notlarına bak); bu plan bittikten sonra ele alınır.
+- GUI/arayüz değişikliği gerekmez (Mod = MIL mevcut). ACK ile "uygulanan değer" geri bildirimi (sensör override) ayrı iştir (`PROGRESS.md` "Eksik" notlarına bak). Model tarafında UDP parametre paketlerini (tür 4) işleyen Simulink örneği artık GEREKMEZ (kalibrasyon Engine ile).
+
+## 8. Yapılmış iş: .m + MATLAB Engine kalibrasyonu (ihtiyaç halinde bakın, yeniden yazmayın)
+- Kod: `offline_paket/app/sim_bridge/engine_params.py` (`parse_listing`, `build_summary` → sentetik `A2LSummary`, `load_from_engine`, `EngineParamClient`), `simulink/matlab/mil_list_params.m` (base workspace → JSON), `matlab_ctl.MatlabEngineBackend(attach=True)` (+ `engine`, `lock`, `model`), `ui/mainwin/calibration.py` (`_on_sim_mfile_requested`, `_apply_engine_params`), `ui/connection_tab.py` ("Parametre dosyası (.m)…"), model paneli "MATLAB (açık oturuma bağlan)". Testler: `tests/test_engine_params.py`.
+- Akış: model paneli MATLAB Engine ile bağlan → `.m` seç (engine'de `run`) → liste → sentetik A2L → mevcut Kalibrasyon/Harita Editörü/geçmiş; yazma `NAME.Value = …` / `NAME.Table.Value(r,c) = …` + geri okuma doğrulaması; model çalışırken `SimulationCommand=update`.
+- Kurallar: çalışırken `StorageClass=Auto` yazılamaz; Min/Max dışı reddedilir; desteklenen: skaler, vektör/matris, 1B/2B tablo (Explicit values); `fixdt`/enum/struct/Reference eksen/3B+ atlanır ve listelenir; breakpoint değerleri yalnız okunur. GUI ekseni: axes[0]=sütun=`Breakpoints{2}`, axes[1]=satır=`Breakpoints{1}`.
+- **Gerçek MATLAB'da doğrulanmadı:** `LookupTable.Table.Value/Breakpoints` alan adları, `jsonencode` çıktı biçimi, `update` ile çalışan modelde değerin gerçekten uygulanması, `connect_matlab`.
+- Bilinen eksikler: model yeniden bağlanınca `.m` yeniden seçilmeli; yalnız base workspace (data dictionary/model workspace taranmaz); breakpoint düzenleme yok; paylaşılan oturum adı seçimi yok (ilk oturum alınır).
+- Kullanıcı örneğindeki `IGN_ON_SPD.DataTpe='single'` yazım hatasıdır (`DataType`); MATLAB'da hata verir, kodda düzeltilecek bir şey yok.
+
+## 9. Ajan çalışma kuralları (hatırlatma)
+- Önce `CLAUDE.md`, `docs/GOREV.md`, `docs/PROGRESS.md`, `docs/DECISIONS.md` oku. Her adım: incele → uygula → test → `PROGRESS.md` → commit. Mevcut testleri bozma, atlama yok. PR yalnızca kullanıcı isterse. Sır commit etme.
+- Test ortamı (bu bulut ortamında gerekirse): `pip install` ile `requirements.lock.txt` sürümleri (`pya2ldb`, PySide6, cantools, python-can, pyqtgraph …) ve `libegl1`; testler `QT_QPA_PLATFORM=offscreen python -m pytest …` ile çalışır.
+- Bu ortamda MATLAB/Simulink/VNT/PCAN yok: sahte yapıyla test et, "gerçek ortamda doğrulanmadı" diye işaretle. Sinyal adı, birim, limit, yön uydurma.
