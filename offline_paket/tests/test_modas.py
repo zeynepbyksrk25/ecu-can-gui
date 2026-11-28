@@ -1340,3 +1340,53 @@ def test_undo_history_is_dropped_when_a2l_or_workbase_changes(live):
     w.undo_stack.push("value", "x", 1.0, 2.0)
     w._modas_on_a2l_loaded()
     assert not w.undo_stack.can_undo()
+
+
+def _limited_window(lo, hi):
+    from types import SimpleNamespace
+    cal = next(c for c in make_summary_chars() if c.name == "clbc_Temp_limit")
+    cal = SimpleNamespace(**{**cal.__dict__, "minimum": lo, "maximum": hi, "read_only": False})
+    w = ValueWindow(cal, "cal")
+    w.show()
+    w.set_reading(_reading(10.0))
+    w.set_allowed(True)
+    return w
+
+
+def make_summary_chars():
+    from app.a2l import A2LDatabase
+    db = A2LDatabase()
+    db.load(os.path.join(DATA, "sample.a2l"))
+    return db.summary.characteristics
+
+
+def test_value_window_shows_a2l_range_and_plus_minus_buttons(qapp):
+    w = _limited_window(0.0, 50.0)
+    assert w.range_label.text() == "[0 … 50]" and not w.range_label.isHidden()
+    got = []
+    w.write_requested.connect(lambda win, text: got.append(text))
+    w.plus_btn.click()
+    w.minus_btn.click()
+    assert [float(t) for t in got] == [10 + w.step, 10 - w.step]
+    w.set_allowed(False)                                         # çevrimdışı: düğmeler pasif
+    assert not w.plus_btn.isEnabled() and not w.minus_btn.isEnabled()
+    assert _limited_window(0.0, 0.0).range_label.text() == ""     # lower == upper: sınır tanımsız, gösterilmez
+
+
+def test_value_window_blocks_out_of_range_before_any_write(qapp):
+    w = _limited_window(0.0, 12.0)
+    got = []
+    w.write_requested.connect(lambda win, text: got.append(text))
+    w.edit.setText("99")
+    w._on_text_edited("99")
+    w._on_commit()
+    assert got == [] and w.edit.property("bad") is True            # ECU'ya istek gitmedi
+    assert "aralığın" in w.change_text.text() and w.change_text.isVisible()
+    w.edit.setText("11")
+    w._on_text_edited("11")
+    w._on_commit()
+    assert got == ["11"]
+    w.set_reading(_reading(12.0))
+    w.discard_pending()
+    w.plus_btn.click()                                              # 12 + adım sınırı aşar: yazılmaz
+    assert got == ["11"] and "aralığın" in w.change_text.text()

@@ -18,7 +18,7 @@ from PySide6.QtCore import QSize, QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QAbstractButton, QAbstractItemView, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMdiSubWindow, QMenu,
-    QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+    QTableWidget, QTableWidgetItem, QToolButton, QVBoxLayout, QWidget,
 )
 
 from app import change_tracker, theme
@@ -207,9 +207,18 @@ class ValueWindow(ModasSub):
         self.edit.cancelled.connect(self.discard_pending)
         self.edit.remove.connect(self.close)
         row.addWidget(self.edit, 1)
+        self.minus_btn = self._step_button("−", -1)
+        self.plus_btn = self._step_button("＋", +1)
+        row.addWidget(self.minus_btn)
+        row.addWidget(self.plus_btn)
         self.unit_label = QLabel(getattr(obj, "unit", "") or "")
         self.unit_label.setObjectName("modasWinUnit")
         row.addWidget(self.unit_label)
+        self.range_label = QLabel(self._range_text())
+        self.range_label.setObjectName("modasWinUnit")
+        self.range_label.setToolTip("A2L izinli aralığı: bu aralığın dışındaki değerler ECU'ya yazılmaz")
+        self.range_label.setVisible(bool(self.range_label.text()) and kind == "cal")
+        row.addWidget(self.range_label)
         # Değişiklik göstergesi: ok SİMGESİ (dolu kırmızı = ECU'ya yazıldı, içi boş amber = henüz yazılmadı) + fark.
         self.change_icon = _ClickLabel()
         self.change_icon.setFixedSize(14, 14)
@@ -227,9 +236,44 @@ class ValueWindow(ModasSub):
         self.change_state = ""             # "" | "applied" | "pending" | "failed"
         self._change = ("", "", "", False)  # (ok, fark, mod, başarısız) — ChangeTracker'dan gelen son görünüm
         self.setWidget(body)
-        self.resize(max(230, 150 + 8 * len(obj.name)), 54)
+        self.resize(max(290, 210 + 8 * len(obj.name)), 54)
         self._apply_editable()
         self.edit.setToolTip(self._tooltip())
+
+    def _step_button(self, text: str, direction: int) -> QToolButton:
+        b = QToolButton()
+        b.setText(text)
+        b.setAutoRaise(True)
+        b.setFocusPolicy(Qt.NoFocus)
+        b.setAutoRepeat(False)
+        b.setAccessibleName("Artır" if direction > 0 else "Azalt")
+        b.setToolTip(("Artır" if direction > 0 else "Azalt") + f" (adım {self.step:g})   " + ("M" if direction > 0 else "N"))
+        b.clicked.connect(lambda _c=False, d=direction: self._on_nudge(d))
+        return b
+
+    def _range_text(self) -> str:
+        lo, hi = getattr(self.obj, "minimum", None), getattr(self.obj, "maximum", None)
+        if lo is None or hi is None or lo == hi:                  # lower == upper: A2L'de "sınır tanımsız"
+            return ""
+        return f"[{format_phys(lo)} … {format_phys(hi)}]"
+
+    def limit_problem(self, value) -> str | None:
+        """Yazmadan önce A2L doğrulaması (READ_ONLY, sonlu, aralık); sorun yoksa None. Yetkili doğrulama yine yazma yolundadır."""
+        try:
+            ccp_codec.validate_write(self.obj, value)
+        except ValueError as exc:                                # WriteValidationError bir ValueError'dır
+            return str(exc)
+        return None
+
+    def _reject(self, message: str):
+        """Sınır / doğrulama hatası: ECU'ya hiçbir şey gönderilmez; kutu kırmızı, ayrıntı ipucunda ve değişim alanında."""
+        self.edit.setProperty("bad", True)
+        self.refresh_style(self.edit)
+        self.edit.setToolTip(f"{self._tooltip()}\n\n⚠ {message}")
+        self.change_text.setText("⚠ " + message)
+        self.change_text.setVisible(True)
+        self.change_text.setStyleSheet(f"color:{theme.DANGER}; font-size:11px; font-weight:600; background:transparent;")
+        self.change_icon.setVisible(False)
 
     # ---- durum ---------------------------------------------------------------------
     @property
@@ -306,6 +350,10 @@ class ValueWindow(ModasSub):
 
     def _apply_editable(self):
         self.edit.setReadOnly(not self._editable())
+        for b in (getattr(self, "minus_btn", None), getattr(self, "plus_btn", None)):
+            if b is not None:
+                b.setVisible(self.is_calibration)
+                b.setEnabled(self._editable())
         self.edit.setProperty("kind", "cal" if self._editable() else ("cal" if self.is_calibration else "meas"))
         self.refresh_style(self.edit)
 
@@ -393,6 +441,15 @@ class ValueWindow(ModasSub):
     def _on_commit(self):
         if not self._pending or self.edit.isReadOnly():
             return
+        try:
+            value = parse_value_text(self.edit.text())
+        except ValueError:
+            value = None                                       # biçim hatasını yazma yolu bildirir (mevcut davranış)
+        if value is not None:
+            problem = self.limit_problem(value)
+            if problem:
+                self._reject(problem)
+                return
         self.write_requested.emit(self, self.edit.text())
 
     def _on_nudge(self, direction: int):
@@ -401,6 +458,10 @@ class ValueWindow(ModasSub):
         try:
             value = float(self._last_reading.phys) + direction * self.step
         except (TypeError, ValueError):
+            return
+        problem = self.limit_problem(value)
+        if problem:
+            self._reject(problem)
             return
         self.write_requested.emit(self, format_phys(value, 6))
 
