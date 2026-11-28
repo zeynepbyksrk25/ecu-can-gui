@@ -14,7 +14,6 @@ from app.change_tracker import ChangeTracker
 from app.ccp.worker import IDLE, CcpSession
 from app import control_panel as cpanel
 from app.ui.control_panel_tab import ControlPanelTab
-from app.ui.performance_tab import PerformanceTab
 from app.sim_interface import SimConfig
 from app.dashboard_config import (
     DashboardConfigStore,
@@ -126,10 +125,8 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self._ccp_busy = False               # arka planda uzun bir CCP işi sürüyor (bkz. _ccp_job)
         self._job_progress = ""              # işin durum çubuğunda gösterilen ilerleme metni
 
-        self._sim_sent: set = set()
         self.sim_config = SimConfig(data_path("sim_interface.json"))
         self.dashboard_tab = DashboardTab(self.sim_config)
-        self.performance_tab = PerformanceTab(self.sim_config)
 
         # ---- Birleştirilmiş sekmeler (bkz. app/ui/can_monitor_tab.py,
         # app/ui/tanilama_tab.py, app/ui/kalibrasyon_tab.py). Eski kod
@@ -156,11 +153,10 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self.history_tab = self.kalibrasyon_tab.history
 
         self.workspace_tab = WorkspaceTab(WorkspaceLayoutStore(data_path("workspace_layouts.json")))
-        # Çalışma Alanı + Performans tek "Analiz" sayfasında iç sekmeler olarak yaşar;
-        # workspace_tab/performance_tab takma adları değişmeden kullanılır. (Eski Grafik sekmesi kaldırıldı:
+        # Çalışma Alanı "Analiz" sayfasında yaşar. (Eski Grafik sekmesi kaldırıldı:
         # Çalışma Alanı'nın grafik paneli A2L ölçümleri, ayarlanabilir skalerler ve ayrı pencere dahil
         # aynı işi daha kapsamlı yapıyor.)
-        self.analiz_tab = AnalizTab(self.workspace_tab, self.performance_tab)
+        self.analiz_tab = AnalizTab(self.workspace_tab)
 
         self.tanilama_tab = TanilamaTab()
         self.diagnostics_tab = self.tanilama_tab.diagnostics
@@ -192,11 +188,11 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self._tool_pages = {label: page for _i, label, page in self._nav_pages[1:]}
         self._tool_windows: dict = {}
         self._cap_form_widths([p for _i, _l, p in self._nav_pages
-                               if p not in (self.modas_tab, self.dashboard_tab, self.analiz_tab, self.performance_tab,
+                               if p not in (self.modas_tab, self.dashboard_tab, self.analiz_tab,
                                          self.control_panel_tab, self.workspace_tab)])
         self._page_scrolls: dict[QWidget, QScrollArea] = {}
         # Koyu temaya geçirilmiş sayfalar (koyu gövdeye sarılır); diğerleri henüz açık temada.
-        self._dark_pages = {self.tanilama_tab, self.session_tab, self.kalibrasyon_tab, self.analiz_tab, self.performance_tab, self.workspace_tab, self.control_panel_tab}
+        self._dark_pages = {self.tanilama_tab, self.session_tab, self.kalibrasyon_tab, self.analiz_tab, self.workspace_tab, self.control_panel_tab}
         self._build_ui_chrome()
 
         self.dashboard_tab.set_config(self.dashboard_config_store.load())
@@ -601,7 +597,6 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self.control_panel_tab.apply_requested.connect(self._on_panel_apply)
         self.dashboard_tab.sim_inputs.values_changed.connect(self._on_sim_inputs)
         self.dashboard_tab.sim_inputs.set_allowed(can_override_actuator(self.current_role))
-        self.performance_tab.poll_requested.connect(self._on_perf_poll)
         self.control_panel_tab.poll_requested.connect(self._on_panel_poll)
         self.control_panel_tab.kill_overrides_requested.connect(self._on_panel_kill_overrides)
         self.control_panel_tab.tx_toggle_requested.connect(self._on_panel_tx_toggle)

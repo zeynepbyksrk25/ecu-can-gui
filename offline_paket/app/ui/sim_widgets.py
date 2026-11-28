@@ -1,4 +1,4 @@
-"""Performans sayfası ve Ana Sayfa giriş paneli için ortak küçük bileşenler:
+"""Test Bench giriş paneli için küçük bileşenler:
 siyah dijital değer kutusu, renkli kart çerçevesi, sinyal seçme ve eşik
 diyalogları."""
 from PySide6.QtCore import Qt, Signal

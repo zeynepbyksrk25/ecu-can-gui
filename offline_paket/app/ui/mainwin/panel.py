@@ -1,4 +1,4 @@
-"""Kontrol Paneli, simülasyon girişleri ve Performans sayfası."""
+"""Kontrol Paneli ve simülasyon girişleri."""
 
 from PySide6.QtWidgets import (
     QMessageBox,
@@ -22,18 +22,10 @@ class PanelMixin:
     def _panel_conn_state(self):
         self.control_panel_tab.set_connection_state(
             self.connection.is_connected, self.ccp_client is not None, self._conn_lost)
-        self.performance_tab.set_connection_state(
-            self.connection.is_connected, self.ccp_client is not None, self._conn_lost)
 
     def _panel_sources_changed(self):
         self.control_panel_tab.refresh_sources(self.transmit_tab.dbc, self.a2l_tab.db)
         self.dashboard_tab.sim_inputs.refresh_sources(self.transmit_tab.dbc, self.a2l_tab.db.summary)
-        self.performance_tab.refresh_sources(self.transmit_tab.dbc, self.a2l_tab.db)
-        self._push_flight()
-
-    def _push_flight(self):
-        vals = self.dashboard_tab.sim_inputs.values()
-        self.performance_tab.set_flight({k: v for k, v in vals.items() if k in self._sim_sent})
 
     def _sync_sim_inputs(self):
         """Kontrol Paneli'nden gönderilen değerleri Ana Sayfa girişlerine yansıtır."""
@@ -48,8 +40,6 @@ class PanelMixin:
                 vals[d.key] = cur[m[1]]
         if vals:
             panel.set_values(vals)
-            self._sim_sent.update(vals)
-            self._push_flight()
 
     def _on_sim_inputs(self, values: dict):
         """Uçuş Koşulları girişleri: CAN'a bağlı olanlar DBC mesajıyla (periyodik), A2L'ye bağlı olanlar CCP ile
@@ -136,7 +126,6 @@ class PanelMixin:
             record(False, "DBC sinyaline / A2L değişkenine bağlı değil (gönderilmedi)", only=set(unmapped))
         sent_keys = [k for k in values if k in ok_keys]
         panel.set_sent(sent_keys, ok=not errors)
-        self._sim_sent.update(sent_keys)
         if errors:
             panel.set_status("Gönderilemedi: " + "; ".join(errors), False)
         else:
@@ -147,21 +136,7 @@ class PanelMixin:
         if sent_keys:
             self._log_event("SIMÜLASYON", "Giriş gönderildi: " + ", ".join(
                 f"{k}={values[k]:g}" for k in sent_keys))
-        self._push_flight()
         self._panel_tx_state()
-
-    def _on_perf_poll(self):
-        pt = self.performance_tab
-        if self.ccp_client is None:
-            return
-        for key, info in pt.ccp_poll_targets():
-            try:
-                pt.set_ccp_value(key, cpanel.ccp_read_value(self.ccp_reader, info))
-            except ccp_protocol.CCPTimeoutError:
-                pt.set_ccp_error(key, "ECU cevap vermedi")
-                continue
-            except Exception as exc:
-                pt.set_ccp_error(key, str(exc))
 
     def _panel_tx_state(self):
         self.control_panel_tab.set_tx_running(

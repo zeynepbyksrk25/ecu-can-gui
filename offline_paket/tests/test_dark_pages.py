@@ -100,14 +100,13 @@ def test_kalibrasyon_dark_and_aliases():
     w.close()
 
 
-def test_analiz_performance_dark_no_captions():
+def test_analiz_has_only_workspace_no_performance_or_graph_tab():
     from app.ui.main_window import MainWindow
     w = MainWindow()
-    assert w.performance_tab in w._dark_pages
-    assert "geri okunuşu" not in "".join(b.toolTip() for b in w.performance_tab._flight_boxes.values())
-    # Grafik sekmesi kaldırıldı: Analiz = Çalışma Alanı + Performans
+    assert w.analiz_tab in w._dark_pages
     labels = [w.analiz_tab.inner_tabs.tabText(i) for i in range(w.analiz_tab.inner_tabs.count())]
-    assert labels == ["Çalışma Alanı", "Performans"] and not hasattr(w, "graph_tab")
+    assert labels == ["Çalışma Alanı"]
+    assert not hasattr(w, "performance_tab") and not hasattr(w, "graph_tab")
     w.close()
 
 

@@ -1,5 +1,5 @@
 """Ana Sayfa'nın ortak (koyu tema) widget'ları: simgeler, anahtar, kilit
-düğmesi ve yarım daire gösterge (``DashGauge``). Ana Sayfa, Performans ve Çalışma Alanı
+düğmesi ve yarım daire gösterge (``DashGauge``). Test Bench ve Çalışma Alanı
 aynı göstergeyi kullanır."""
 
 import math
@@ -292,7 +292,7 @@ class DashGauge(QWidget):
     """Koyu temalı 240° gösterge: değere kadar dolan yay, ibre, değer + birim. İsteğe bağlı kırmızı sınır
     (``set_red_limit``): sınırın üstü yayda soluk kırmızı bölge olarak görünür, değer sınırı geçince dolgu
     kırmızıya döner. Sınır değeri yazılmaz. Değer yoksa/bayatsa ibre başa yatar, değer "—" gösterir. İsteğe
-    bağlı ``label`` (Performans / Çalışma Alanı) birimin altına bir başlık çizer."""
+    bağlı ``label`` (Çalışma Alanı) birimin altına bir başlık çizer."""
 
     _DW, _DH = 200.0, 150.0
     _LABEL_H = 24.0

@@ -54,7 +54,7 @@ INPUT_BY_KEY = {d.key: d for d in INPUT_DEFS}
 FLIGHT_DEFS = [d for d in INPUT_DEFS if d.group == "aircraft"]
 
 
-# ======================= Çıkışlar (Performans Arayüzü) =======================
+# ======================= Çıkışlar (Worksheets "Monitoring" şablonu takma adları) =======================
 @dataclass(frozen=True)
 class PerfDef:
     key: str

@@ -204,7 +204,7 @@ class A2LTab(QWidget):
         if kind == "measurement":
             self.detail_type.setText(f"MEASUREMENT ({obj.datatype})")
             self.detail_readonly.setText("Hayır (ölçüm, ECU'dan okunur)")
-            self.detail_use.setText("Ana Sayfa / Grafik / Çalışma Alanı / Performans'ta sürekli çizilebilir")
+            self.detail_use.setText("Worksheets Scope / Test Bench / Çalışma Alanı'nda sürekli çizilebilir")
         else:
             self.detail_type.setText(f"{obj.kind} ({obj.datatype})")
             self.detail_readonly.setText("Hayır (salt okunur)" if obj.read_only else "Evet (kalibrasyon)")
