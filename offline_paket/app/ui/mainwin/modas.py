@@ -21,6 +21,7 @@ from app.ccp import codec as ccp_codec
 from app.ccp import protocol as ccp_protocol
 from app.ccp.worker import IDLE, CONNECTING, LOST, ONLINE
 from app.ui.mainwin.common import _CCP_IO_ERRORS
+from app.ui.modas.workspace import ModasSheetStore
 from app.ui.modas.pages import RP, WP, _same
 from app.modas_dataset import DatasetStore, compare
 from app.modas_projects import ProjectStore
@@ -769,11 +770,21 @@ class ModasMixin:
         self.project_manager.refresh()
         self.project_manager.exec()
 
+    def _modas_switch_layout(self, wb):
+        """Çalışma sayfası düzeni çalışma tabanına aittir (``<workbase klasörü>/calisma_sayfalari.json``). Tabanın düzeni
+        yoksa mevcut düzen ona devredilir; varsa o düzen yüklenir."""
+        if not getattr(wb, "path", "") or not os.path.isdir(wb.path):
+            return
+        result = self.modas_tab.switch_store(ModasSheetStore(os.path.join(wb.path, "calisma_sayfalari.json")))
+        if result == "loaded":
+            self._log_event("KULLANICI", f"Çalışma sayfası düzeni yüklendi: {wb.name}")
+
     def _modas_open_workbase(self, project, wb):
         """Workbase açma (kılavuz §2): A2L yüklenir, iletişim ayarları uygulanır, ECU'ya bağlanmayı dener.
         Hata olursa workbase yine açık sayılır; neden Log'a ve durum çubuğuna yazılır (sessiz hata yok)."""
         self._modas_workbase = (project, wb)
         self._log_event("KULLANICI", f"Workbase açıldı: {project.name} / {wb.name}")
+        self._modas_switch_layout(wb)
         if wb.a2l:
             try:
                 self.a2l_tab.load_path(wb.a2l)

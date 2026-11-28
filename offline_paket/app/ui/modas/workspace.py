@@ -829,6 +829,35 @@ class ModasWorkspace(QWidget):
         self.tabs.setCurrentIndex(idx)
         self._on_tab_changed(idx)
 
+    def switch_store(self, store: "ModasSheetStore") -> str:
+        """Çalışma sayfası düzenini başka bir kayıt dosyasına geçirir (çalışma tabanı başına düzen). Önce mevcut düzen
+        ESKİ dosyaya kaydedilir. Yeni dosya yoksa mevcut düzen yeni dosyaya devredilir (``"inherited"``: pencereler
+        olduğu gibi kalır); varsa tüm pencereler kapanıp o dosyadaki düzen yüklenir (``"loaded"``). Aynı dosyaysa
+        ``"same"``."""
+        if store.path and store.path == self.store.path:
+            return "same"
+        self.save()
+        state = store.load()
+        self.store = store
+        if state is None:
+            self.save()
+            return "inherited"
+        for sheet in list(self._sheets):
+            for w in list(sheet.windows):
+                w.close()
+            self.stack_layout.removeWidget(sheet.mdi)
+            sheet.mdi.deleteLater()
+        self._sheets.clear()
+        self.tabs.blockSignals(True)
+        while self.tabs.count():
+            self.tabs.removeTab(0)
+        self.tabs.blockSignals(False)
+        self.hub.set_active([])
+        self.hub.derived.clear()
+        self._load()
+        self._on_scope_changed()
+        return "loaded"
+
     def shutdown(self):
         self.stop_measurement()
         self.save()

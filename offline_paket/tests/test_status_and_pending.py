@@ -214,3 +214,56 @@ def test_gauge_pending_until_a2l_arrives_and_main_window_measurement_round_feeds
         assert g.value is None
     finally:
         w.close()
+
+
+# ------------------------------------------------------------------ çalışma tabanı başına düzen
+def test_switch_store_inherits_layout_when_target_is_new_and_loads_when_it_exists(qapp, tmp_path):
+    from app.ui.modas.workspace import ModasSheetStore
+    w, _db = _ws_with_a2l(tmp_path, "genel.json")
+    try:
+        w.add_gauge("Tt2_raw")
+        w.add_scope([])
+        a = ModasSheetStore(str(tmp_path / "taban_a.json"))
+        assert w.switch_store(a) == "inherited"                          # yeni dosya: mevcut düzen devredilir
+        assert len(w.gauge_windows()) == 1 and len(w.scope_windows()) == 1
+        assert a.load() is not None                                      # yeni dosyaya yazıldı
+        w.add_gauge("clbc_Fuel_pump_gain")                               # A'ya özel düzen: 2 gösterge
+        b = ModasSheetStore(str(tmp_path / "taban_b.json"))
+        w.switch_store(b)
+        for g in list(w.gauge_windows()):
+            g.close()                                                    # B'nin düzeni: gösterge yok
+        assert w.switch_store(ModasSheetStore(str(tmp_path / "taban_a.json"))) == "loaded"   # A geri gelir
+        assert sorted(g.obj.name for g in w.gauge_windows()) == ["Tt2_raw", "clbc_Fuel_pump_gain"]
+        assert len(w.scope_windows()) == 1
+        assert w.switch_store(ModasSheetStore(str(tmp_path / "taban_a.json"))) == "same"
+        assert w.switch_store(ModasSheetStore(str(tmp_path / "taban_b.json"))) == "loaded"
+        assert w.gauge_windows() == []                                   # B: A'nın pencereleri sızmadı
+        assert [s.name for s in w._sheets] and w.tabs.count() == len(w._sheets)
+    finally:
+        w.shutdown()
+
+
+def test_opening_a_workbase_switches_to_its_own_layout_file(qapp, tmp_path):
+    from app.ui.main_window import MainWindow
+    from app.modas_projects import Workbase
+    w = MainWindow()
+    try:
+        pr = w.project_store.create_project("DuzenProje")
+        wb1 = w.project_store.save_workbase(pr.name, Workbase(name="T1"))
+        wb2 = w.project_store.save_workbase(pr.name, Workbase(name="T2"))
+        w.modas_tab.add_scope([])
+        w._modas_open_workbase(pr, wb1)
+        assert os.path.isfile(os.path.join(wb1.path, "calisma_sayfalari.json"))
+        assert len(w.modas_tab.scope_windows()) == 1                     # ilk açılış: mevcut düzen devredildi
+        for s in list(w.modas_tab.scope_windows()):
+            s.close()
+        w.modas_tab.add_scope([]); w.modas_tab.add_scope([])
+        w._modas_open_workbase(pr, wb2)                                  # T2: yeni dosya, mevcut düzen (2 osiloskop) devralınır
+        assert len(w.modas_tab.scope_windows()) == 2
+        w.modas_tab.scope_windows()[0].close()                           # T2'de düzen değişir: 1 osiloskop
+        w._modas_open_workbase(pr, wb1)                                  # T1'e dönüş: T1'in son düzeni (2 osiloskop)
+        assert len(w.modas_tab.scope_windows()) == 2
+        w._modas_open_workbase(pr, wb2)                                  # T2'ye dönüş: T2'nin kendi düzeni (1 osiloskop)
+        assert len(w.modas_tab.scope_windows()) == 1
+    finally:
+        w.close()
