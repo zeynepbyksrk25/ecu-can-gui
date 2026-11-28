@@ -17,10 +17,3 @@ def test_dash_gauge_label_and_range_unit(qapp):
 def test_old_gauge_classes_removed_and_users_migrated(qapp):
     import app.ui.dash_widgets as dw
     assert not hasattr(dw, "GaugeWidget") and not hasattr(dw, "DarkGauge")
-    from app.ui.workspace_panels import GaugePanel
-    from app.signal_hub import SignalHub
-    panel = GaugePanel(SignalHub())
-    assert isinstance(panel.gauge, dw.DashGauge)
-    panel.add_signal("gauge:RPM")
-    panel.unit_edit.setText("rpm")
-    assert panel.gauge.label and panel.gauge._unit == "rpm"

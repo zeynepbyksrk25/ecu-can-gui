@@ -1,15 +1,11 @@
-"""Çalışma Alanı bileşenleri (her biri serbestçe taşınan/boyutlandırılan bir pencere):
+"""Scope (osiloskop) penceresinin grafik bileşeni:
 
-  PlotPanel   — "Data Inspector" tarzı grafik: üst üste / ayrı ayrı çizim, sinyal
-                başına renk-kalınlık, fare ile anlık değerler, A/B imleçleri
-                (Δ, ortalama, min, maks), dondurunca yakınlaştırma.
-  GaugePanel  — tek sinyallik ibreli gösterge.
-  TablePanel  — sinyallerin anlık değer / ortalama / min / maks tablosu.
+  PlotPanel — "Data Inspector" tarzı grafik: üst üste / ayrı ayrı çizim, sinyal başına renk-kalınlık, fare ile anlık
+              değerler, A/B imleçleri (Δ, ortalama, min, maks), dondurunca yakınlaştırma.
 
-Giriş gönderimi (Start/Throttle vb.) burada YOKTUR: Ana Sayfa (Uçuş Koşulları / Motor Kontrol) ve
-Kontrol Paneli sekmesi bunu yapar.
-
-Hepsi ortak SignalHub'tan okur; kendi başına veri toplamaz.
+Giriş gönderimi burada YOKTUR (Kontrol Paneli yapar). Ortak SignalHub'tan okur; kendi başına veri toplamaz.
+(Eski Çalışma Alanı sayfasının gösterge ve tablo panelleri kaldırıldı: Test Bench göstergeleri, Worksheets değer
+pencereleri ve Scope'un kendi değer tablosu aynı işi görüyor.)
 """
 from __future__ import annotations
 
@@ -19,7 +15,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QCheckBox, QColorDialog, QComboBox, QDoubleSpinBox, QHBoxLayout,
-    QHeaderView, QLabel, QLineEdit, QMenu, QPushButton, QSplitter, QTableWidget,
+    QHeaderView, QLabel, QPushButton, QSplitter, QTableWidget,
     QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
@@ -495,145 +491,3 @@ class PlotPanel(PanelBase):
         if state.get("cursors"):
             self.cursor_check.setChecked(True)       # _on_cursors kayıtlı aralığı kullanır
         self.changed.emit()
-
-
-# ============================================================ Gösterge
-class GaugePanel(PanelBase):
-    kind = "gauge"
-    title = "Gösterge"
-
-    def __init__(self, hub):
-        super().__init__(hub)
-        from app.ui.dash_widgets import DashGauge
-        self.gauge = DashGauge(0.0, 100.0, "", label="—")
-        self.gauge.setMaximumHeight(16777215)
-        self.name_label = QLabel("")
-        self.name_label.setAlignment(Qt.AlignCenter)
-        self.name_label.setStyleSheet(f"color:{theme.MUTED}; font-size:11px;")
-        self.min_spin, self.max_spin = QDoubleSpinBox(), QDoubleSpinBox()
-        for s, v in ((self.min_spin, 0.0), (self.max_spin, 100.0)):
-            s.setRange(-1e9, 1e9)
-            s.setDecimals(3)
-            s.setValue(v)
-            s.setFixedWidth(78)
-            s.setButtonSymbols(QDoubleSpinBox.NoButtons)
-            s.valueChanged.connect(self._on_range)
-        self.unit_edit = QLineEdit()
-        self.unit_edit.setPlaceholderText("birim")
-        self.unit_edit.setFixedWidth(52)
-        self.unit_edit.textChanged.connect(self._on_range)
-        row = QHBoxLayout()
-        row.addWidget(QLabel("Min"))
-        row.addWidget(self.min_spin)
-        row.addWidget(QLabel("Maks"))
-        row.addWidget(self.max_spin)
-        row.addWidget(self.unit_edit)
-        row.addStretch()
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(6, 6, 6, 6)
-        lay.addWidget(self.gauge, 1)
-        lay.addWidget(self.name_label)
-        lay.addLayout(row)
-
-    def add_signal(self, sid: str) -> bool:
-        self.signals_ids = [sid]            # tek sinyal: yenisi eskisinin yerine geçer
-        self._signals_changed()
-        return True
-
-    def _signals_changed(self):
-        sid = self.signals_ids[0] if self.signals_ids else None
-        self.gauge.set_label(label_of(sid) if sid else "—")
-        self.name_label.setText(sid or "")
-        self.changed.emit()
-
-    def _on_range(self, *_):
-        lo, hi = self.min_spin.value(), self.max_spin.value()
-        if hi <= lo:
-            hi = lo + 1.0
-        self.gauge.set_range(lo, hi, self.unit_edit.text())
-        self.changed.emit()
-
-    def refresh(self, span, frozen):
-        if frozen or not self.signals_ids:
-            return
-        self.gauge.set_value(self.hub.last(self.signals_ids[0]))
-
-    def to_state(self):
-        return {"signals": list(self.signals_ids), "min": self.min_spin.value(),
-                "max": self.max_spin.value(), "unit": self.unit_edit.text()}
-
-    def from_state(self, state):
-        self.min_spin.blockSignals(True)
-        self.max_spin.blockSignals(True)
-        self.unit_edit.blockSignals(True)
-        self.min_spin.setValue(float(state.get("min", 0.0)))
-        self.max_spin.setValue(float(state.get("max", 100.0)))
-        self.unit_edit.setText(state.get("unit", ""))
-        self.min_spin.blockSignals(False)
-        self.max_spin.blockSignals(False)
-        self.unit_edit.blockSignals(False)
-        self._on_range()
-        self.signals_ids = list(state.get("signals", []))[:1]
-        self._signals_changed()
-
-
-# ============================================================ Tablo
-class TablePanel(PanelBase):
-    kind = "table"
-    title = "Tablo"
-    HEAD = ["İsim", "Değer", "Ort", "Min", "Maks"]
-
-    def __init__(self, hub):
-        super().__init__(hub)
-        self.table = QTableWidget(0, len(self.HEAD))
-        self.table.setHorizontalHeaderLabels(self.HEAD)
-        self.table.verticalHeader().setVisible(False)
-        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.table.setSelectionBehavior(QTableWidget.SelectRows)
-        hh = self.table.horizontalHeader()
-        hh.setSectionResizeMode(QHeaderView.ResizeToContents)
-        hh.setSectionResizeMode(0, QHeaderView.Stretch)
-        self.table.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.table.customContextMenuRequested.connect(self._menu)
-        self.hint = QLabel("")
-        self.hint.setVisible(False)
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(4, 4, 4, 4)
-        lay.addWidget(self.table, 1)
-        lay.addWidget(self.hint)
-
-    def _signals_changed(self):
-        self.table.setRowCount(len(self.signals_ids))
-        for r, sid in enumerate(self.signals_ids):
-            for c in range(len(self.HEAD)):
-                it = QTableWidgetItem(label_of(sid) if c == 0 else "—")
-                if c == 0:
-                    it.setToolTip(sid)
-                else:
-                    it.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                self.table.setItem(r, c, it)
-        self.changed.emit()
-
-    def _menu(self, pos):
-        r = self.table.rowAt(pos.y())
-        if r < 0 or r >= len(self.signals_ids):
-            return
-        m = QMenu(self)
-        act = m.addAction("Sinyali çıkar")
-        if m.exec(self.table.viewport().mapToGlobal(pos)) is act:
-            self.remove_signal(self.signals_ids[r])
-
-    def refresh(self, span, frozen):
-        if frozen:
-            return
-        tmin = None if span is None else self.hub.now() - span
-        for r, sid in enumerate(self.signals_ids):
-            t, v = self.hub.get(sid, tmin)
-            vals = [float(v[-1]) if v.size else None,
-                    float(v.mean()) if v.size else None,
-                    float(v.min()) if v.size else None,
-                    float(v.max()) if v.size else None]
-            for c, val in enumerate(vals, start=1):
-                it = self.table.item(r, c)
-                if it is not None:
-                    it.setText(fmt(val))

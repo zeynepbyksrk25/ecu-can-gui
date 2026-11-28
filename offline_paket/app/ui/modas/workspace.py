@@ -10,20 +10,21 @@ yüklenirse bekleyen pencereler o zaman kurulur (etiket kaybolmaz).
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass, field
 
 from PySide6.QtCore import QPoint, QTimer, Qt, Signal
 from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import (
-    QFrame, QHBoxLayout, QInputDialog, QMdiArea, QMenu, QMessageBox, QSplitter, QTabBar, QToolButton,
-    QVBoxLayout, QWidget,
+    QDialog, QFileDialog, QFrame, QHBoxLayout, QInputDialog, QMdiArea, QMenu, QMessageBox, QSplitter, QTabBar,
+    QToolButton, QVBoxLayout, QWidget,
 )
 
 from app import theme
 from app.persist import atomic_write_json, load_json
 from app.signal_hub import SignalHub
 from app.ui.modas.pages import RP, WP
-from app.ui.modas.scope import ScopeWindow, label_of
+from app.ui.modas.scope import ScopeWindow
 from app.ui.modas.testbench import BY_KEY as INPUT_BY_KEY, TestInputWindow
 from app.ui.modas.style import MODAS_QSS
 from app.ui.modas.variable_list import MIME, LogPanel, VariableListPanel, classify
@@ -57,7 +58,11 @@ class ModasSheetStore:
         if not sheets:
             return None
         cur = data.get("current", 0)
-        return {"version": STATE_VERSION, "current": cur if isinstance(cur, int) else 0, "sheets": sheets}
+        raw_math = data.get("math")
+        math_defs = {str(k): dict(v) for k, v in (raw_math.items() if isinstance(raw_math, dict) else [])
+                     if isinstance(v, dict) and v.get("kind")}
+        return {"version": STATE_VERSION, "current": cur if isinstance(cur, int) else 0, "sheets": sheets,
+                "math": math_defs}
 
     def save(self, state: dict) -> bool:
         return bool(self.path) and atomic_write_json(self.path, state)
@@ -128,6 +133,7 @@ class ModasWorkspace(QWidget):
         self._reference: dict = {}
         self._cascade = 0
         self.hub = SignalHub()                  # osiloskop (scope) pencerelerinin ortak veri deposu
+        self.signal_groups = None               # callable() -> [(başlık, [sid])]: DBC / gösterge / giriş kaynakları (MainWindow)
         self._inputs_allowed = True             # rol, test girişi göndermeye izin veriyor mu
         self._inputs_reason = ""
         self.input_value_provider = None        # callable(anahtar) -> float | None: test girişi pencerelerinin başlangıç değeri
@@ -485,6 +491,11 @@ class ModasWorkspace(QWidget):
     def _open_scope(self, sheet: _Sheet, name: str | None, state: dict | None = None, geom=None, pos=None) -> ScopeWindow:
         win = ScopeWindow(name or self._unique_scope_name(), self.hub, state=state)
         win.changed.connect(self._on_scope_changed)
+        win.pick_requested.connect(lambda w=win: self.pick_signals(w))
+        win.math_requested.connect(lambda sid, w=win: self.edit_math(w, sid or None))
+        win.math_delete_requested.connect(self.delete_math)
+        win.csv_open_requested.connect(lambda w=win: self.open_csv(w))
+        win.csv_export_requested.connect(self.export_csv)
         win.closed.connect(lambda w, s=sheet: self._on_closed(s, w))
         sheet.mdi.addSubWindow(win)
         win.show()
@@ -496,12 +507,108 @@ class ModasWorkspace(QWidget):
         self._sync_hub()
         return win
 
+    # ---- osiloskop: sinyal seçici, matematik sinyalleri, CSV -----------------------------------
+    def signal_ids(self) -> list:
+        """Seçilebilir tüm sinyal kimlikleri: A2L ölçümleri + sağlayıcıdan gelen gruplar (DBC, gösterge, giriş, math, csv)."""
+        ids = [f"a2l:{n}" for n in self._by_name]
+        for _title, sids in (self.signal_groups() if self.signal_groups else self._hub_groups()):
+            ids += sids
+        return ids
+
+    def _hub_groups(self) -> list:
+        groups = []
+        if self.hub.derived:
+            groups.append(("Matematik sinyalleri", list(self.hub.derived)))
+        if self.hub.static:
+            groups.append(("İçe aktarılan kayıtlar", sorted(self.hub.static)))
+        return groups
+
+    def pick_signals(self, scope) -> int:
+        from app.ui.modas.signal_picker import SignalPickerDialog
+        groups = self.signal_groups() if self.signal_groups else self._hub_groups()
+        dlg = SignalPickerDialog(groups, scope.signals(), self)
+        if dlg.exec() != QDialog.Accepted:
+            return 0
+        n = scope.add_signals(dlg.selected())
+        self._on_scope_changed()
+        return n
+
+    def edit_math(self, scope, existing: str | None = None) -> bool:
+        """Matematik sinyalini tanımlar / düzenler; yeni sinyal ``scope``'a eklenir. Döngüsel bağımlılık reddedilir."""
+        from app.ui.math_dialog import MathDialog
+        ids = [s for s in self.signal_ids() if s != existing]
+        if existing is None:
+            ids = scope.signals() + [s for s in ids if s not in scope.signals()]      # grafikteki sinyalleri A için öner
+        dlg = MathDialog(ids, (existing, self.hub.derived[existing]) if existing else None, self)
+        if dlg.exec() != QDialog.Accepted:
+            return False
+        name, spec = dlg.result_spec()
+        sid = f"math:{name}"
+        if sid != existing and sid in self.hub.derived:
+            QMessageBox.warning(self, "Matematik sinyali", f"'{name}' zaten var.")
+            return False
+        if self.hub.would_cycle(sid, spec):
+            QMessageBox.warning(self, "Matematik sinyali",
+                                f"'{name}' kendisine bağımlı olurdu (döngüsel bağımlılık); tanım kaydedilmedi.")
+            return False
+        if existing and sid != existing:                           # yeniden adlandırma: tüm osiloskoplarda güncellenir
+            for w in self.scope_windows():
+                ids_ = w.panel.signals_ids
+                if existing in ids_:
+                    ids_[ids_.index(existing)] = sid
+                    if existing in w.panel.styles:
+                        w.panel.styles[sid] = w.panel.styles.pop(existing)
+            self.hub.remove_derived(existing)
+        self.hub.define_derived(name, spec)
+        if existing is None:
+            scope.add_signals([sid])
+        for w in self.scope_windows():
+            w.panel._signals_changed()
+        self._on_scope_changed()
+        return True
+
+    def delete_math(self, sid: str):
+        for w in self.scope_windows():
+            w.panel.remove_signal(sid)
+        self.hub.remove_derived(sid)
+        self._on_scope_changed()
+
+    def open_csv(self, scope) -> int:
+        """Kayıtlı bir CSV'yi (oturum kaydı / dışa aktarım) salt okunur sinyaller olarak içe aktarır ve grafiğe ekler."""
+        path, _ = QFileDialog.getOpenFileName(self, "CSV kaydı aç", "", "CSV (*.csv *.txt)")
+        if not path:
+            return 0
+        try:
+            added = self.hub.import_csv(path, os.path.splitext(os.path.basename(path))[0])
+        except (OSError, ValueError) as exc:
+            QMessageBox.critical(self, "CSV aç", str(exc))
+            return 0
+        n = scope.add_signals(added[:12])
+        self._on_scope_changed()
+        return n
+
+    def export_csv(self) -> int:
+        ids = [s for s in self.hub.all_ids_with_data() if s not in self.hub.static]
+        if not ids:
+            QMessageBox.information(self, "CSV'ye aktar", "Henüz kaydedilmiş veri yok.")
+            return 0
+        path, _ = QFileDialog.getSaveFileName(self, "Canlı kaydı CSV'ye aktar", "kayit.csv", "CSV (*.csv)")
+        if not path:
+            return 0
+        try:
+            n = self.hub.export_csv(path, ids)
+        except OSError as exc:
+            QMessageBox.critical(self, "CSV'ye aktar", str(exc))
+            return 0
+        QMessageBox.information(self, "CSV'ye aktar", f"{n} sinyal yazıldı:\n{path}")
+        return n
+
     def scope_windows(self, all_sheets: bool = True) -> list:
         return [w for w in self.windows(all_sheets) if isinstance(w, ScopeWindow)]
 
     def scope_labels(self) -> list:
         """Osiloskoplarda izlenen etiket adları (sıralı, tekrarsız)."""
-        return sorted({label_of(s) for w in self.scope_windows() for s in w.signals()})
+        return sorted({n for w in self.scope_windows() for n in w.labels()})
 
     def _on_scope_changed(self):
         self._sync_hub()
@@ -706,7 +813,8 @@ class ModasWorkspace(QWidget):
 
     def to_state(self) -> dict:
         return {"version": STATE_VERSION, "current": max(0, self.tabs.currentIndex()),
-                "sheets": [{"name": s.name, "windows": self._sheet_specs(s)} for s in self._sheets]}
+                "sheets": [{"name": s.name, "windows": self._sheet_specs(s)} for s in self._sheets],
+                "math": {sid: dict(spec) for sid, spec in self.hub.derived.items()}}
 
     def save(self) -> bool:
         self._save_timer.stop()
@@ -717,6 +825,8 @@ class ModasWorkspace(QWidget):
         if state is None:
             self._make_sheet(DEFAULT_SHEET)
             return
+        for sid, spec in (state.get("math") or {}).items():       # matematik sinyalleri osiloskoplardan ÖNCE yüklenir
+            self.hub.derived[sid] = dict(spec)
         for s in state["sheets"]:
             sheet = self._make_sheet(s["name"], select=False)
             sheet.pending = list(s["windows"])

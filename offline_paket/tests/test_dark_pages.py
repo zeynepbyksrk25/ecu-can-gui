@@ -100,35 +100,20 @@ def test_kalibrasyon_dark_and_aliases():
     w.close()
 
 
-def test_analiz_has_only_workspace_no_performance_or_graph_tab():
+def test_analysis_page_removed_scope_replaces_workspace():
     from app.ui.main_window import MainWindow
     w = MainWindow()
-    assert w.analiz_tab in w._dark_pages
-    labels = [w.analiz_tab.inner_tabs.tabText(i) for i in range(w.analiz_tab.inner_tabs.count())]
-    assert labels == ["Çalışma Alanı"]
-    assert not hasattr(w, "performance_tab") and not hasattr(w, "graph_tab")
+    assert "Analysis" not in w._tool_pages and list(w._tool_pages) == [
+        "Test Bench", "CAN Trace", "Calibration Tools", "Control Panel", "Diagnostics"]
+    for gone in ("analiz_tab", "workspace_tab", "performance_tab", "graph_tab"):
+        assert not hasattr(w, gone)
+    assert w.signal_feed.hub is w.modas_tab.hub                    # Scope'ların ortak deposu
     w.close()
 
 
-def test_workspace_and_control_panel_dark():
+def test_control_panel_dark():
     from app.ui.main_window import MainWindow
     w = MainWindow()
-    assert w.workspace_tab in w._dark_pages and w.control_panel_tab in w._dark_pages
-    assert w.workspace_tab.browser_hint.isVisible() is False
+    assert w.control_panel_tab in w._dark_pages
     assert "Uygula'ya basınca" not in w.control_panel_tab.effects_title.text()
-    w.close()
-
-
-def test_detached_workspace_panel_is_dark():
-    from app.ui.main_window import MainWindow
-    w = MainWindow()
-    ws = w.workspace_tab
-    ws.add_panel("table")
-    panel = ws._panels[0] if hasattr(ws, "_panels") and ws._panels else None
-    from app.ui.workspace_tab import _Float
-    f = _Float(panel.__class__(ws.hub), "t") if panel is None else None
-    if f is None:
-        f = _Float(ws.mdi.subWindowList()[0].widget(), "t")
-    assert f.objectName() == "floatBody" and "#EEF2F6" in f.styleSheet()
-    f.deleteLater()
     w.close()

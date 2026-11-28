@@ -22,6 +22,7 @@ from app.eventlog import EventLog
 from app.history import CalibrationHistory
 from app.input_log import InputLog
 from app.logger import CanLogger
+from app.signal_feed import SignalFeed
 from app.session_recorder import FrameRecorder, SessionRecorder
 from app.paths import data_path
 from app.profiles import ProfileStore
@@ -29,8 +30,6 @@ from app.scheduler import PeriodicManager
 from app.ui.a2l_tab import A2LTab
 from app.ui.can_monitor_tab import CanMonitorTab
 from app.ui.dashboard_tab import DashboardTab
-from app.ui.analiz_tab import AnalizTab
-from app.ui.workspace_tab import WorkspaceLayoutStore, WorkspaceTab
 from app.ui.kalibrasyon_tab import KalibrasyonTab
 from app.ui.tanilama_tab import TanilamaTab
 from app.ui.settings_dialog import SettingsDialog
@@ -152,12 +151,6 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self.ccp_tab = self.kalibrasyon_tab.ccp
         self.history_tab = self.kalibrasyon_tab.history
 
-        self.workspace_tab = WorkspaceTab(WorkspaceLayoutStore(data_path("workspace_layouts.json")))
-        # Çalışma Alanı "Analiz" sayfasında yaşar. (Eski Grafik sekmesi kaldırıldı:
-        # Çalışma Alanı'nın grafik paneli A2L ölçümleri, ayarlanabilir skalerler ve ayrı pencere dahil
-        # aynı işi daha kapsamlı yapıyor.)
-        self.analiz_tab = AnalizTab(self.workspace_tab)
-
         self.tanilama_tab = TanilamaTab()
         self.diagnostics_tab = self.tanilama_tab.diagnostics
         self.errors_tab = self.tanilama_tab.errors
@@ -181,18 +174,16 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
             ("🧪", "Test Bench", self.dashboard_tab),
             ("📶", "CAN Trace", self.can_monitor_tab),
             ("⚙", "Calibration Tools", self.kalibrasyon_tab),
-            ("📈", "Analysis", self.analiz_tab),
             ("🎛", "Control Panel", self.control_panel_tab),
             ("🛡", "Diagnostics", self.tanilama_tab),
         ]
         self._tool_pages = {label: page for _i, label, page in self._nav_pages[1:]}
         self._tool_windows: dict = {}
         self._cap_form_widths([p for _i, _l, p in self._nav_pages
-                               if p not in (self.modas_tab, self.dashboard_tab, self.analiz_tab,
-                                         self.control_panel_tab, self.workspace_tab)])
+                               if p not in (self.modas_tab, self.dashboard_tab, self.control_panel_tab)])
         self._page_scrolls: dict[QWidget, QScrollArea] = {}
         # Koyu temaya geçirilmiş sayfalar (koyu gövdeye sarılır); diğerleri henüz açık temada.
-        self._dark_pages = {self.tanilama_tab, self.session_tab, self.kalibrasyon_tab, self.analiz_tab, self.workspace_tab, self.control_panel_tab}
+        self._dark_pages = {self.tanilama_tab, self.session_tab, self.kalibrasyon_tab, self.control_panel_tab}
         self._build_ui_chrome()
 
         self.dashboard_tab.set_config(self.dashboard_config_store.load())
@@ -211,14 +202,20 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self.a2l_tab.a2l_loaded.connect(self.ccp_tab.refresh_objects)
 
 
-        # Çalışma Alanı: A2L/DBC listeleri, CCP okuma isteği, giriş/gösterge beslemesi.
-        self.a2l_tab.a2l_loaded.connect(self._sync_workspace_a2l)
-        self.transmit_tab.dbc_loaded.connect(lambda *_: self.workspace_tab.set_dbc(self.transmit_tab.dbc))
-        self.workspace_tab.set_dbc(self.transmit_tab.dbc)
-        self.workspace_tab.read_requested.connect(self._on_workspace_tick)
-        self.dashboard_tab.gauge_sample.connect(lambda k, v: self.workspace_tab.push(f"gauge:{k}", v))
-        self.workspace_tab.set_input_values(self.dashboard_tab.sim_inputs.values())
-        self.dashboard_tab.sim_inputs.values_changed.connect(self.workspace_tab.set_input_values)
+        # Scope pencerelerinin sinyal beslemesi (Qt'siz): DBC kareleri, gösterge ve giriş değerleri ortak hub'a gider.
+        from app.dashboard_config import GAUGE_KEYS
+        from app.sim_interface import INPUT_DEFS
+        self.signal_feed = SignalFeed(self.modas_tab.hub, INPUT_DEFS, GAUGE_KEYS)
+        self.modas_tab.signal_groups = self.signal_feed.groups
+        self.transmit_tab.dbc_loaded.connect(lambda *_: self.signal_feed.set_dbc(self.transmit_tab.dbc))
+        self.signal_feed.set_dbc(self.transmit_tab.dbc)
+        self.dashboard_tab.gauge_sample.connect(lambda k, v: self.signal_feed.push(f"gauge:{k}", v))
+        self.signal_feed.set_input_values(self.dashboard_tab.sim_inputs.values())
+        self.dashboard_tab.sim_inputs.values_changed.connect(self.signal_feed.set_input_values)
+        self._feed_timer = QTimer(self)
+        self._feed_timer.setInterval(100)
+        self._feed_timer.timeout.connect(self.signal_feed.tick)
+        self._feed_timer.start()
 
         # Ana Sayfa > Canlı Grafik'in 'Sinyalleri seç' penceresi A2L ölçümlerini listeler.
         self.a2l_tab.a2l_loaded.connect(self._sync_dashboard_measurements)
@@ -231,7 +228,7 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         # iş parçacığından (FrameRecorder), CCP değerleri CCP iş parçacığından. Hub yalnızca kullanıcı girişlerini
         # (input:) yazar; gösterge/grafik beslemeleri (arayüz zamanlayıcısıyla) KAYDA GİRMEZ.
         self.frame_recorder = FrameRecorder(self.session_recorder, lambda: self.transmit_tab.dbc)
-        self.workspace_tab.hub.tap = self._on_hub_sample
+        self.modas_tab.hub.tap = self._on_hub_sample
         self.ccp_session.on_read = self._on_ccp_sample
         self._record_index: dict = {}                # (adres, uzantı, boyut) -> [A2L nesneleri]
         self._ccp_last_bytes: dict = {}
@@ -433,7 +430,7 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         """Üst şerit = Modas Ribbon (bkz. app/ui/modas/ribbon.py). Eski başlık + komut şeridindeki tüm widget'lar
         (bağlantı hapı, CCP durumu, rol, Ayarlar, Eşleşmeler, Motor Başlat/Durdur/ACİL DURDURMA) aynı adlarla yaşar:
         durum alanı sekme satırının sağında, Motor grubu HER sekmede görünen sağ bölmede (Acil Durdurma gizlenmez).
-        Araç pencereleri: Tools sekmesi, Ctrl+1…7, bağlantı hapı (bkz. ``open_tool``)."""
+        Araç pencereleri: Tools sekmesi, Ctrl+1…6, bağlantı hapı (bkz. ``open_tool``)."""
         rb = self.modas_ribbon
         rb.set_pages([(icon, label) for icon, label, _p in self._nav_pages])
 
@@ -494,7 +491,7 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self._estop_shortcut = QShortcut(QKeySequence(self.ESTOP_SHORTCUT), self)
         self._estop_shortcut.setContext(Qt.ApplicationShortcut)
         self._estop_shortcut.activated.connect(dt.estop_button.click)
-        for i, (_icon, label, _page) in enumerate(self._nav_pages[:9]):      # Ctrl+1..7: sayfa geçişi
+        for i, (_icon, label, _page) in enumerate(self._nav_pages[:9]):      # Ctrl+1..6: sayfa geçişi
             sc = QShortcut(QKeySequence(f"Ctrl+{i + 1}"), self)
             sc.setContext(Qt.ApplicationShortcut)
             sc.activated.connect(lambda _c=False, pg=_page: self.open_tool(pg))
@@ -648,10 +645,7 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
             self.modas_tab.shutdown()
         except Exception:  # noqa: BLE001
             logging.getLogger(__name__).exception("modas shutdown hatası")
-        try:
-            self.workspace_tab.shutdown()
-        except Exception:  # noqa: BLE001
-            logging.getLogger(__name__).exception("workspace shutdown hatası")
+        self._feed_timer.stop()
         self._on_disconnect()
         if getattr(self, "model_ctl", None) is not None:
             self.model_ctl.close()

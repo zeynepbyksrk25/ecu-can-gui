@@ -74,6 +74,7 @@ class SignalHub:
         self.static: set[str] = set()            # csv: vb. (yeniden etkinleştirmeden saklanır)
         self._recomputing: set[str] = set()
         self.tap = None                          # callable(sid, değer): etkin olsun olmasın her dış örnek (oturum kaydı)
+        self.on_active = None                    # callable(): etkin küme değişti (DBC çözümleme tablosu yenilenir)
 
     # ------------------------------------------------------------ zaman
     def now(self) -> float:
@@ -88,6 +89,8 @@ class SignalHub:
         self._active = want
         for sid in want:
             self._series.setdefault(sid, _Series())
+        if self.on_active is not None:
+            self.on_active()
 
     def active(self) -> set:
         return set(self._active)

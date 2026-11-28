@@ -106,22 +106,17 @@ def test_audit_log_single_line_and_failure_visible(tmp_path):
     assert bad.write_failures == 1 and bad.entries
 
 
-def test_workspace_layout_garbage(tmp_path):
-    pytest.importorskip("PySide6")
-    from PySide6.QtWidgets import QApplication
-    QApplication.instance() or QApplication([])
-    from app.ui.workspace_tab import WorkspaceLayoutStore, WorkspaceTab
+def test_modas_sheet_store_garbage_is_tolerated(tmp_path):
+    from app.ui.modas.workspace import ModasSheetStore
     p = str(tmp_path / "w.json")
-    bad_panel = {"kind": "plot", "title": "x", "geometry": "oops",
-                 "state": {"styles": {"A": {"width": 3}}, "signals": ["A"], "mode": "zz"}}
-    json.dump({"layouts": {"k": 5}, "last": {"version": "x", "span": "q", "derived": [],
-                                              "panels": [bad_panel, 7, {"kind": "yok"}]}}, open(p, "w"))
-    st = WorkspaceLayoutStore(p)
-    assert st.names() == []
-    w = WorkspaceTab(store=st)                 # çökmemeli
-    assert len(w._panels) >= 1
-    w.shutdown()
+    json.dump({"current": "x", "sheets": [{"name": "S", "windows": [5, {"name": "A"}, {"x": 1}]}, 7, {"name": 3}],
+               "math": {"math:ok": {"kind": "scale", "src": "a2l:A"}, "math:bad": 5, "math:nokind": {"src": "x"}}},
+              open(p, "w"))
+    st = ModasSheetStore(p).load()
+    assert [s["name"] for s in st["sheets"]] == ["S"] and st["sheets"][0]["windows"] == [{"name": "A"}]
+    assert st["current"] == 0 and set(st["math"]) == {"math:ok"}               # bozuk matematik tanımları atlanır
     open(p, "w").write("{{{")
-    w2 = WorkspaceTab(store=WorkspaceLayoutStore(p))
-    assert len(w2._panels) == 1
-    w2.shutdown()
+    assert ModasSheetStore(p).load() is None
+    json.dump({"sheets": [{"name": "S", "windows": []}], "math": [1, 2]}, open(p, "w"))
+    assert ModasSheetStore(p).load()["math"] == {}                              # math liste ise yok sayılır
+

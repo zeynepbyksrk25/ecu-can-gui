@@ -518,15 +518,6 @@ class DashboardMixin:
                                     "acquisition_wall_clock")
             rec.record_change(sid, phys, t)
 
-    def _sync_workspace_a2l(self):
-        summary = self.a2l_tab.db.summary
-        self.workspace_tab.set_a2l_measurements(summary.readable() if summary is not None else [])
-
-    def _on_workspace_tick(self, names: list):
-        """Çalışma Alanı'nda seçili A2L ölçümlerini CCP ile (arka planda) okuyup hub'a yazar."""
-        for name, _m, reading in self._iter_a2l_samples(names):
-            self.workspace_tab.push(f"a2l:{name}", reading.phys)
-
     def _sync_dashboard_measurements(self):
         summary = self.a2l_tab.db.summary
         self.dashboard_tab.set_measurements(summary.readable() if summary is not None else [])

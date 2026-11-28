@@ -1,13 +1,16 @@
 """Modas "oscilloscope" penceresi: ölçüm etiketlerini zaman grafiğinde gösterir.
 
-Etiketler Variable list'ten sürüklenip bırakılır (ya da pencere menüsünden eklenir). Çizim, Çalışma Alanı'ndaki
-``PlotPanel``'dir (gerçek birimli eksenler, üst üste / ayrı ayrı, A/B imleçleri, Δ / ortalama / min / maks tablosu); veri
-``SignalHub``'dadır ve ölçüm turu (F9) ile beslenir: ölçüm durunca grafik de durur. Pencere ECU ile konuşmaz.
+A2L etiketleri Variable list'ten sürüklenip bırakılır; DBC sinyalleri, göstergeler, girişler, matematik sinyalleri ve
+içe aktarılan CSV kayıtları "Sinyaller…" düğmesinden eklenir. Çizim ``PlotPanel``'dir (gerçek birimli eksenler, üst üste /
+ayrı ayrı, A/B imleçleri, Δ / ortalama / min / maks tablosu); veri ortak ``SignalHub``'dadır. A2L etiketleri ölçüm turu (F9)
+ile, DBC/gösterge/giriş sinyalleri canlı akışla beslenir. Pencere ECU ile konuşmaz.
 """
 from __future__ import annotations
 
 from PySide6.QtCore import QTimer, Signal
-from PySide6.QtWidgets import QCheckBox, QComboBox, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QCheckBox, QComboBox, QHBoxLayout, QLabel, QMenu, QPushButton, QToolButton, QVBoxLayout, QWidget,
+)
 
 from app import theme
 from app.ui.modas.variable_list import MIME
@@ -52,6 +55,11 @@ class _Body(QWidget):
 
 class ScopeWindow(ModasSub):
     changed = Signal()                      # sinyal listesi / ayar değişti (çalışma alanı düzeni kirlendi)
+    pick_requested = Signal()               # "Sinyaller…": DBC / gösterge / giriş / matematik / CSV seçici
+    math_requested = Signal(str)            # "ƒ Matematik": "" = yeni, "math:ad" = düzenle
+    math_delete_requested = Signal(str)
+    csv_open_requested = Signal()
+    csv_export_requested = Signal()
 
     def __init__(self, label: str, hub, state: dict | None = None):
         super().__init__(label, theme.ACCENT)
@@ -72,13 +80,33 @@ class ScopeWindow(ModasSub):
         self.clear_btn = QPushButton("Clear")
         self.clear_btn.setToolTip("Seçili sinyalleri listeden kaldır")
         self.clear_btn.clicked.connect(self.clear_signals)
-        self.hint = QLabel("Variable list'ten etiket sürükleyip bırakın · veri F9 (Measurement) ile akar")
+        self.pick_btn = QPushButton("Sinyaller…")
+        self.pick_btn.setToolTip("DBC sinyali, gösterge, giriş, matematik sinyali ya da içe aktarılan kayıt ekle")
+        self.pick_btn.clicked.connect(self.pick_requested.emit)
+        self.math_btn = QToolButton()
+        self.math_btn.setText("ƒ Matematik")
+        self.math_btn.setPopupMode(QToolButton.InstantPopup)
+        self.math_btn.setToolTip("Matematik sinyali: ölçekle (a·x+b), A ○ B işlemi, hareketli ortalama")
+        self._math_menu = QMenu(self.math_btn)
+        self._math_menu.aboutToShow.connect(self._fill_math_menu)
+        self.math_btn.setMenu(self._math_menu)
+        self.csv_btn = QToolButton()
+        self.csv_btn.setText("CSV")
+        self.csv_btn.setPopupMode(QToolButton.InstantPopup)
+        csv_menu = QMenu(self.csv_btn)
+        csv_menu.addAction("Kayıt aç (CSV)…", self.csv_open_requested.emit)
+        csv_menu.addAction("Canlı kaydı CSV'ye aktar…", self.csv_export_requested.emit)
+        self.csv_btn.setMenu(csv_menu)
+        self.hint = QLabel("Variable list'ten etiket sürükleyin ya da Sinyaller… ile ekleyin · A2L verisi F9 (Measurement) ile akar")
         self.hint.setObjectName("modasWinUnit")
         bar = QHBoxLayout()
         bar.addWidget(QLabel("Span:"))
         bar.addWidget(self.span_combo)
         bar.addWidget(self.freeze_check)
         bar.addWidget(self.clear_btn)
+        bar.addWidget(self.pick_btn)
+        bar.addWidget(self.math_btn)
+        bar.addWidget(self.csv_btn)
         bar.addStretch(1)
         bar.addWidget(self.hint)
 
@@ -108,7 +136,25 @@ class ScopeWindow(ModasSub):
         return list(self.panel.signals_ids)
 
     def labels(self) -> list:
-        return [label_of(s) for s in self.panel.signals_ids]
+        """İzlenen A2L etiket adları (ölçüm turu bunları okur); DBC/gösterge/matematik sinyalleri dahil değildir."""
+        return [label_of(s) for s in self.panel.signals_ids if s.startswith(PREFIX)]
+
+    def add_signals(self, sids: list) -> int:
+        """Herhangi bir sinyal kimliğini (``dbc:``, ``gauge:``, ``input:``, ``math:``, ``csv:`` …) grafiğe ekler."""
+        n = sum(1 for sid in sids if self.panel.add_signal(sid))
+        self._sync_hint()
+        return n
+
+    def _fill_math_menu(self):
+        m = self._math_menu
+        m.clear()
+        m.addAction("Yeni matematik sinyali…", lambda: self.math_requested.emit(""))
+        derived = sorted(self.hub.derived)
+        if derived:
+            edit, delete = m.addMenu("Düzenle"), m.addMenu("Sil")
+            for sid in derived:
+                edit.addAction(sid.split(":", 1)[1], lambda _c=False, s=sid: self.math_requested.emit(s))
+                delete.addAction(sid.split(":", 1)[1], lambda _c=False, s=sid: self.math_delete_requested.emit(s))
 
     def add_labels(self, names: list) -> int:
         n = 0

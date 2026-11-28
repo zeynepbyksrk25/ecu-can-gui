@@ -287,7 +287,7 @@ class ConnectionMixin:
                 self._note_latest_signals(msg)
             self.monitor_tab.add_message(msg, direction="RX")
             self.control_panel_tab.on_can_frame(msg.arbitration_id, bytes(msg.data))
-            self.workspace_tab.on_can_frame(msg.arbitration_id, bytes(msg.data))
+            self.signal_feed.on_can_frame(msg.arbitration_id, bytes(msg.data))
             self._dash_on_can_frame(msg.arbitration_id, bytes(msg.data))
         self._drain_tx_queue()
 

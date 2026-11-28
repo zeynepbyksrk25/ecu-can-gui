@@ -364,7 +364,7 @@ def test_chrome_is_a_ribbon_with_modas_tabs_and_estop_always_visible(qapp):
 def test_tools_tab_opens_tool_windows_and_keeps_old_pages_reachable(qapp):
     from app.ui.main_window import MainWindow
     w = MainWindow()
-    assert [l for _i, l, _p in w._nav_pages] == ["Worksheets", "Test Bench", "CAN Trace", "Calibration Tools", "Analysis",
+    assert [l for _i, l, _p in w._nav_pages] == ["Worksheets", "Test Bench", "CAN Trace", "Calibration Tools",
                                                   "Control Panel", "Diagnostics"]
     rb = w.modas_ribbon
     rb.buttons["page_3"].click()

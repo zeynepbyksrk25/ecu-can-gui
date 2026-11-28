@@ -141,10 +141,10 @@ def test_flight_input_can_be_mapped_to_a2l_and_is_written_over_ccp(qapp, monkeyp
     got = []
     monkeypatch.setattr(cpanel, "ccp_write_value", lambda client, info, v, **k: got.append((info.name, v)))
     w._on_sim_inputs({"beta": 3.0})                 # CCP bağlı değil: yazılmaz
-    assert got == [] and "beta" not in w._sim_sent
+    assert got == []
     monkeypatch.setattr(type(w), "ccp_client", property(lambda s: object(), lambda s, v: None))
     w._on_sim_inputs({"beta": 3.0})
-    assert got == [(name, 3.0)] and "beta" in w._sim_sent
+    assert got == [(name, 3.0)]
     w.close()
 
 
