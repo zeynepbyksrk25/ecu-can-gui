@@ -1390,3 +1390,38 @@ def test_value_window_blocks_out_of_range_before_any_write(qapp):
     w.discard_pending()
     w.plus_btn.click()                                              # 12 + adım sınırı aşar: yazılmaz
     assert got == ["11"] and "aralığın" in w.change_text.text()
+
+
+def _table_with(grid):
+    tw = TableWindow(make_map())
+    tw.set_grid_from_ecu(grid)
+    tw.show()
+    return tw
+
+
+def test_table_percent_scaling_and_clipboard_roundtrip(qapp):
+    tw = _table_with([[100, 200, 300], [400, 500, 600]])
+    sent = []
+    tw.write_requested.connect(lambda w: sent.append(w.current_grid()))
+    tw.table.setRangeSelected(__import__("PySide6.QtWidgets", fromlist=["QTableWidgetSelectionRange"]).QTableWidgetSelectionRange(0, 0, 0, 1), True)
+    assert tw.apply_to_selection("pct", 10) == 2                               # +%10
+    assert sent[-1][0][:2] == [pytest.approx(110), pytest.approx(220)] and sent[-1][1] == [400, 500, 600]
+    assert tw.copy_selection() == "110\t220"                                    # Excel biçimi
+    tw.table.clearSelection()
+    tw.table.setCurrentCell(1, 1)
+    tw.table.item(1, 1).setSelected(True)
+    assert tw.paste_text("7\t8\n9\t10") == 2                                    # tabloya sığan kısım: (1,1) ve (1,2)
+    assert sent[-1][1] == [400, 7, 8]                                           # taşan satır/sütun yok sayıldı
+
+
+def test_table_paste_rejects_everything_on_one_bad_value(qapp):
+    tw = _table_with([[1, 2, 3], [4, 5, 6]])
+    tw.table.item(0, 0).setSelected(True)
+    sent = []
+    tw.write_requested.connect(lambda w: sent.append(1))
+    assert tw.paste_text("10\tabc\n30\t40") == 0
+    assert tw.current_grid() == [[1, 2, 3], [4, 5, 6]] and sent == []           # kısmi yapıştırma yok
+    assert "geçerli bir sayı değil" in tw.info.text()
+    assert tw.paste_text("1,5\t2,5") == 2 and tw.current_grid()[0][:2] == [1.5, 2.5]    # ondalık virgül (Excel TR)
+    tw.set_allowed(False)
+    assert tw.paste_text("9") == 0                                              # salt okunurken yapıştırılmaz

@@ -17,7 +17,7 @@ import time
 from PySide6.QtCore import QSize, QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QIcon, QPixmap
 from PySide6.QtWidgets import (
-    QAbstractButton, QAbstractItemView, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMdiSubWindow, QMenu,
+    QAbstractButton, QAbstractItemView, QApplication, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMdiSubWindow, QMenu,
     QTableWidget, QTableWidgetItem, QToolButton, QVBoxLayout, QWidget,
 )
 
@@ -868,6 +868,8 @@ class TableWindow(ModasSub):
                         new = cur / operand
                     elif op == "add":
                         new = cur + operand
+                    elif op == "pct":                       # yüzde ile ölçekle: +5 → ×1,05; -10 → ×0,90
+                        new = cur * (1.0 + operand / 100.0)
                     else:
                         continue
                 except ZeroDivisionError:
@@ -882,6 +884,65 @@ class TableWindow(ModasSub):
         if changed and self.is_writable() and self.is_modified():
             self.write_requested.emit(self)
         return changed
+
+    # ---- panoya kopyala / yapıştır (Excel uyumlu: sekmeyle ayrılmış sütunlar, satır sonlu satırlar) -------------
+    def copy_selection(self) -> str:
+        """Seçili hücrelerin sınırlayıcı dikdörtgenini sekmeli metin olarak döndürür (fiziksel değerler; boş hücre boş)."""
+        cells = self._selected()
+        if not cells:
+            return ""
+        r0, r1 = min(r for r, _ in cells), max(r for r, _ in cells)
+        c0, c1 = min(c for _, c in cells), max(c for _, c in cells)
+        sel = set(cells)
+        lines = []
+        for r in range(r0, r1 + 1):
+            vals = []
+            for c in range(c0, c1 + 1):
+                v = self._cell_value(r, c) if (r, c) in sel else None
+                vals.append(format_phys(v, 9) if v is not None else "")
+            lines.append("\t".join(vals))
+        return "\n".join(lines)
+
+    def paste_text(self, text: str) -> int:
+        """Excel / metin yapıştırma: seçimin sol-üst hücresinden başlayarak tabloya sığan kısmı yazar. Tek bir geçersiz
+        (sayı olmayan / sonsuz) değer varsa HİÇBİR hücre değişmez (kısmi yapıştırma yok). Değişen hücre sayısını döner."""
+        if not self.is_cell_editable():
+            return 0
+        cells = self._selected()
+        cur = self.table.currentIndex()
+        if cells:
+            r0, c0 = min(r for r, _ in cells), min(c for _, c in cells)
+        elif cur.isValid():
+            r0, c0 = cur.row(), cur.column()
+        else:
+            return 0
+        rows = [ln.split("\t") for ln in text.replace("\r\n", "\n").replace("\r", "\n").strip("\n").split("\n")]
+        plan = {}
+        for dr, line in enumerate(rows):
+            for dc, tok in enumerate(line):
+                r, c = r0 + dr, c0 + dc
+                if r >= self.rows or c >= self.cols or not tok.strip():
+                    continue
+                try:
+                    v = parse_value_text(tok)
+                except ValueError:
+                    v = None
+                if v is None or not math.isfinite(v):
+                    self.set_error(f"Yapıştırılamadı: '{tok.strip()}' geçerli bir sayı değil (hiçbir hücre değişmedi).")
+                    return 0
+                plan[(r, c)] = v
+        if not plan:
+            return 0
+        self._updating = True
+        try:
+            for (r, c), v in plan.items():
+                self.table.item(r, c).setText(format_phys(v, 6))
+        finally:
+            self._updating = False
+        self._refresh_pending()
+        if self.is_writable() and self.is_modified():
+            self.write_requested.emit(self)
+        return len(plan)
 
     def restore_selection(self) -> int:
         """Modas Ctrl+R: seçili hücreleri ECU'dan okunan (son yazılan) değerine döndürür. Değişen hücre sayısını döner."""
@@ -916,11 +977,24 @@ class TableWindow(ModasSub):
         act_heat = menu.addAction("Isı haritası")
         act_heat.setCheckable(True)
         act_heat.setChecked(self.heatmap)
+        act_pct = menu.addAction("Yüzde ile ölçekle…  (%)")
+        act_pct.setEnabled(editable and bool(self._selected()))
+        act_copy = menu.addAction("Kopyala  (Ctrl+C)")
+        act_copy.setEnabled(bool(self._selected()))
+        act_paste = menu.addAction("Yapıştır  (Ctrl+V)")
+        act_paste.setEnabled(editable)
+        menu.addSeparator()
         act_3d = menu.addAction("3B görünüm…")
         act_hist = menu.addAction("Değişiklik Geçmişi'nde göster")
         chosen = menu.exec(self.table.viewport().mapToGlobal(pos))
         if chosen is act_3d:
             self.open_surface()
+        elif chosen is act_pct:
+            self._ask_percent()
+        elif chosen is act_copy:
+            QApplication.clipboard().setText(self.copy_selection())
+        elif chosen is act_paste:
+            self.paste_text(QApplication.clipboard().text())
         if chosen is act_heat:
             self.set_heatmap(act_heat.isChecked())
         if chosen is act_hist:
@@ -967,8 +1041,13 @@ class TableWindow(ModasSub):
                           f"({label.split('  ')[0]}); ECU'ya HENÜZ yazılmadı. Yazmak için Enter / Write data to ECU.</span>")
         return True
 
-    def ask_operand(self, title: str) -> float | None:
-        value, ok = QInputDialog.getDouble(self, title, "Değer:", 1.0, -1e12, 1e12, 6)
+    def _ask_percent(self):
+        pct = self.ask_operand("Yüzde ile ölçekle", 0.0, "Yüzde (+5 = %5 artır, -10 = %10 azalt):")
+        if pct is not None:
+            self.apply_to_selection("pct", pct)
+
+    def ask_operand(self, title: str, default: float = 1.0, label: str = "Değer:") -> float | None:
+        value, ok = QInputDialog.getDouble(self, title, label, default, -1e12, 1e12, 6)
         return value if ok else None
 
     def keyPressEvent(self, event):  # noqa: N802
@@ -987,6 +1066,15 @@ class TableWindow(ModasSub):
                 return
             if key == Qt.Key_N:
                 self.apply_to_selection("dec")
+                return
+            if event.modifiers() & Qt.ControlModifier and key == Qt.Key_C:
+                QApplication.clipboard().setText(self.copy_selection())
+                return
+            if event.modifiers() & Qt.ControlModifier and key == Qt.Key_V:
+                self.paste_text(QApplication.clipboard().text())
+                return
+            if key == Qt.Key_Percent and self.is_cell_editable() and self._selected():
+                self._ask_percent()
                 return
             ops = {Qt.Key_Asterisk: ("mul", "Çarp"), Qt.Key_Slash: ("div", "Böl"),
                    Qt.Key_Plus: ("add", "Ekle"), Qt.Key_Equal: ("set", "Ata")}
