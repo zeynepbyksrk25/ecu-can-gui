@@ -79,3 +79,11 @@ Her madde bitince `[x]` yapılır; yanına test sonucu ve bilinen eksikler yazı
 - Tam paket: 627 geçti (offscreen, `-n 4`). Gerçek ECU/ekranda doğrulanmadı.
 - Yapılmayanlar (önceki liste) tamamlandı: bkz. DECISIONS ARAYÜZ-2b. Yeni: `app/undo_stack.py`, `ui/modas/surface3d.py`, `ui/modas/actuator_window.py`; makro düzenleme `modas_macros.py` + `MacroDialog`.
 - Bilinen eksik: Eyleyiciler penceresi ve geri al gerçek ECU/CAN donanımında doğrulanmadı (sahte/simülatörle test edildi); 3B görünümde eksen değer etiketleri yok.
+
+## MIL – .m parametre dosyası + MATLAB Engine ile kalibrasyon (2026-11-28)
+- Amaç: A2L olmadan, MODELDE HİÇBİR DEĞİŞİKLİK YAPMADAN `Simulink.Parameter` / `Simulink.LookupTable` değerlerini arayüzden değiştirmek (harita/eğri dahil).
+- Yeni: `app/sim_bridge/engine_params.py` (JSON liste → sentetik `A2LSummary`; `EngineParamClient` mevcut Kalibrasyon/Harita Editörü/geçmiş katmanına CCPClient gibi görünür), `simulink/matlab/mil_list_params.m` (base workspace'i JSON listeler), `MatlabEngineBackend(attach=True)` (açık MATLAB oturumuna `connect_matlab`; kapatırken kullanıcının MATLAB'ı KAPATILMAZ; engine çağrıları kilitli), model paneline "MATLAB (açık oturuma bağlan)", Bağlantı sayfasına "Parametre dosyası (.m)…".
+- Akış: model paneli MATLAB Engine ile bağlan → .m seç (engine'de base workspace'te çalışır) → liste → sentetik A2L (birim/Min/Max/tip nesneden) → yazma `NAME.Value = ...` / `NAME.Table.Value(r,c) = ...`, geri okuma doğrulaması; model çalışırken `SimulationCommand=update`.
+- Kurallar: model ÇALIŞIRKEN/DURAKLATILMIŞKEN StorageClass `Auto` olan parametre yazılmaz; Min/Max dışı reddedilir; yalnız skaler, 1B/2B (Explicit values) tablo, vektör/matris; fixdt/enum/struct, "Reference" eksenli ve >2B tablolar atlanır ve listelenir. Eksen (breakpoint) değerleri yalnız okunur.
+- Testler: `tests/test_engine_params.py` (9; sahte engine). **Gerçek MATLAB/Simulink ile doğrulanmadı**: `LookupTable.Table.Value/Breakpoints` alan adları, `jsonencode` biçimi ve çalışan modelde `update` ile değerin gerçekten uygulanması gerçek ortamda denenmeli.
+- Bilinen eksikler: model yeniden bağlanınca .m yeniden seçilmeli; data dictionary/model workspace değişkenleri taranmaz (yalnız base workspace); kullanıcı örneğindeki `DataTpe` yazım hatası MATLAB'da hata verir (`DataType` olmalı).

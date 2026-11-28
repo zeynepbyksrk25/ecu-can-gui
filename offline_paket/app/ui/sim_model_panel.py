@@ -52,6 +52,7 @@ class SimModelPanel(QFrame):
         self.backend_combo = QComboBox()
         self.backend_combo.addItem("UDP kontrol", "udp")
         self.backend_combo.addItem("MATLAB Engine", "matlab")
+        self.backend_combo.addItem("MATLAB (açık oturuma bağlan)", "matlab_shared")
         self.connect_button = QPushButton("Bağlan")
         self.connect_button.clicked.connect(lambda: self.connect_requested.emit(
             self.model_edit.text().strip(), self.backend_combo.currentData()))

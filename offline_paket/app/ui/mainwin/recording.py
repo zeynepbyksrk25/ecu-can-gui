@@ -17,6 +17,8 @@ class RecordingMixin:
         st.trigger_panel.config_changed.connect(self._on_trigger_config)
         self.connection_tab.mode_changed.connect(self._on_backend_mode_changed)
         self.connection_tab.manifest_requested.connect(self._on_sim_manifest_requested)
+        self.connection_tab.mfile_requested.connect(self._on_sim_mfile_requested)
+        self.mil_engine_params = None
         self.a2l_tab.a2l_loaded.connect(self._apply_sim_params)
         self._init_sim_manifest()
         self.model_ctl = None

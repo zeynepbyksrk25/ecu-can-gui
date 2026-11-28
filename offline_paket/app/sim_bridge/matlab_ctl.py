@@ -46,10 +46,23 @@ class ModelBackend:
 class MatlabEngineBackend(ModelBackend):
     name = "MATLAB Engine"
 
-    def __init__(self, engine_factory=None):
+    def __init__(self, engine_factory=None, attach: bool = False):
+        """``attach``: kullanıcının AÇIK MATLAB oturumuna bağlanır (MATLAB'da ``matlab.engine.shareEngine``
+        çalıştırılmış olmalı); model ve parametreler o oturumda olur. Kapatırken kullanıcının MATLAB'ı KAPATILMAZ."""
         self._factory = engine_factory
+        self._attach = attach
+        self._owned = not attach
         self._eng = None
         self._model = ""
+        self.lock = threading.RLock()       # engine çağrıları (komut, durum, parametre yazma) sıralanır
+
+    @property
+    def engine(self):
+        return self._eng
+
+    @property
+    def model(self) -> str:
+        return self._model
 
     def connect(self, model: str) -> None:
         if self._factory is None:
@@ -57,7 +70,14 @@ class MatlabEngineBackend(ModelBackend):
                 import matlab.engine as me          # noqa: PLC0415 - isteğe bağlı bağımlılık
             except ImportError as exc:
                 raise BackendUnavailable("MATLAB Engine API for Python kurulu değil") from exc
-            self._factory = me.start_matlab
+            if self._attach:
+                names = list(me.find_matlab())
+                if not names:
+                    raise BackendUnavailable("Paylaşılan MATLAB oturumu yok: MATLAB komut penceresinde "
+                                             "matlab.engine.shareEngine çalıştırın.")
+                self._factory = lambda: me.connect_matlab(names[0])
+            else:
+                self._factory = me.start_matlab
         try:
             self._eng = self._factory()
             self._model = model
@@ -69,6 +89,10 @@ class MatlabEngineBackend(ModelBackend):
         e, m = self._eng, self._model
         if e is None:
             raise BackendUnavailable("MATLAB bağlı değil")
+        with self.lock:
+            self._command(e, m, cmd, arg)
+
+    def _command(self, e, m, cmd, arg):
         if cmd == "speed":
             e.set_param(m, "EnablePacing", "off" if arg == 0 else "on", nargout=0)
             if arg:
@@ -81,13 +105,14 @@ class MatlabEngineBackend(ModelBackend):
         if self._eng is None:
             return None
         try:
-            return str(self._eng.get_param(self._model, "SimulationStatus"))
+            with self.lock:
+                return str(self._eng.get_param(self._model, "SimulationStatus"))
         except Exception as exc:  # noqa: BLE001
             raise BackendUnavailable(f"MATLAB yanıt vermiyor: {exc}") from exc
 
     def close(self) -> None:
         eng, self._eng = self._eng, None
-        if eng is not None:
+        if eng is not None and self._owned:
             try:
                 eng.quit()
             except Exception:  # noqa: BLE001

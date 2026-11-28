@@ -137,7 +137,10 @@ class CalibrationMixin:
         if self.model_ctl is not None:
             self.model_ctl.close()
         bus = self.connection.bus
-        be = mc.UdpControlBackend(bus) if backend == "udp" else mc.MatlabEngineBackend()
+        if backend == "udp":
+            be = mc.UdpControlBackend(bus)
+        else:
+            be = mc.MatlabEngineBackend(attach=(backend == "matlab_shared"))
         self.simulink_model_name = model
         self.model_ctl = mc.ModelController(be, bus=bus)
         self._model_events_seen = 0
@@ -212,6 +215,9 @@ class CalibrationMixin:
         oturumu (önbellekli okuma, geçmiş, harita editörü) aynen kullanılır; yalnızca istemci farklıdır."""
         if getattr(self, "backend_mode", "") != "MIL" or not self.connection.is_connected:
             return
+        if getattr(self, "mil_engine_params", None):
+            self._apply_engine_params()
+            return
         summary = self.a2l_tab.db.summary
         manifest = getattr(self, "sim_manifest", None)
         if summary is None or manifest is None:
@@ -225,6 +231,59 @@ class CalibrationMixin:
         self._log_event("KALIBRASYON", f"MIL kalibrasyon kanalı hazır: {len(names)} eşlenmiş A2L parametresi"
                                        + (f"; eşlemesi olmayan {len(client.unmapped)} A2L parametresi okunamaz/yazılamaz"
                                           if client.unmapped else ""))
+
+    # ---- MIL kalibrasyon: .m (Simulink.Parameter) + MATLAB Engine; modelde değişiklik yok --------
+    def _engine_backend(self):
+        from app.sim_bridge.matlab_ctl import MatlabEngineBackend
+        ctl = getattr(self, "model_ctl", None)
+        be = getattr(ctl, "backend", None)
+        return be if isinstance(be, MatlabEngineBackend) and be.engine is not None else None
+
+    def _on_sim_mfile_requested(self):
+        from app.sim_bridge import engine_params as ep
+        from app.ui.background import run_with_progress
+        be = self._engine_backend()
+        if be is None:
+            QMessageBox.information(
+                self, "Parametre dosyası",
+                "Önce Ana Sayfa'daki model panelinden 'MATLAB Engine' (veya 'açık oturuma bağlan') ile modele bağlanın; "
+                "parametreler modelin çalıştığı MATLAB oturumuna yüklenir.")
+            return
+        path, _ = QFileDialog.getOpenFileName(self, "Parametre tanım dosyası (.m)", "", "MATLAB (*.m)")
+        if not path:
+            return
+        try:
+            params, skipped = run_with_progress(
+                self, "MATLAB'da parametre dosyası çalıştırılıyor…", lambda: ep.load_from_engine(be.engine, path, be.lock))
+        except ep.EngineParamError as exc:
+            QMessageBox.warning(self, "Parametre dosyası", str(exc))
+            return
+        if not params:
+            QMessageBox.warning(self, "Parametre dosyası", "Dosyada kullanılabilir Simulink.Parameter/LookupTable yok.")
+            return
+        self.mil_engine_params = params
+        summary = ep.build_summary(params)
+        self.a2l_tab.db.summary, self.a2l_tab.db.path = summary, None
+        self.a2l_tab.show_loaded(path, summary)
+        self.connection_tab.manifest_label.setText(f"{len(params)} parametre · {os.path.basename(path)} (MATLAB)")
+        self._log_event("KALIBRASYON", f"MIL parametre dosyası yüklendi: {path} ({len(params)} nesne)"
+                        + (f"; atlanan {len(skipped)}: " + "; ".join(f"{n}: {w}" for n, w in skipped[:5]) if skipped else ""))
+        self.a2l_tab.a2l_loaded.emit()
+        if skipped:
+            QMessageBox.information(self, "Parametre dosyası", f"{len(skipped)} nesne atlandı:\n"
+                                    + "\n".join(f"• {n}: {w}" for n, w in skipped[:15]))
+
+    def _apply_engine_params(self):
+        from app.sim_bridge import matlab_ctl as mc
+        from app.sim_bridge.engine_params import EngineParamClient
+        be = self._engine_backend()
+        if be is None:
+            self.statusBar().showMessage("MIL kalibrasyon: MATLAB Engine bağlı değil.", 6000)
+            return
+        ctl = self.model_ctl
+        self.ccp_client = EngineParamClient(lambda: be.engine, self.mil_engine_params,
+                                            lambda: ctl.state in (mc.RUNNING, mc.PAUSED), lambda: be.model, be.lock)
+        self._log_event("KALIBRASYON", f"MIL kalibrasyon kanalı hazır (MATLAB Engine): {len(self.mil_engine_params)} parametre")
 
     # ---- CCP (kalibrasyon) ------------------------------------------------
     def _on_ccp_connect(self, cro_id: int, dto_id: int, station_address: int):
