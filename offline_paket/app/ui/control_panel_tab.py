@@ -711,7 +711,7 @@ class ControlPanelTab(QWidget):
         # --- boş durum yönlendirmesi (hiç sinyal yokken 4 boş bölüm yerine) ---
         self.onboarding = QLabel(
             "<b>Kontrol Paneli — ECU'ya test girdisi verin ve çıkışları izleyin</b><br><br>"
-            "1. DBC (CAN Monitor sekmesi) ve A2L (Kalibrasyon &gt; A2L) dosyalarını yükleyin.<br>"
+            "1. DBC (CAN Trace penceresi) ve A2L (Project Manager &gt; workbase) dosyalarını yükleyin.<br>"
             "2. <b>+ Sinyal kataloğu</b> ile istediğiniz sinyalleri panele ekleyin.<br>"
             "3. Değer hücresine yazın (sarı = bekleyen), sensör için <b>Override</b> kutusunu işaretleyin.<br>"
             "4. <b>Uygula</b> ile gönderin; sonucu <b>ECU'nun gördüğü</b> ve çıkış tablosunda izleyin.<br>"

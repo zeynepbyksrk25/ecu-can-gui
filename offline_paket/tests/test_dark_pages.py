@@ -18,8 +18,11 @@ def test_dark_wrapper_keeps_page_aliases_and_navigation(qapp):
     body = scroll.widget()
     assert body.objectName() == "darkBody" and body.inner is w.kalibrasyon_tab
     assert w.kalibrasyon_tab.window() is w._tool_windows[w.kalibrasyon_tab]
-    # A2L ayrı sayfa değil, Kalibrasyon'un ilk iç sekmesi; takma ad korunur
-    assert w.kalibrasyon_tab.a2l is w.a2l_tab and w.kalibrasyon_tab.inner_tabs.widget(0) is w.a2l_tab
+    # A2L'nin görünür sekmesi yok (Project Manager + Variable list); Calibration Tools yalnız CCP ve Geçmiş
+    tabs = w.kalibrasyon_tab.inner_tabs
+    assert [tabs.tabText(i) for i in range(tabs.count())] == ["CCP", "Geçmiş"]
+    assert not hasattr(w.kalibrasyon_tab, "a2l")
+    assert w.a2l_tab.window() is w and not w.a2l_tab.isVisible()        # ilerleme/hata kutuları ana pencereye bağlı
     w.close()
 
 
@@ -93,7 +96,7 @@ def test_kalibrasyon_dark_and_aliases():
     w = MainWindow()
     assert w.kalibrasyon_tab in w._dark_pages
     k = w.kalibrasyon_tab
-    assert k.inner_tabs.count() == 3 and not hasattr(k, "map_editor") and not hasattr(k, "watch")
+    assert k.inner_tabs.count() == 2 and not hasattr(k, "map_editor") and not hasattr(k, "watch")
     w.close()
 
 

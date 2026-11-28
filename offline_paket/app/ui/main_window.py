@@ -145,11 +145,13 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self.connection_tab.attach_settings(data_path("can_ayarlari.json"))
         self.monitor_tab.frame_hook = self._on_monitor_frame
 
-        self.a2l_tab = A2LTab()
+        self.a2l_tab = A2LTab()      # yalnız arka plan (yükleme/ayrıştırma); ekranda gösterilmez, ama ilerleme/hata kutuları için pencereye bağlı
+        self.a2l_tab.setParent(self)
+        self.a2l_tab.hide()
         self.control_panel_tab = ControlPanelTab(cpanel.ControlPanelConfig(data_path("kontrol_paneli.json")))
         self.tx_scheduler = cpanel.TxScheduler(self.transmit_tab.dbc, self._panel_send)
 
-        self.kalibrasyon_tab = KalibrasyonTab(self.a2l_tab)   # A2L ilk iç sekme (a2l_tab takma adı korunur)
+        self.kalibrasyon_tab = KalibrasyonTab()
         self.ccp_tab = self.kalibrasyon_tab.ccp
         self.history_tab = self.kalibrasyon_tab.history
 
@@ -207,7 +209,7 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self.monitor_tab.dbc = self.transmit_tab.dbc
         self.transmit_tab.dbc_loaded.connect(self.monitor_tab.refresh_dbc_messages)
 
-        # CCP sekmesi, A2L (Kalibrasyon > A2L) sekmesindeki AYNI A2LDatabase nesnesini kullanır;
+        # CCP sekmesi, arka plandaki a2l_tab'ın AYNI A2LDatabase nesnesini kullanır;
         # A2L yüklenince nesne tarayıcısı orada da güncellenir.
         self.ccp_tab.a2l_db = self.a2l_tab.db
         self.a2l_tab.a2l_loaded.connect(self.ccp_tab.refresh_objects)
