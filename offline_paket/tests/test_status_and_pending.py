@@ -316,3 +316,21 @@ def test_table_window_opens_3d_view_that_follows_the_grid(qapp):
     dlg.reset_view()
     assert dlg.canvas.zoom == 1.0
     dlg.close()
+
+
+def test_surface_axis_labels_use_a2l_axis_values_only_when_known(qapp):
+    from app.ui.modas.surface3d import Surface3DDialog
+    from app.ui.modas.windows import TableWindow
+    from tests.test_modas import make_map
+    ch = make_map()
+    tw = TableWindow(ch)
+    tw.set_grid_from_ecu([[1, 2, 3], [4, 5, 6]])
+    d = Surface3DDialog(tw)
+    xn, yn, xr, yr = d.canvas.axis_labels
+    assert xr == (10, 30) and yr == (1000, 2000) and "[V]" in xn and "[rpm]" in yn
+    ch.axes[0].values = None                                    # bilinmiyorsa uydurma yok: indeks
+    assert Surface3DDialog(tw).canvas.axis_labels[2] is None
+    from PySide6.QtGui import QPixmap
+    pm = QPixmap(d.canvas.size())
+    d.canvas.render(pm)
+    d.close()

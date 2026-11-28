@@ -78,4 +78,4 @@ Her madde bitince `[x]` yapılır; yanına test sonucu ve bilinen eksikler yazı
 - Yeni: `ui/mainwin/status.py` (durum çubuğu alanları + bekleyen değişiklik şeridi), `_free_pos` (çakışmayan yerleşim), `TableWindow.set_heatmap/discard_edits`, `ui/modas/gauge_window.py` (+ ribbon "Gösterge"). Testler: `test_status_and_pending.py` (12), `test_user_single_role.py` (3), `test_modas.py` (gösterge, ölçüm turu).
 - Tam paket: 627 geçti (offscreen, `-n 4`). Gerçek ECU/ekranda doğrulanmadı.
 - Yapılmayanlar (önceki liste) tamamlandı: bkz. DECISIONS ARAYÜZ-2b. Yeni: `app/undo_stack.py`, `ui/modas/surface3d.py`, `ui/modas/actuator_window.py`; makro düzenleme `modas_macros.py` + `MacroDialog`.
-- Bilinen eksik: Eyleyiciler penceresi ve geri al gerçek ECU/CAN donanımında doğrulanmadı (sahte/simülatörle test edildi); 3B görünümde eksen değer etiketleri yok.
+- Bilinen eksik: Eyleyiciler penceresi ve geri al gerçek ECU/CAN donanımında doğrulanmadı (sahte/simülatörle test edildi); 3B görünümde eksen adı/birimi/uçları A2L'de biliniyorsa yazılır, bilinmiyorsa "(indeks)" (Tur 4).

@@ -62,6 +62,7 @@ class _Canvas(QWidget):
     def __init__(self):
         super().__init__()
         self.grid: list = []
+        self.axis_labels: tuple = ("X", "Y", None, None)   # (x adı, y adı, x uçları, y uçları); uçlar yalnızca A2L'de biliniyorsa
         self.yaw, self.pitch, self.zoom = -0.6, 0.9, 1.0
         self._last = None
         self.setMinimumSize(420, 320)
@@ -98,6 +99,13 @@ class _Canvas(QWidget):
             p.drawPolygon(QPolygonF([QPointF(cx + x * scale, cy + y * scale) for x, y in poly]))
         p.setPen(QColor("#333"))
         p.drawText(8, 16, f"Z: {format_phys(rng[0])} … {format_phys(rng[1])}")
+        xn, yn, xr, yr = self.axis_labels
+        p.drawText(8, 32, f"X: {xn}" + (f" {format_phys(xr[0])} … {format_phys(xr[1])}" if xr else " (indeks)"))
+        if len(self.grid) > 1:
+            p.drawText(8, 48, f"Y: {yn}" + (f" {format_phys(yr[0])} … {format_phys(yr[1])}" if yr else " (indeks)"))
+        for name, (px, py, pz) in (("x₀", (-0.5, -0.5, -0.5)), ("x₁", (0.5, -0.5, -0.5)), ("y₁", (-0.5, 0.5, -0.5))):
+            sx, sy, _d = project(px, py, pz, self.yaw, self.pitch)
+            p.drawText(QPointF(cx + sx * scale + 4, cy + sy * scale + 12), name)
 
 
 class Surface3DDialog(QDialog):
@@ -108,6 +116,7 @@ class Surface3DDialog(QDialog):
         self.tw = table_window
         self.setWindowTitle(f"3B görünüm — {table_window.label}")
         self.canvas = _Canvas()
+        self.canvas.axis_labels = self._axis_labels()
         self.hint = QLabel("Sürükle: döndür · Tekerlek: yakınlaştır · Salt okunur")
         self.hint.setObjectName("modasWinUnit")
         reset = QPushButton("Görünümü sıfırla")
@@ -122,6 +131,20 @@ class Surface3DDialog(QDialog):
         self._timer.setInterval(500)
         self._timer.timeout.connect(self.refresh)
         self._timer.start()
+
+    def _axis_labels(self) -> tuple:
+        ch = self.tw.characteristic
+        axes = list(getattr(ch, "axes", None) or [])
+
+        def ends(ax):
+            vals = getattr(ax, "values", None)
+            return (min(vals), max(vals)) if vals else None
+
+        def name(ax, default):
+            return f"{getattr(ax, 'attribute', '') or default} [{getattr(ax, 'unit', '') or '-'}]" if ax is not None else default
+        x_ax = axes[0] if axes else None
+        y_ax = axes[1] if len(axes) > 1 else None
+        return (name(x_ax, "X"), name(y_ax, "Y"), ends(x_ax), ends(y_ax))
 
     def reset_view(self):
         self.canvas.yaw, self.canvas.pitch, self.canvas.zoom = -0.6, 0.9, 1.0
