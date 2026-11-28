@@ -18,8 +18,11 @@ def test_dark_wrapper_keeps_page_aliases_and_navigation(qapp):
     body = scroll.widget()
     assert body.objectName() == "darkBody" and body.inner is w.kalibrasyon_tab
     assert w.kalibrasyon_tab.window() is w._tool_windows[w.kalibrasyon_tab]
-    # A2L ayrı sayfa değil, Kalibrasyon'un ilk iç sekmesi; takma ad korunur
-    assert w.kalibrasyon_tab.a2l is w.a2l_tab and w.kalibrasyon_tab.inner_tabs.widget(0) is w.a2l_tab
+    # A2L'nin görünür sekmesi yok (Project Manager + Variable list); Calibration Tools yalnız CCP ve Geçmiş
+    tabs = w.kalibrasyon_tab.inner_tabs
+    assert [tabs.tabText(i) for i in range(tabs.count())] == ["CCP", "Geçmiş"]
+    assert not hasattr(w.kalibrasyon_tab, "a2l")
+    assert w.a2l_tab.window() is w and not w.a2l_tab.isVisible()        # ilerleme/hata kutuları ana pencereye bağlı
     w.close()
 
 
@@ -80,11 +83,11 @@ def test_small_pages_dark_and_accessors(tmp_path):
     assert "Profil" not in w._tool_pages
     assert w.settings_dialog.user_tab is w.user_tab
     assert w.session_tab is w.tanilama_tab.session
-    assert "Diagnostics" in w._tool_pages and "Test Oturumu" not in w._tool_pages
+    assert "Tanılama" in w._tool_pages and "Test Oturumu" not in w._tool_pages
     s = w.session_tab
     assert s.stop_button.isEnabled() is False and s.state_chip.text() == "Oturum yok"
     assert hasattr(w.tanilama_tab, "diagnostics") and hasattr(w.tanilama_tab, "errors")
-    assert w.user_tab.role_combo.count() >= 3 and w.user_tab.profile_list is not None
+    assert not hasattr(w.user_tab, "role_combo") and w.user_tab.profile_list is not None
     w.close()
 
 
@@ -93,40 +96,24 @@ def test_kalibrasyon_dark_and_aliases():
     w = MainWindow()
     assert w.kalibrasyon_tab in w._dark_pages
     k = w.kalibrasyon_tab
-    assert k.inner_tabs.count() == 3 and not hasattr(k, "map_editor") and not hasattr(k, "watch")
+    assert k.inner_tabs.count() == 2 and not hasattr(k, "map_editor") and not hasattr(k, "watch")
     w.close()
 
 
-def test_analiz_performance_dark_no_captions():
+def test_analysis_page_removed_scope_replaces_workspace():
     from app.ui.main_window import MainWindow
     w = MainWindow()
-    assert w.performance_tab in w._dark_pages
-    assert "geri okunuşu" not in "".join(b.toolTip() for b in w.performance_tab._flight_boxes.values())
-    # Grafik sekmesi kaldırıldı: Analiz = Çalışma Alanı + Performans
-    labels = [w.analiz_tab.inner_tabs.tabText(i) for i in range(w.analiz_tab.inner_tabs.count())]
-    assert labels == ["Çalışma Alanı", "Performans"] and not hasattr(w, "graph_tab")
+    assert "Analiz" not in w._tool_pages and "Analysis" not in w._tool_pages and list(w._tool_pages) == [
+        "Test Tezgâhı", "CAN İzleme", "Kalibrasyon Araçları", "Kontrol Paneli", "Tanılama"]
+    for gone in ("analiz_tab", "workspace_tab", "performance_tab", "graph_tab"):
+        assert not hasattr(w, gone)
+    assert w.signal_feed.hub is w.modas_tab.hub                    # Scope'ların ortak deposu
     w.close()
 
 
-def test_workspace_and_control_panel_dark():
+def test_control_panel_dark():
     from app.ui.main_window import MainWindow
     w = MainWindow()
-    assert w.workspace_tab in w._dark_pages and w.control_panel_tab in w._dark_pages
-    assert w.workspace_tab.browser_hint.isVisible() is False
+    assert w.control_panel_tab in w._dark_pages
     assert "Uygula'ya basınca" not in w.control_panel_tab.effects_title.text()
-    w.close()
-
-
-def test_detached_workspace_panel_is_dark():
-    from app.ui.main_window import MainWindow
-    w = MainWindow()
-    ws = w.workspace_tab
-    ws.add_panel("table")
-    panel = ws._panels[0] if hasattr(ws, "_panels") and ws._panels else None
-    from app.ui.workspace_tab import _Float
-    f = _Float(panel.__class__(ws.hub), "t") if panel is None else None
-    if f is None:
-        f = _Float(ws.mdi.subWindowList()[0].widget(), "t")
-    assert f.objectName() == "floatBody" and "#EEF2F6" in f.styleSheet()
-    f.deleteLater()
     w.close()

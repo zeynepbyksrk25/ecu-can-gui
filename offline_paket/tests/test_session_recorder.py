@@ -113,7 +113,7 @@ def test_main_window_session_writes_csv(qapp, tmp_path, monkeypatch):
     st.name_edit.setText("Deneme")
     st._on_start()
     assert w.session_recorder.is_active
-    w.workspace_tab.push("input:throttle", 4321.0)
+    w.session_recorder.record("input:throttle", 4321.0)
     path = w.session_recorder.path
     st._on_stop()
     assert not w.session_recorder.is_active

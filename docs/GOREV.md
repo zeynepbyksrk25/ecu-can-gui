@@ -7,7 +7,7 @@
 
 **Temel hedef:** Kullanıcı ECU'yu kolayca kalibre edebilsin, sinyalleri canlı izlesin, test sırasında hiçbir önemli veriyi kaybetmeden kayıt alsın, test sonrası davranışı ayrıntılı incelesin.
 
-Korunacaklar: Windows çevrimdışı çalışma; mevcut PySide6 mimarisi; PCAN / python-can altyapısı; DBC ve A2L desteği; CCP; mevcut Dashboard, Kontrol Paneli, CAN Monitor, Kalibrasyon ve diğer sayfalar; kullanıcı yetkilendirme ve güvenlik mekanizmaları.
+Korunacaklar: Windows çevrimdışı çalışma; mevcut PySide6 mimarisi; PCAN / python-can altyapısı; DBC ve A2L desteği; CCP; mevcut Dashboard (Test Bench), Kontrol Paneli, CAN Monitor (CAN Trace), Kalibrasyon ve diğer sayfalar (Modas'a geçişte kaldırılanlar için bkz. docs/DECISIONS.md, 2026-11-28 / MODAS-TEMİZLİK); kullanıcı yetkilendirme ve güvenlik mekanizmaları.
 
 Önce mevcut kodu analiz et. Var olan sınıf/fonksiyonları yeniden kullan. Aynı işi yapan ikinci kayıt, sinyal veya kalibrasyon altyapısı oluşturma.
 

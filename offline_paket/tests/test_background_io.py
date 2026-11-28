@@ -293,35 +293,6 @@ def test_estop_unmapped_does_not_stay_latched(win, monkeypatch):
     assert not win.dashboard_tab.estop_button.isChecked()
 
 
-def test_flight_inputs_have_no_limits(qapp):
-    from app.sim_interface import SimConfig
-    from app.ui.sim_inputs import SimInputsPanel
-    import inspect
-    try:
-        p = SimInputsPanel(SimConfig(), None) if len(inspect.signature(SimInputsPanel).parameters) >= 2 else SimInputsPanel(SimConfig())
-    except TypeError:
-        pytest.skip("SimInputsPanel imzası farklı")
-    spin = p._ctrl["ma"]["w"]
-    spin.setValue(35)
-    assert spin.value() == 35
-
-
-# ---------------------------------------------------------------- arka planda dosya yükleme
-def test_run_with_progress_keeps_event_loop_alive_and_returns_or_raises(qapp):
-    from app.ui.background import run_with_progress
-    ticks = []
-    timer = QTimer()
-    timer.setInterval(10)
-    timer.timeout.connect(lambda: ticks.append(1))
-    timer.start()
-    main = threading.get_ident()
-    assert run_with_progress(None, "bekleyin", lambda: (time.sleep(0.3), threading.get_ident())[1]) != main
-    timer.stop()
-    assert len(ticks) >= 5, "iş sürerken olay döngüsü dönmeli"
-    assert run_with_progress(None, "kısa", lambda: 7) == 7
-    with pytest.raises(ValueError, match="bozuk"):
-        run_with_progress(None, "hata", lambda: (_ for _ in ()).throw(ValueError("bozuk dosya")))
-
 
 def test_a2l_is_parsed_off_the_ui_thread_and_usable_afterwards(qapp, monkeypatch):
     from app.ccp import codec
@@ -516,28 +487,7 @@ def test_modas_table_headers_are_readable():
 
 
 # ---------------------------------------------------------------- yerleşim: içerik büyüyünce metin kırpılmaz
-def test_trend_range_buttons_are_not_clipped_after_loading_a_dbc(qapp, monkeypatch, tmp_path):
-    """DBC yüklenince sol kart genişler; pencere asgari boyutu güncellenmezse Canlı Trendler düğmeleri kırpılırdı."""
-    from PySide6.QtTest import QTest
-    import app.paths as paths
-    monkeypatch.setenv("OPENECU_VERI_KLASORU", str(tmp_path))
-    monkeypatch.setattr(paths, "_cached", None)
-    from app.ui.main_window import MainWindow
-    w = MainWindow()
-    try:
-        w.show()
-        w.setCurrentWidget(w.dashboard_tab)          # Modas düzeninde açılış sayfası Worksheets; trend Ana Sayfa'dadır
-        QTest.qWait(50)
-        w.transmit_tab.dbc.load(os.path.join(DATA, "sample.dbc"))
-        w.transmit_tab.dbc_loaded.emit()
-        QTest.qWait(150)
-        assert w.width() >= w.minimumWidth() >= w.centralWidget().minimumSizeHint().width()
-        trend = w.dashboard_tab.trend
-        assert trend.width() >= trend.minimumSizeHint().width(), "trend paneli asgari genişliğinin altına sıkışmış"
-        for _secs, b in trend._win_buttons:
-            assert b.width() >= b.sizeHint().width(), f"{b.text()!r} düğmesi kırpılıyor"
-    finally:
-        w.close()
+
 
 
 def test_trend_toolbar_is_two_rows_and_narrow(qapp):

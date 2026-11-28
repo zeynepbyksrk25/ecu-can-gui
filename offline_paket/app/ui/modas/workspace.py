@@ -10,21 +10,23 @@ yüklenirse bekleyen pencereler o zaman kurulur (etiket kaybolmaz).
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass, field
 
-from PySide6.QtCore import QPoint, QTimer, Qt, Signal
+from PySide6.QtCore import QPoint, QRect, QTimer, Qt, Signal
 from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import (
-    QFrame, QHBoxLayout, QInputDialog, QMdiArea, QMenu, QMessageBox, QSplitter, QTabBar, QToolButton,
-    QVBoxLayout, QWidget,
+    QDialog, QFileDialog, QFrame, QHBoxLayout, QInputDialog, QMdiArea, QMenu, QMessageBox, QSplitter, QTabBar,
+    QToolButton, QVBoxLayout, QWidget,
 )
 
 from app import theme
 from app.persist import atomic_write_json, load_json
 from app.signal_hub import SignalHub
 from app.ui.modas.pages import RP, WP
-from app.ui.modas.scope import ScopeWindow, label_of
-from app.ui.modas.testbench import BY_KEY as INPUT_BY_KEY, TestInputWindow
+from app.ui.modas.actuator_window import ActuatorWindow
+from app.ui.modas.gauge_window import GaugeWindow
+from app.ui.modas.scope import ScopeWindow
 from app.ui.modas.style import MODAS_QSS
 from app.ui.modas.variable_list import MIME, LogPanel, VariableListPanel, classify
 from app.ui.modas.windows import ModasSub, TableWindow, ValueWindow
@@ -34,7 +36,7 @@ log = logging.getLogger(__name__)
 STATE_VERSION = 1
 MEASURE_INTERVAL_MS = 250          # Değerler arka plan CCP önbelleğinden gelir
 SAVE_DELAY_MS = 500
-DEFAULT_SHEET = "Sheet1"
+DEFAULT_SHEET = "Sayfa1"
 
 
 class ModasSheetStore:
@@ -57,7 +59,12 @@ class ModasSheetStore:
         if not sheets:
             return None
         cur = data.get("current", 0)
-        return {"version": STATE_VERSION, "current": cur if isinstance(cur, int) else 0, "sheets": sheets}
+        raw_math = data.get("math")
+        math_defs = {str(k): dict(v) for k, v in (raw_math.items() if isinstance(raw_math, dict) else [])
+                     if isinstance(v, dict) and v.get("kind")}
+        favs = data.get("favorites")
+        return {"version": STATE_VERSION, "current": cur if isinstance(cur, int) else 0, "sheets": sheets,
+                "math": math_defs, "favorites": [str(f) for f in favs] if isinstance(favs, list) else []}
 
     def save(self, state: dict) -> bool:
         return bool(self.path) and atomic_write_json(self.path, state)
@@ -108,11 +115,12 @@ class ModasWorkspace(QWidget):
     value_write_requested = Signal(object, str)
     table_read_requested = Signal(list)
     table_write_requested = Signal(object)
+    actuator_lock_requested = Signal(str, bool)   # Eyleyiciler penceresi: (anahtar, kilidi aç?)
+    actuator_submit_requested = Signal(str, str)  # (anahtar, metin)
     history_requested = Signal(str)             # değişiklik okuna tıklandı: parametrenin geçmişini göster
     measuring_changed = Signal(bool)
     page_changed = Signal(str)
     layout_changed = Signal()                 # pencere eklendi / silindi / sayfa değişti (Diff yeniden hesaplanır)
-    input_submitted = Signal(object, float)   # test girişi penceresi: (pencere, değer) gönderim isteği
 
     def __init__(self, store: ModasSheetStore | None = None):
         super().__init__()
@@ -123,14 +131,12 @@ class ModasWorkspace(QWidget):
         self._by_name: dict = {}
         self._sheets: list[_Sheet] = []
         self._online = False
-        self._allowed = True
         self._page = WP
         self._reference: dict = {}
         self._cascade = 0
         self.hub = SignalHub()                  # osiloskop (scope) pencerelerinin ortak veri deposu
-        self._inputs_allowed = True             # rol, test girişi göndermeye izin veriyor mu
-        self._inputs_reason = ""
-        self.input_value_provider = None        # callable(anahtar) -> float | None: test girişi pencerelerinin başlangıç değeri
+        self.actuator_state = lambda: {}        # callable() -> {anahtar: kilit açık mı}: Test Tezgâhı (MainWindow bağlar)
+        self.signal_groups = None               # callable() -> [(başlık, [sid])]: DBC / gösterge / giriş kaynakları (MainWindow)
 
         # ---- orta: MDI yığını + Variable list
         self.stack_host = QWidget()
@@ -139,6 +145,7 @@ class ModasWorkspace(QWidget):
         self.var_panel = VariableListPanel()
         self.var_panel.add_requested.connect(self.add_label)
         self.var_panel.info_requested.connect(self.show_info)
+        self.var_panel.favorites_changed.connect(self._changed)
         self.splitter = QSplitter(Qt.Horizontal)
         self.splitter.setChildrenCollapsible(False)
         self.splitter.addWidget(self.stack_host)
@@ -209,7 +216,7 @@ class ModasWorkspace(QWidget):
     def current_sheet(self) -> _Sheet:
         return self._sheets[max(0, self.tabs.currentIndex())]
 
-    def _unique_name(self, base: str = "Sheet") -> str:
+    def _unique_name(self, base: str = "Sayfa") -> str:
         names = set(self.sheet_names())
         i = 1
         while f"{base}{i}" in names:
@@ -294,9 +301,9 @@ class ModasWorkspace(QWidget):
     def _on_tab_menu(self, pos):
         idx = self.tabs.tabAt(pos)
         menu = QMenu(self)
-        act_new = menu.addAction("New worksheet")
-        act_ren = menu.addAction("Rename…")
-        act_del = menu.addAction("Delete")
+        act_new = menu.addAction("Yeni çalışma sayfası")
+        act_ren = menu.addAction("Yeniden adlandır…")
+        act_del = menu.addAction("Sil")
         act_ren.setEnabled(idx >= 0)
         act_del.setEnabled(idx >= 0 and len(self._sheets) > 1)
         chosen = menu.exec(self.tabs.mapToGlobal(pos))
@@ -340,15 +347,23 @@ class ModasWorkspace(QWidget):
             if spec.get("kind") == "scope":              # osiloskop: A2L'ye bağlı değil (sinyaller ad olarak saklanır)
                 self._open_scope(sheet, spec.get("name"), state=spec, geom=spec.get("geom"))
                 continue
-            if spec.get("kind") == "input":              # test girişi: A2L'ye bağlı değil; bilinmeyen anahtar atılır
-                if spec.get("key") in INPUT_BY_KEY:
-                    self._open_input(sheet, spec["key"], geom=spec.get("geom"))
+            if spec.get("kind") == "input":              # kaldırılmış "Input" penceresi (eski kayıt): sessizce atlanır
+                continue
+            if spec.get("kind") == "actuator":           # eyleyiciler: A2L'ye bağlı değil
+                self._open_actuators(sheet, geom=spec.get("geom"))
+                continue
+            if spec.get("kind") == "gauge":              # gösterge: A2L nesnesi gelince kurulur
+                obj = self._by_name.get(spec.get("name", ""))
+                if obj is None or getattr(obj, "datatype", None) is None or classify(obj) in ("curve", "map", "text"):
+                    left.append(spec)
+                else:
+                    self._open_gauge(sheet, obj, geom=spec.get("geom"))
                 continue
             obj = self._by_name.get(spec.get("name", ""))
             if obj is None:
                 left.append(spec)
                 continue
-            if self._open_window(sheet, obj, geom=spec.get("geom"), fmt=spec.get("fmt")) is None:
+            if self._open_window(sheet, obj, geom=spec.get("geom"), fmt=spec.get("fmt"), heat=spec.get("heat")) is None:
                 left.append(spec)
         sheet.pending = left
 
@@ -388,7 +403,7 @@ class ModasWorkspace(QWidget):
             self.add_label(n, p)
             p += QPoint(24, 24)
 
-    def _open_window(self, sheet: _Sheet, obj, pos: QPoint | None = None, geom=None, fmt=None):
+    def _open_window(self, sheet: _Sheet, obj, pos: QPoint | None = None, geom=None, fmt=None, heat=None):
         kind = classify(obj)
         if kind == "text":
             self.log_panel.add_text(f"{obj.name}: metin (ASCII) alanları bu sürümde desteklenmiyor.")
@@ -398,14 +413,15 @@ class ModasWorkspace(QWidget):
             win.write_requested.connect(self.table_write_requested.emit)
             win.history_requested.connect(self.history_requested.emit)
             win.read_requested.connect(lambda w: self.table_read_requested.emit([w]))
-            win.set_allowed(self._allowed)
             if fmt:
                 win.set_format(fmt)
+            if heat:
+                win.set_heatmap(True)
         else:
             win = ValueWindow(obj, "cal" if kind == "value" else "meas")
             win.write_requested.connect(self.value_write_requested.emit)
             win.history_requested.connect(self.history_requested.emit)
-            win.set_allowed(self._allowed and self._online)
+            win.set_allowed(self._online)
             if fmt:
                 win.set_format(fmt)
         win.closed.connect(lambda w, s=sheet: self._on_closed(s, w))
@@ -414,57 +430,12 @@ class ModasWorkspace(QWidget):
         if isinstance(geom, (list, tuple)) and len(geom) == 4 and all(isinstance(v, (int, float)) for v in geom):
             win.setGeometry(*(int(v) for v in geom))
         else:
-            win.move(pos if pos is not None else self._next_pos())
+            win.move(pos if pos is not None else self._free_pos(sheet, win))
         sheet.windows.append(win)
         self._apply_page_to(win)
         return win
 
     # ---- test girişleri (uçuş koşulu / motor komutu) ----------------------------------
-    def add_input(self, key: str, pos: QPoint | None = None):
-        """Test girişi penceresini aktif worksheet'e ekler; zaten açıksa onu öne getirir."""
-        if key not in INPUT_BY_KEY:
-            return None
-        sheet = self.current_sheet()
-        existing = self.find_window(INPUT_BY_KEY[key].title, sheet)
-        if existing is not None:
-            sheet.mdi.setActiveSubWindow(existing)
-            return existing
-        win = self._open_input(sheet, key, pos=pos)
-        self._changed()
-        return win
-
-    def _open_input(self, sheet: _Sheet, key: str, geom=None, pos=None) -> TestInputWindow:
-        win = TestInputWindow(key)
-        win.submitted.connect(self.input_submitted.emit)
-        win.closed.connect(lambda w, s=sheet: self._on_closed(s, w))
-        win.set_allowed(self._inputs_allowed, self._inputs_reason)
-        if self.input_value_provider is not None:
-            win.set_value(self.input_value_provider(key))
-        sheet.mdi.addSubWindow(win)
-        win.show()
-        if isinstance(geom, (list, tuple)) and len(geom) == 4 and all(isinstance(v, (int, float)) for v in geom):
-            win.setGeometry(*(int(v) for v in geom))
-        else:
-            win.move(pos if pos is not None else self._next_pos())
-        sheet.windows.append(win)
-        return win
-
-    def input_windows(self, all_sheets: bool = True) -> list:
-        return [w for w in self.windows(all_sheets) if isinstance(w, TestInputWindow)]
-
-    def set_inputs_allowed(self, allowed: bool, reason: str = ""):
-        self._inputs_allowed, self._inputs_reason = bool(allowed), reason
-        for w in self.input_windows():
-            w.set_allowed(self._inputs_allowed, reason)
-
-    def refresh_inputs(self, values: dict | None = None):
-        """Test girişi pencerelerinin değerlerini senkronlar (``values`` verilmezse sağlayıcıdan)."""
-        for w in self.input_windows():
-            if values is not None and w.key in values:
-                w.set_value(values[w.key])
-            elif values is None and self.input_value_provider is not None:
-                w.set_value(self.input_value_provider(w.key))
-
     # ---- osiloskop (scope) ----------------------------------------------------------
     def add_scope(self, labels: list | None = None, pos: QPoint | None = None) -> ScopeWindow:
         """Aktif worksheet'e yeni bir osiloskop penceresi ekler (isteğe bağlı başlangıç etiketleriyle)."""
@@ -478,22 +449,183 @@ class ModasWorkspace(QWidget):
     def _unique_scope_name(self) -> str:
         used = {w.label for s in self._sheets for w in s.windows} | {s.get("name") for sh in self._sheets for s in sh.pending}
         n = 1
-        while f"Scope {n}" in used:
+        while f"Osiloskop {n}" in used:
             n += 1
-        return f"Scope {n}"
+        return f"Osiloskop {n}"
 
     def _open_scope(self, sheet: _Sheet, name: str | None, state: dict | None = None, geom=None, pos=None) -> ScopeWindow:
         win = ScopeWindow(name or self._unique_scope_name(), self.hub, state=state)
         win.changed.connect(self._on_scope_changed)
+        win.pick_requested.connect(lambda w=win: self.pick_signals(w))
+        win.math_requested.connect(lambda sid, w=win: self.edit_math(w, sid or None))
+        win.math_delete_requested.connect(self.delete_math)
+        win.csv_open_requested.connect(lambda w=win: self.open_csv(w))
+        win.csv_export_requested.connect(self.export_csv)
         win.closed.connect(lambda w, s=sheet: self._on_closed(s, w))
         sheet.mdi.addSubWindow(win)
         win.show()
         if isinstance(geom, (list, tuple)) and len(geom) == 4 and all(isinstance(v, (int, float)) for v in geom):
             win.setGeometry(*(int(v) for v in geom))
         else:
-            win.move(pos if pos is not None else self._next_pos())
+            win.move(pos if pos is not None else self._free_pos(sheet, win))
         sheet.windows.append(win)
         self._sync_hub()
+        return win
+
+    # ---- osiloskop: sinyal seçici, matematik sinyalleri, CSV -----------------------------------
+    def signal_ids(self) -> list:
+        """Seçilebilir tüm sinyal kimlikleri: A2L ölçümleri + sağlayıcıdan gelen gruplar (DBC, gösterge, giriş, math, csv)."""
+        ids = [f"a2l:{n}" for n in self._by_name]
+        for _title, sids in (self.signal_groups() if self.signal_groups else self._hub_groups()):
+            ids += sids
+        return ids
+
+    def _hub_groups(self) -> list:
+        groups = []
+        if self.hub.derived:
+            groups.append(("Matematik sinyalleri", list(self.hub.derived)))
+        if self.hub.static:
+            groups.append(("İçe aktarılan kayıtlar", sorted(self.hub.static)))
+        return groups
+
+    def pick_signals(self, scope) -> int:
+        from app.ui.modas.signal_picker import SignalPickerDialog
+        groups = self.signal_groups() if self.signal_groups else self._hub_groups()
+        dlg = SignalPickerDialog(groups, scope.signals(), self)
+        if dlg.exec() != QDialog.Accepted:
+            return 0
+        n = scope.add_signals(dlg.selected())
+        self._on_scope_changed()
+        return n
+
+    def edit_math(self, scope, existing: str | None = None) -> bool:
+        """Matematik sinyalini tanımlar / düzenler; yeni sinyal ``scope``'a eklenir. Döngüsel bağımlılık reddedilir."""
+        from app.ui.math_dialog import MathDialog
+        ids = [s for s in self.signal_ids() if s != existing]
+        if existing is None:
+            ids = scope.signals() + [s for s in ids if s not in scope.signals()]      # grafikteki sinyalleri A için öner
+        dlg = MathDialog(ids, (existing, self.hub.derived[existing]) if existing else None, self)
+        if dlg.exec() != QDialog.Accepted:
+            return False
+        name, spec = dlg.result_spec()
+        sid = f"math:{name}"
+        if sid != existing and sid in self.hub.derived:
+            QMessageBox.warning(self, "Matematik sinyali", f"'{name}' zaten var.")
+            return False
+        if self.hub.would_cycle(sid, spec):
+            QMessageBox.warning(self, "Matematik sinyali",
+                                f"'{name}' kendisine bağımlı olurdu (döngüsel bağımlılık); tanım kaydedilmedi.")
+            return False
+        if existing and sid != existing:                           # yeniden adlandırma: tüm osiloskoplarda güncellenir
+            for w in self.scope_windows():
+                ids_ = w.panel.signals_ids
+                if existing in ids_:
+                    ids_[ids_.index(existing)] = sid
+                    if existing in w.panel.styles:
+                        w.panel.styles[sid] = w.panel.styles.pop(existing)
+            self.hub.remove_derived(existing)
+        self.hub.define_derived(name, spec)
+        if existing is None:
+            scope.add_signals([sid])
+        for w in self.scope_windows():
+            w.panel._signals_changed()
+        self._on_scope_changed()
+        return True
+
+    def delete_math(self, sid: str):
+        for w in self.scope_windows():
+            w.panel.remove_signal(sid)
+        self.hub.remove_derived(sid)
+        self._on_scope_changed()
+
+    def open_csv(self, scope) -> int:
+        """Kayıtlı bir CSV'yi (oturum kaydı / dışa aktarım) salt okunur sinyaller olarak içe aktarır ve grafiğe ekler."""
+        path, _ = QFileDialog.getOpenFileName(self, "CSV kaydı aç", "", "CSV (*.csv *.txt)")
+        if not path:
+            return 0
+        try:
+            added = self.hub.import_csv(path, os.path.splitext(os.path.basename(path))[0])
+        except (OSError, ValueError) as exc:
+            QMessageBox.critical(self, "CSV aç", str(exc))
+            return 0
+        n = scope.add_signals(added[:12])
+        self._on_scope_changed()
+        return n
+
+    def export_csv(self) -> int:
+        ids = [s for s in self.hub.all_ids_with_data() if s not in self.hub.static]
+        if not ids:
+            QMessageBox.information(self, "CSV'ye aktar", "Henüz kaydedilmiş veri yok.")
+            return 0
+        path, _ = QFileDialog.getSaveFileName(self, "Canlı kaydı CSV'ye aktar", "kayit.csv", "CSV (*.csv)")
+        if not path:
+            return 0
+        try:
+            n = self.hub.export_csv(path, ids)
+        except OSError as exc:
+            QMessageBox.critical(self, "CSV'ye aktar", str(exc))
+            return 0
+        QMessageBox.information(self, "CSV'ye aktar", f"{n} sinyal yazıldı:\n{path}")
+        return n
+
+    def actuator_windows(self, all_sheets: bool = True) -> list:
+        return [w for w in self.windows(all_sheets) if isinstance(w, ActuatorWindow)]
+
+    def add_actuators(self):
+        """Aktif sayfaya Eyleyiciler penceresini ekler (zaten açıksa öne getirir)."""
+        sheet = self.current_sheet()
+        for w in sheet.windows:
+            if isinstance(w, ActuatorWindow):
+                sheet.mdi.setActiveSubWindow(w)
+                return w
+        win = self._open_actuators(sheet)
+        self._changed()
+        return win
+
+    def _open_actuators(self, sheet: _Sheet, geom=None) -> ActuatorWindow:
+        win = ActuatorWindow(lambda: self.actuator_state())
+        win.lock_requested.connect(self.actuator_lock_requested.emit)
+        win.submit_requested.connect(self.actuator_submit_requested.emit)
+        win.closed.connect(lambda w, s=sheet: self._on_closed(s, w))
+        sheet.mdi.addSubWindow(win)
+        win.show()
+        if isinstance(geom, (list, tuple)) and len(geom) == 4 and all(isinstance(v, (int, float)) for v in geom):
+            win.setGeometry(*(int(v) for v in geom))
+        else:
+            win.move(self._free_pos(sheet, win))
+        sheet.windows.append(win)
+        return win
+
+    def gauge_windows(self, all_sheets: bool = True) -> list:
+        return [w for w in self.windows(all_sheets) if isinstance(w, GaugeWindow)]
+
+    def add_gauge(self, obj_or_name, pos: QPoint | None = None):
+        """Aktif çalışma sayfasına bir A2L ölçümü için gösterge penceresi ekler (zaten açıksa öne getirir)."""
+        obj = self._by_name.get(obj_or_name) if isinstance(obj_or_name, str) else obj_or_name
+        if obj is None or classify(obj) in ("curve", "map", "text"):
+            self.log_panel.add_text(f"Gösterge için uygun etiket değil: {getattr(obj_or_name, 'name', obj_or_name)}")
+            return None
+        sheet = self.current_sheet()
+        for w in sheet.windows:
+            if isinstance(w, GaugeWindow) and w.obj.name == obj.name:
+                sheet.mdi.setActiveSubWindow(w)
+                return w
+        win = self._open_gauge(sheet, obj, pos=pos)
+        self._changed()
+        return win
+
+    def _open_gauge(self, sheet: _Sheet, obj, geom=None, pos=None) -> GaugeWindow:
+        win = GaugeWindow(obj)
+        win.closed.connect(lambda w, s=sheet: self._on_closed(s, w))
+        sheet.mdi.addSubWindow(win)
+        win.show()
+        if isinstance(geom, (list, tuple)) and len(geom) == 4 and all(isinstance(v, (int, float)) for v in geom):
+            win.setGeometry(*(int(v) for v in geom))
+        else:
+            win.move(pos if pos is not None else self._free_pos(sheet, win))
+        sheet.windows.append(win)
+        if self._online:
+            self._warmup()
         return win
 
     def scope_windows(self, all_sheets: bool = True) -> list:
@@ -501,7 +633,7 @@ class ModasWorkspace(QWidget):
 
     def scope_labels(self) -> list:
         """Osiloskoplarda izlenen etiket adları (sıralı, tekrarsız)."""
-        return sorted({label_of(s) for w in self.scope_windows() for s in w.signals()})
+        return sorted({n for w in self.scope_windows() for n in w.labels()})
 
     def _on_scope_changed(self):
         self._sync_hub()
@@ -518,6 +650,20 @@ class ModasWorkspace(QWidget):
     def _next_pos(self) -> QPoint:
         self._cascade = (self._cascade + 1) % 12
         return QPoint(20 + 26 * self._cascade, 20 + 26 * self._cascade)
+
+    def _free_pos(self, sheet: "_Sheet", win) -> QPoint:
+        """Yeni pencere için çalışma alanında, mevcut pencerelerle ÇAKIŞMAYAN ilk boş yer (sol üstten satır satır, 20 px
+        ızgara). Sığmazsa (alan dolu) kademeli konuma düşer; pencere alanın dışına taşmaz."""
+        area = sheet.mdi.viewport().rect()
+        w, h = win.width(), win.height()
+        taken = [sw.geometry() for sw in sheet.mdi.subWindowList() if sw is not win and sw.isVisible()]
+        step = 20
+        for y in range(10, max(11, area.height() - h + 1), step):
+            for x in range(10, max(11, area.width() - w + 1), step):
+                cand = QRect(x, y, w, h)
+                if not any(cand.intersects(t) for t in taken):
+                    return QPoint(x, y)
+        return self._next_pos()
 
     def _on_closed(self, sheet: _Sheet, win):
         if win in sheet.windows:
@@ -587,8 +733,8 @@ class ModasWorkspace(QWidget):
         return len(targets)
 
     def show_info(self, obj):
-        """Variable Information (Ctrl+I): etiketin A2L özeti."""
-        lines = [f"Name: {obj.name}", f"Type: {classify(obj)}", f"Description: {getattr(obj, 'description', '') or '-'}",
+        """Değişken Bilgisi (Ctrl+I): etiketin A2L özeti."""
+        lines = [f"Ad: {obj.name}", f"Type: {classify(obj)}", f"Açıklama: {getattr(obj, 'description', '') or '-'}",
                  f"Datatype: {getattr(obj, 'datatype', '') or '-'}", f"Unit: {getattr(obj, 'unit', '') or '-'}"]
         addr = getattr(obj, "address", None)
         lines.append(f"Address: {'0x%X' % addr if addr else '-'}  (ext {getattr(obj, 'address_extension', 0) or 0})")
@@ -596,8 +742,8 @@ class ModasWorkspace(QWidget):
         if lo is not None or hi is not None:
             lines.append(f"Limits: {lo} … {hi}")
         if hasattr(obj, "read_only"):
-            lines.append(f"Read only: {'yes' if obj.read_only else 'no'}")
-        QMessageBox.information(self, "Variable Information", "\n".join(lines))
+            lines.append(f"Salt okunur: {'evet' if obj.read_only else 'hayır'}")
+        QMessageBox.information(self, "Değişken Bilgisi", "\n".join(lines))
 
     # ======================================================================
     # Ölçüm / bağlantı / yetki
@@ -641,17 +787,9 @@ class ModasWorkspace(QWidget):
         if self._online and not was:
             self._warmup()
         for w in self.value_windows():
-            w.set_allowed(self._allowed and self._online)
+            w.set_allowed(self._online)
         if not online:
             self.stop_measurement()
-
-    def set_allowed(self, allowed: bool):
-        """Rol, kalibrasyon yazmaya izin veriyor mu."""
-        self._allowed = bool(allowed)
-        for w in self.value_windows():
-            w.set_allowed(self._allowed and self._online)
-        for w in self.table_windows():
-            w.set_allowed(self._allowed)
 
     # ======================================================================
     # WP / RP gösterimi
@@ -706,7 +844,9 @@ class ModasWorkspace(QWidget):
 
     def to_state(self) -> dict:
         return {"version": STATE_VERSION, "current": max(0, self.tabs.currentIndex()),
-                "sheets": [{"name": s.name, "windows": self._sheet_specs(s)} for s in self._sheets]}
+                "sheets": [{"name": s.name, "windows": self._sheet_specs(s)} for s in self._sheets],
+                "math": {sid: dict(spec) for sid, spec in self.hub.derived.items()},
+                "favorites": self.var_panel.favorites()}
 
     def save(self) -> bool:
         self._save_timer.stop()
@@ -717,6 +857,9 @@ class ModasWorkspace(QWidget):
         if state is None:
             self._make_sheet(DEFAULT_SHEET)
             return
+        self.var_panel.set_favorites(state.get("favorites"))
+        for sid, spec in (state.get("math") or {}).items():       # matematik sinyalleri osiloskoplardan ÖNCE yüklenir
+            self.hub.derived[sid] = dict(spec)
         for s in state["sheets"]:
             sheet = self._make_sheet(s["name"], select=False)
             sheet.pending = list(s["windows"])
@@ -724,6 +867,35 @@ class ModasWorkspace(QWidget):
         idx = state["current"] if 0 <= state["current"] < len(self._sheets) else 0
         self.tabs.setCurrentIndex(idx)
         self._on_tab_changed(idx)
+
+    def switch_store(self, store: "ModasSheetStore") -> str:
+        """Çalışma sayfası düzenini başka bir kayıt dosyasına geçirir (çalışma tabanı başına düzen). Önce mevcut düzen
+        ESKİ dosyaya kaydedilir. Yeni dosya yoksa mevcut düzen yeni dosyaya devredilir (``"inherited"``: pencereler
+        olduğu gibi kalır); varsa tüm pencereler kapanıp o dosyadaki düzen yüklenir (``"loaded"``). Aynı dosyaysa
+        ``"same"``."""
+        if store.path and store.path == self.store.path:
+            return "same"
+        self.save()
+        state = store.load()
+        self.store = store
+        if state is None:
+            self.save()
+            return "inherited"
+        for sheet in list(self._sheets):
+            for w in list(sheet.windows):
+                w.close()
+            self.stack_layout.removeWidget(sheet.mdi)
+            sheet.mdi.deleteLater()
+        self._sheets.clear()
+        self.tabs.blockSignals(True)
+        while self.tabs.count():
+            self.tabs.removeTab(0)
+        self.tabs.blockSignals(False)
+        self.hub.set_active([])
+        self.hub.derived.clear()
+        self._load()
+        self._on_scope_changed()
+        return "loaded"
 
     def shutdown(self):
         self.stop_measurement()

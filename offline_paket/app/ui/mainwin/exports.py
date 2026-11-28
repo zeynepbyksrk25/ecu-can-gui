@@ -4,6 +4,7 @@ Excel dosyaları YALNIZCA bilgisayara yazılır (``<veri klasörü>/oturum_kayit
 (RAM/flaş) hiçbir şey gönderilmez. Üretim arka plan iş parçacığında yürür (ilerleme penceresiyle); kaynak CSV'ler
 silinmez, Excel üretimi başarısız olsa da veri CSV'de kalır.
 """
+from app.user_roles import ROL_ADI
 import logging
 import os
 import time
@@ -50,7 +51,7 @@ class ExportMixin:
         ASLA bozmaz."""
         try:
             self.input_log.add(page, kind, source, target, new_value, ok=ok, detail=detail, unit=unit,
-                               user=self.current_user, role=self.current_role.value, **kw)
+                               user=self.current_user, role=ROL_ADI, **kw)
         except Exception:  # noqa: BLE001
             log.exception("giriş kaydı eklenemedi")
         # Başarılı sayısal CAN girişleri (Kontrol Paneli, sensör override, motor komutu) kayıtta da zaman serisi olarak görünür

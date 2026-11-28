@@ -1,6 +1,6 @@
 """Modas Sport tarzı Ribbon şeridi.
 
-Üst satır: uygulama rozeti + ``Start | Label | Worksheets | Tools | Windows`` sekmeleri + sağda durum alanı (bağlantı hapı,
+Üst satır: uygulama rozeti + ``Başlat | Etiket | Çalışma Sayfaları | Araçlar | Pencereler`` sekmeleri + sağda durum alanı (bağlantı hapı,
 CCP durumu, rol, Ayarlar, Eşleşmeler — MainWindow ekler). Altında seçili sekmenin düğme grupları; en sağda HER sekmede
 görünen **Motor / Acil Durdurma** grubu (Acil Durdurma hiçbir sekmede gizlenmez).
 
@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
 from app import theme
 from app.ui.modas.style import MODAS_QSS
 
-TABS = [("Start", "S"), ("Label", "L"), ("Worksheets", "W"), ("Tools", "T"), ("Windows", "I")]
+TABS = [("Başlat", "B"), ("Etiket", "E"), ("Çalışma Sayfaları", "S"), ("Araçlar", "A"), ("Pencereler", "P")]
 
 
 def glyph_icon(char: str, color: str = theme.MODAS_GROUP_LABEL, size: int = 26) -> QIcon:
@@ -207,17 +207,17 @@ class ModasRibbon(QFrame):
     # ---- Start ------------------------------------------------------------------
     def _build_start(self):
         _page, lay = self._page()
-        ecu = self.big("ecu", "OFFLINE", "●", "ECU durumu — tıkla: CAN / CCP bağlantı ayarları (CAN Monitor)")
+        ecu = self.big("ecu", "ÇEVRİMDIŞI", "●", "ECU durumu — tıkla: CAN / CCP bağlantı ayarları (CAN İzleme)")
         ecu.setIcon(led_icon(theme.MODAS_LED_RED))
         lay.addWidget(self._group("ECU", ecu))
-        meas = self.big("measure", "Start", "▶", "Ölçümü başlat / durdur   F9", checkable=True)
-        lay.addWidget(self._group("Measurement", meas))
-        rec = self.big("record", "Start", "●", "Kaydı başlat / durdur   Ctrl+F9 (oturum kaydı)", checkable=True)
-        mark = self.small("mark", "◆ Mark  F4", "Kayda test işareti (zaman damgalı) ekler   F4")
+        meas = self.big("measure", "Başlat", "▶", "Ölçümü başlat / durdur   F9", checkable=True)
+        lay.addWidget(self._group("Ölçüm", meas))
+        rec = self.big("record", "Başlat", "●", "Kaydı başlat / durdur   Ctrl+F9 (oturum kaydı)", checkable=True)
+        mark = self.small("mark", "◆ İşaret  F4", "Kayda test işareti (zaman damgalı) ekler   F4")
         mark.setEnabled(False)
-        folder = self.small("open_record", "▸ Open folder", "Son kaydın klasörünü aç")
+        folder = self.small("open_record", "▸ Klasörü aç", "Son kaydın klasörünü aç")
         folder.setEnabled(False)
-        lay.addWidget(self._group("Recording", rec, self._column(mark, folder)))
+        lay.addWidget(self._group("Kayıt", rec, self._column(mark, folder)))
 
         # Current Project and Workbase
         grid = QWidget()
@@ -226,7 +226,7 @@ class ModasRibbon(QFrame):
         g.setHorizontalSpacing(4)
         g.setVerticalSpacing(1)
         self.fields: dict[str, QLineEdit] = {}
-        for r, (key, title) in enumerate((("project", "Project:"), ("workbase", "Workbase:"), ("a2l", "A2L:"))):
+        for r, (key, title) in enumerate((("project", "Proje:"), ("workbase", "Çalışma tabanı:"), ("a2l", "A2L:"))):
             lab = QLabel(title)
             lab.setObjectName("modasFieldLabel")
             edit = QLineEdit("—")
@@ -237,45 +237,46 @@ class ModasRibbon(QFrame):
             g.addWidget(lab, r, 0, Qt.AlignRight)
             g.addWidget(edit, r, 1)
             self.fields[key] = edit
-        lay.addWidget(self._group("Current Project and Workbase", grid))
+        lay.addWidget(self._group("Geçerli Proje ve Çalışma Tabanı", grid))
 
         # Data: WP | COPY→ / Diff / COPY← | RP | Read / Write
-        wp = self.big("wp", "WP", "▤", "Work page (WP): ECU RAM veri seti — düzenlenebilir   F8 ile WP↔RP", checkable=True)
-        rp = self.big("rp", "RP", "▥", "Reference page (RP): yerel referans görüntüsü — salt okunur   F8", checkable=True)
+        wp = self.big("wp", "WP", "▤", "Çalışma sayfası (WP): ECU RAM veri seti — düzenlenebilir   F8 ile WP↔RP", checkable=True)
+        rp = self.big("rp", "RP", "▥", "Referans sayfası (RP): yerel referans görüntüsü — salt okunur   F8", checkable=True)
         wp.setChecked(True)
         grp = QButtonGroup(self)
         grp.setExclusive(True)
         grp.addButton(wp)
         grp.addButton(rp)
         self._page_group = grp
-        copy_fwd = self.small("copy_wp_rp", "COPY  WP ▶ RP", "WP'deki değerleri referans (RP) olarak sakla")
-        self.diff_label = _ClickLabel("Diff: 0")
+        copy_fwd = self.small("copy_wp_rp", "KOPYALA  WP ▶ RP", "WP'deki değerleri referans (RP) olarak sakla")
+        self.diff_label = _ClickLabel("Fark: 0")
         self.diff_label.setObjectName("modasDiff")
         self.diff_label.setAlignment(Qt.AlignCenter)
         self.diff_label.setCursor(Qt.PointingHandCursor)
         self.diff_label.setToolTip("WP ile RP arasındaki farklı etiketleri listele (tıkla)")
         self.diff_label.clicked.connect(self.diff_clicked.emit)
-        copy_back = self.small("copy_rp_wp", "COPY  WP ◀ RP", "Referans (RP) değerlerini ECU RAM'ine (WP) geri yaz")
+        copy_back = self.small("copy_rp_wp", "KOPYALA  WP ◀ RP", "Referans (RP) değerlerini ECU RAM'ine (WP) geri yaz")
         mid = self._column(copy_fwd, self.diff_label, copy_back)
-        read = self.small("read_ecu", "⇩ Read data from ECU", "Çalışma alanındaki tüm etiketleri ECU'dan oku")
-        write = self.small("write_ecu", "⇧ Write data to ECU", "Bekleyen (sarı) kalibrasyon değerlerini ECU RAM'ine yaz")
+        read = self.small("read_ecu", "⇩ ECU'dan veri oku", "Çalışma alanındaki tüm etiketleri ECU'dan oku")
+        write = self.small("write_ecu", "⇧ ECU'ya veri yaz", "Bekleyen (sarı) kalibrasyon değerlerini ECU RAM'ine yaz")
         io = self._column(read, write)
-        lay.addWidget(self._group("Data", wp, mid, rp, io))
+        lay.addWidget(self._group("Veri", wp, mid, rp, io))
         lay.addStretch(1)
 
     # ---- Label ------------------------------------------------------------------
     def _build_label(self):
         _page, lay = self._page()
         lay.addWidget(self._group(
-            "Label",
-            self.big("add_label", "Add label", "＋", "Variable list'ten seçili etiketi worksheet'e ekle   Enter"),
-            self.big("remove_label", "Remove", "✕", "Etiketi görünümden kaldır   Delete"),
-            self.big("var_info", "Information", "ⓘ", "Variable information   Ctrl+I"),
-            self.big("add_input", "Input", "⇢", "Test girişi penceresi ekle: uçuş koşulları ve motor komutları"),
-            self.big("add_scope", "Scope", "∿", "Yeni osiloskop penceresi (Variable list'te seçili etiketlerle açılır)"),
+            "Etiket",
+            self.big("add_label", "Etiket ekle", "＋", "Değişken listesinden seçili etiketi çalışma sayfasına ekle   Enter"),
+            self.big("remove_label", "Kaldır", "✕", "Etiketi görünümden kaldır   Delete"),
+            self.big("var_info", "Bilgi", "ⓘ", "Değişken bilgisi   Ctrl+I"),
+            self.big("add_gauge", "Gösterge", "◔", "Seçili ölçümler için ibreli gösterge penceresi (Değişken listesinde seçin)"),
+            self.big("add_actuators", "Eyleyiciler", "⏻", "Eyleyici kilitleri ve komut değerleri penceresi (Test Tezgâhı ile aynı durum)"),
+            self.big("add_scope", "Osiloskop", "∿", "Yeni osiloskop penceresi (Değişken listesinde seçili etiketlerle açılır)"),
         ))
-        fmts = [("fmt_phys", "Physical", "Ctrl+P"), ("fmt_dec", "Decimal", "Ctrl+D"),
-                ("fmt_hex", "Hexadecimal", "Ctrl+H"), ("fmt_bin", "Binary", "Ctrl+B")]
+        fmts = [("fmt_phys", "Fiziksel", "Ctrl+P"), ("fmt_dec", "Ondalık", "Ctrl+D"),
+                ("fmt_hex", "Onaltılık", "Ctrl+H"), ("fmt_bin", "İkili", "Ctrl+B")]
         btns = [self.small(k, t, f"{t} biçimi   {sc}", checkable=True) for k, t, sc in fmts]
         self.buttons["fmt_phys"].setChecked(True)
         grp = QButtonGroup(self)
@@ -283,35 +284,35 @@ class ModasRibbon(QFrame):
         for b in btns:
             grp.addButton(b)
         self._fmt_group = grp
-        lay.addWidget(self._group("Format", self._column(*btns[:2]), self._column(*btns[2:])))
+        lay.addWidget(self._group("Biçim", self._column(*btns[:2]), self._column(*btns[2:])))
         lay.addStretch(1)
 
     # ---- Worksheets -------------------------------------------------------------
     def _build_worksheets(self):
         _page, lay = self._page()
         lay.addWidget(self._group(
-            "Worksheets",
-            self.big("sheet_new", "New", "＋", "Yeni worksheet"),
-            self.big("sheet_template", "Template", "▦", "Hazır test / kalibrasyon dizilimlerinden yeni worksheet; kendi şablonunu kaydet"),
-            self.big("sheet_rename", "Rename", "✎", "Aktif worksheet'i yeniden adlandır"),
-            self.big("sheet_delete", "Delete", "🗑", "Aktif worksheet'i sil"),
+            "Çalışma sayfaları",
+            self.big("sheet_new", "Yeni", "＋", "Yeni çalışma sayfası"),
+            self.big("sheet_template", "Şablon", "▦", "Hazır test / kalibrasyon dizilimlerinden yeni çalışma sayfası; kendi şablonunu kaydet"),
+            self.big("sheet_rename", "Yeniden adlandır", "✎", "Aktif çalışma sayfasını yeniden adlandır"),
+            self.big("sheet_delete", "Sil", "🗑", "Aktif çalışma sayfasını sil"),
         ))
-        lay.addWidget(self._group("Workfolder", self.big("save_workfolder", "Save", "💾", "Çalışma klasörünü (worksheet düzenini) kaydet   F12")))
+        lay.addWidget(self._group("Çalışma klasörü", self.big("save_workfolder", "Kaydet", "💾", "Çalışma klasörünü (sayfa düzenini) kaydet   F12")))
         lay.addStretch(1)
 
     # ---- Tools ------------------------------------------------------------------
     def _build_tools(self):
         self._tools_page, self._tools_layout = self._page()
         self._tools_layout.addWidget(self._group(
-            "Files",
-            self.big("data_file", "Data file", "⇄", "WP değerlerini dosyaya kaydet / dosyayı WP ile karşılaştır (Data file manager)"),
-            self.big("param_files", "Parameter files", "🗂", "Projenin parametre dosyalarını yönet (Parameter file manager)"),
+            "Dosyalar",
+            self.big("data_file", "Veri dosyası", "⇄", "WP değerlerini dosyaya kaydet / dosyayı WP ile karşılaştır (Veri dosyası yöneticisi)"),
+            self.big("param_files", "Parametre dosyaları", "🗂", "Projenin parametre dosyalarını yönet (Parametre dosyası yöneticisi)"),
         ))
         self._tools_layout.addWidget(self._group(
-            "Macro",
-            self.big("macros", "Macro manager", "⏺", "Yazımları kaydet ve aynı sırayla oynat (Macro manager)"),
+            "Makro",
+            self.big("macros", "Makro yöneticisi", "⏺", "Yazımları kaydet ve aynı sırayla oynat (Makro yöneticisi)"),
         ))
-        self._tools_group = _Group("Tool windows")
+        self._tools_group = _Group("Araç pencereleri")
         self._tools_layout.addWidget(self._tools_group)
         self._tools_layout.addStretch(1)
         self._page_buttons: list[QToolButton] = []
@@ -333,16 +334,16 @@ class ModasRibbon(QFrame):
     def _build_windows(self):
         _page, lay = self._page()
         lay.addWidget(self._group(
-            "Arrange",
-            self.big("tile", "Tile", "▦", "Pencereleri döşe"),
-            self.big("cascade", "Cascade", "❐", "Pencereleri kademeli diz"),
-            self.big("close_all", "Close all", "✕", "Aktif worksheet'teki tüm pencereleri kapat"),
+            "Düzen",
+            self.big("tile", "Döşe", "▦", "Pencereleri döşe"),
+            self.big("cascade", "Kademeli", "❐", "Pencereleri kademeli diz"),
+            self.big("close_all", "Hepsini kapat", "✕", "Aktif çalışma sayfasındaki tüm pencereleri kapat"),
         ))
         lay.addWidget(self._group(
-            "Show",
-            self.big("toggle_vars", "Variable list", "☰", "Variable list'i göster / gizle   F2", checkable=True),
-            self.big("toggle_log", "Log-Windows", "▤", "Log penceresini göster / gizle   F3", checkable=True),
-            self.big("project_manager", "Project Manager", "📁", "Proje yöneticisi   F7"),
+            "Göster",
+            self.big("toggle_vars", "Değişken listesi", "☰", "Değişken listesini göster / gizle   F2", checkable=True),
+            self.big("toggle_log", "Günlük", "▤", "Günlük penceresini göster / gizle   F3", checkable=True),
+            self.big("project_manager", "Proje yöneticisi", "📁", "Proje yöneticisi   F7"),
         ))
         self.buttons["toggle_vars"].setChecked(True)
         self.buttons["toggle_log"].setChecked(True)
@@ -373,7 +374,7 @@ class ModasRibbon(QFrame):
 
     def set_diff(self, n: int):
         self._diff_n = n
-        self.diff_label.setText(f"Diff: {n}")
+        self.diff_label.setText(f"Fark: {n}")
         self.diff_label.setProperty("diff", n > 0)
         self.diff_label.style().unpolish(self.diff_label)
         self.diff_label.style().polish(self.diff_label)

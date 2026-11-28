@@ -14,9 +14,7 @@ from app.ccp import mapio as ccp_mapio
 from app.ccp import protocol as ccp_protocol
 from app.ccp.worker import IDLE
 from app.paths import data_path
-from app.user_roles import (
-    can_run_diagnostics, can_write_calibration, can_write_flash,
-)
+from app.user_roles import ROL_ADI
 from app.ui.mainwin.common import (
     CCP_JOB_INLINE_S, CcpBusyError, _CCP_IO_ERRORS,
 )
@@ -173,7 +171,7 @@ class CalibrationMixin:
                 t, text = ctl.events[self._model_events_seen]
                 self._model_events_seen += 1
                 self.session_recorder.record_event("MODEL", f"{text} (sim_zamanı={snap['sim_time']:.3f})", t)
-                self.event_log.add("MODEL", text, user=self.current_user, role=self.current_role.value)
+                self.event_log.add("MODEL", text, user=self.current_user, role=ROL_ADI)
 
     # ---- MIL kalibrasyon: A2L <-> Simulink parametre eşleme --------------------------------
     def _init_sim_manifest(self):
@@ -336,21 +334,6 @@ class CalibrationMixin:
         # persistent=True gönderir (bkz. app/ui/ccp_tab.py _on_write_flash_clicked).
         if self.ccp_client is None:
             return
-        if persistent:
-            if not can_write_flash(self.current_role):
-                self.ccp_tab.set_write_result(
-                    False, "Yetki yok: FLAŞ yazmak için Yönetici rolü gerekir "
-                           "(sağ üstteki ⚙ Ayarlar penceresinden rol seçin)."
-                )
-                self._record_denied_write("Kalibrasyon > CCP", "FLAŞ yazımı", "Yetki yok: FLAŞ için Yönetici rolü gerekir")
-                return
-        elif not can_write_calibration(self.current_role):
-            self.ccp_tab.set_write_result(
-                False, "Yetki yok: kalibrasyon yazmak için Mühendis veya Yönetici rolü gerekir "
-                       "(sağ üstteki ⚙ Ayarlar penceresinden rol seçin)."
-            )
-            self._record_denied_write("Kalibrasyon > CCP", "RAM yazımı", "Yetki yok: Mühendis veya Yönetici rolü gerekir")
-            return
         selected = self.ccp_tab.selected_object()
         if selected is None or selected[0] != "characteristic":
             return
@@ -418,7 +401,7 @@ class CalibrationMixin:
             f"{obj.name} = {phys_value} {obj.unit or ''} ({'FLAŞ' if persistent else 'RAM'}) yazıldı"
         )
         self.calibration_history.add(
-            self.current_user, self.current_role.value, obj.name, old_phys, phys_value, obj.unit or "",
+            self.current_user, ROL_ADI, obj.name, old_phys, phys_value, obj.unit or "",
             persistent=persistent, source="ccp",
         )
         self.change_tracker.applied(obj.name, old_phys, phys_value, obj.unit or "")
@@ -437,7 +420,7 @@ class CalibrationMixin:
     def _note_failed_write(self, name: str, old, new, unit: str, error: str, source: str, persistent=False):
         """Başarısız yazma da geçmişe girer (write_ok=False): ne denendiği ve neden uygulanmadığı görülsün."""
         try:
-            self.calibration_history.add(self.current_user, self.current_role.value, name, old, float(new), unit,
+            self.calibration_history.add(self.current_user, ROL_ADI, name, old, float(new), unit,
                                          persistent=persistent, detail="", write_ok=False, source=source)
             self.history_tab.refresh()
         except (TypeError, ValueError):
@@ -558,7 +541,7 @@ class CalibrationMixin:
             if isinstance(old_grid, Exception):
                 doc.set_write_result(False, f"Yazma hatası: {old_grid}")
                 self._log_event("HATA", f"{characteristic.name} tablo yazma hatası: {old_grid}")
-                self._record_input("Worksheets > Tablo", "Tablo yazımı (RAM)", "A2L", characteristic.name,
+                self._record_input("Çalışma Sayfaları > Tablo", "Tablo yazımı (RAM)", "A2L", characteristic.name,
                                    f"{len(grid)}×{len(grid[0]) if grid else 0} tablo", ok=False, detail=str(old_grid),
                                    unit=characteristic.unit or "")
                 failed += 1
@@ -566,7 +549,7 @@ class CalibrationMixin:
             backup = self._save_table_backup(characteristic, old_grid)
             rows, cols = len(grid), len(grid[0]) if grid else 0
             changed = self._count_changed_cells(old_grid, grid)
-            self._record_input("Worksheets > Tablo", "Tablo yazımı (RAM)", "A2L", characteristic.name,
+            self._record_input("Çalışma Sayfaları > Tablo", "Tablo yazımı (RAM)", "A2L", characteristic.name,
                                f"{rows}×{cols} tablo", old_value=f"{rows}×{cols} tablo",
                                detail=f"{changed} hücre değişti" + (f"; önceki içerik yedeği: {backup}" if backup else ""),
                                unit=characteristic.unit or "")
@@ -576,7 +559,7 @@ class CalibrationMixin:
                 f"Tablo yazıldı (RAM): {characteristic.name} [{rows}x{cols}], {changed} hücre değişti"
             )
             self.calibration_history.add(
-                self.current_user, self.current_role.value,
+                self.current_user, ROL_ADI,
                 f"{characteristic.name} [tablo {rows}×{cols}]", None, 0.0, characteristic.unit or "",
                 persistent=False, source="worksheets",
                 detail=f"{rows}×{cols} tablo yazıldı, {changed} hücre değişti"
@@ -627,11 +610,6 @@ class CalibrationMixin:
         if self.ccp_client is None:
             self.diagnostics_tab.set_diag_result("CCP bağlantısı yok.", ok=False)
             return
-        if not can_run_diagnostics(self.current_role):
-            self.diagnostics_tab.set_diag_result(
-                "Yetki yok: DIAG_SERVICE çalıştırmak için Mühendis veya Yönetici rolü gerekir.", ok=False
-            )
-            return
         try:
             data = self.ccp_client.diag_service(service_number, params)
         except (ccp_protocol.CCPError, ccp_protocol.CCPTimeoutError) as exc:
@@ -652,13 +630,7 @@ class CalibrationMixin:
         if index < 0 or index >= len(entries):
             return
         entry = entries[index]
-        # FLAŞ kaydı FLAŞ'a, RAM kaydı RAM'e geri yazılır — ve flaş geri
-        # alma RAM'den daha riskli olduğu için daha yüksek yetki ister.
-        required_ok = can_write_flash(self.current_role) if entry.persistent else can_write_calibration(self.current_role)
-        if not required_ok:
-            role_needed = "Yönetici" if entry.persistent else "Mühendis veya Yönetici"
-            QMessageBox.warning(self, "Yetki yok", f"Bu işlem için {role_needed} rolü gerekir.")
-            return
+        # FLAŞ kaydı FLAŞ'a, RAM kaydı RAM'e geri yazılır.
         if getattr(entry, "detail", ""):
             QMessageBox.information(
                 self, "Tablo kaydı",
@@ -714,7 +686,7 @@ class CalibrationMixin:
             return
 
         self.calibration_history.add(
-            self.current_user, self.current_role.value, obj.name,
+            self.current_user, ROL_ADI, obj.name,
             entry.new_value, entry.old_value, obj.unit or "",
             persistent=entry.persistent, source="geri_al",
         )

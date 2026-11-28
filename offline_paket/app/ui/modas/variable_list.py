@@ -1,6 +1,6 @@
 """Variable list (Modas: F2 ile açılıp kapanan sağ panel) ve Log penceresi (F3).
 
-Variable list: ``Label | Description`` iki sütunu, değişken süzgeci (``ALL MEASUREMENTS`` / ``ALL CHARACTERISTICS`` →
+Değişken listesi: ``Label | Description`` iki sütunu, değişken süzgeci (``ALL MEASUREMENTS`` / ``ALL CHARACTERISTICS`` →
 values / curves / maps / text) ve arama kutusu. Satır çift tıklanınca / Enter ile ya da sürüklenip çalışma alanına
 bırakılınca ``add_requested`` yayılır. A2L özetinden (``A2LSummary``) beslenir; ECU ile konuşmaz.
 """
@@ -21,13 +21,14 @@ MIME = "application/x-openecu-label"
 
 # (görünen ad, süzgeç anahtarı)
 FILTERS = [
-    ("<No variable filter>", ""),
-    ("- ALL MEASUREMENTS", "meas"),
-    ("- ALL CHARACTERISTICS", "char"),
-    ("   - values", "value"),
-    ("   - curves", "curve"),
-    ("   - maps", "map"),
-    ("   - text", "text"),
+    ("<Süzgeç yok>", ""),
+    ("- TÜM ÖLÇÜMLER", "meas"),
+    ("- TÜM KALİBRASYON NESNELERİ", "char"),
+    ("   - değerler", "value"),
+    ("   - eğriler", "curve"),
+    ("   - haritalar", "map"),
+    ("   - metin", "text"),
+    ("★ Favoriler", "fav"),
 ]
 
 
@@ -66,7 +67,7 @@ class _VarTable(QTableWidget):
     def mimeData(self, items):  # noqa: N802
         rows = sorted({i.row() for i in items})
         mime = QMimeData()
-        names = [self.item(r, 0).text() for r in rows]
+        names = [self.item(r, 0).text().removeprefix("★ ") for r in rows]
         mime.setData(MIME, "\n".join(names).encode("utf-8"))
         mime.setText("\n".join(names))
         return mime
@@ -84,6 +85,7 @@ class VariableListPanel(QFrame):
     add_requested = Signal(object)         # A2L nesnesi
     info_requested = Signal(object)
     refresh_requested = Signal()           # F5
+    favorites_changed = Signal()
 
     def __init__(self):
         super().__init__()
@@ -93,11 +95,12 @@ class VariableListPanel(QFrame):
         self._summary = None
         self._objects: list = []           # satır -> nesne
         self._kinds: list = []
+        self._favorites: set = set()
 
         v = QVBoxLayout(self)
         v.setContentsMargins(4, 4, 4, 4)
         v.setSpacing(3)
-        title = QLabel("Variable list:")
+        title = QLabel("Değişken listesi:")
         title.setObjectName("modasPanelTitle")
         v.addWidget(title)
         self.filter_combo = QComboBox()
@@ -108,14 +111,14 @@ class VariableListPanel(QFrame):
         v.addWidget(self.filter_combo)
         self.search = QLineEdit()
         self.search.setObjectName("modasSearch")
-        self.search.setPlaceholderText("Label / Description ara…")
+        self.search.setPlaceholderText("Etiket / Açıklama ara…")
         self.search.setClearButtonEnabled(True)
         self.search.textChanged.connect(self.apply_filter)
         v.addWidget(self.search)
 
         self.table = _VarTable(0, 2)
         self.table.setObjectName("modasVarList")
-        self.table.setHorizontalHeaderLabels(["Label", "Description"])
+        self.table.setHorizontalHeaderLabels(["Etiket", "Açıklama"])
         self.table.verticalHeader().setVisible(False)
         self.table.verticalHeader().setDefaultSectionSize(18)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -150,7 +153,7 @@ class VariableListPanel(QFrame):
         try:
             self.table.setRowCount(len(objs))
             for r, (o, k) in enumerate(zip(objs, self._kinds)):
-                a = QTableWidgetItem(kind_icon(k), o.name)
+                a = QTableWidgetItem(kind_icon(k), ("★ " if o.name in self._favorites else "") + o.name)
                 a.setToolTip(f"{o.name} — {k}")
                 b = QTableWidgetItem(getattr(o, "description", "") or "")
                 self.table.setItem(r, 0, a)
@@ -159,12 +162,36 @@ class VariableListPanel(QFrame):
             self.table.setUpdatesEnabled(True)
         self.apply_filter()
 
+    # ---- favoriler ------------------------------------------------------------------
+    def favorites(self) -> list:
+        return sorted(self._favorites, key=str.lower)
+
+    def set_favorites(self, names) -> None:
+        self._favorites = {str(n) for n in names or []}
+        self._refresh_stars()
+        self.apply_filter()
+
+    def toggle_favorite(self, name: str) -> bool:
+        """Etiketi favorilere ekler / çıkarır; yeni durumu (True = favori) döndürür."""
+        on = name not in self._favorites
+        (self._favorites.add if on else self._favorites.discard)(name)
+        self._refresh_stars()
+        self.apply_filter()
+        self.favorites_changed.emit()
+        return on
+
+    def _refresh_stars(self):
+        for r, o in enumerate(self._objects):
+            item = self.table.item(r, 0)
+            if item is not None:
+                item.setText(("★ " if o.name in self._favorites else "") + o.name)
+
     def apply_filter(self, *_):
         key = self.filter_combo.currentData() or ""
         text = self.search.text().strip().lower()
         shown = 0
         for r, (o, k) in enumerate(zip(self._objects, self._kinds)):
-            ok = passes_filter(k, key)
+            ok = o.name in self._favorites if key == "fav" else passes_filter(k, key)
             if ok and text:
                 ok = text in o.name.lower() or text in (getattr(o, "description", "") or "").lower()
             self.table.setRowHidden(r, not ok)
@@ -193,10 +220,13 @@ class VariableListPanel(QFrame):
         if obj is None:
             return
         menu = QMenu(self)
-        act_add = menu.addAction("Add label to worksheet")
-        act_info = menu.addAction("Variable information…   Ctrl+I")
+        act_add = menu.addAction("Etiketi çalışma sayfasına ekle")
+        act_fav = menu.addAction("Favorilerden çıkar" if obj.name in self._favorites else "★ Favorilere ekle")
+        act_info = menu.addAction("Değişken bilgisi…   Ctrl+I")
         chosen = menu.exec(self.table.viewport().mapToGlobal(pos))
-        if chosen is act_add:
+        if chosen is act_fav:
+            self.toggle_favorite(obj.name)
+        elif chosen is act_add:
             self.add_requested.emit(obj)
         elif chosen is act_info:
             self.info_requested.emit(obj)
@@ -226,7 +256,7 @@ class LogPanel(QFrame):
         v.setContentsMargins(4, 2, 4, 2)
         v.setSpacing(1)
         head = QHBoxLayout()
-        title = QLabel("Log-Windows")
+        title = QLabel("Günlük")
         title.setObjectName("modasPanelTitle")
         head.addWidget(title)
         head.addStretch(1)

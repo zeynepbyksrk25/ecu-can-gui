@@ -9,11 +9,12 @@ from PySide6.QtWidgets import (
     QMessageBox,
 )
 
+from app.user_roles import ROL_ADI
 from app.ccp import codec as ccp_codec
 from app.ccp import protocol as ccp_protocol
 from app import control_panel as cpanel
 from app.dashboard_config import (
-    COMMAND_VALUE, CONTROL_KEYS, GAUGE_KEYS, MOTOR_COMMAND_KEYS, SENSOR_KEYS, SOURCE_A2L, SOURCE_CAN, Binding,
+    COMMAND_VALUE, GAUGE_KEYS, MOTOR_COMMAND_KEYS, SENSOR_KEYS, SOURCE_A2L, SOURCE_CAN, Binding,
 )
 from app.paths import data_path
 from app.ui.mainwin.common import (
@@ -108,7 +109,7 @@ class DashboardMixin:
             return False
         self._drain_tx_queue()
         self._log_event("EYLEYICI", f"{label} [CAN {binding.message}.{binding.signal}] = {value:g} "
-                                    f"({self.current_user}/{self.current_role.value})")
+                                    f"({self.current_user}/{ROL_ADI})")
         self._record_input("Ana Sayfa", self._input_kind(label, merge, safety), "CAN",
                            f"{binding.message}.{binding.signal}", value, detail=label)
         if safety:
@@ -195,7 +196,7 @@ class DashboardMixin:
                                ok=False, detail=f"{label}: {exc}", unit=getattr(info, "unit", "") or "")
             return False
         self._log_event("EYLEYICI", f"{label} [A2L {binding.a2l_name}] = {value:g} "
-                                    f"({self.current_user}/{self.current_role.value})")
+                                    f"({self.current_user}/{ROL_ADI})")
         self._record_input("Ana Sayfa", self._input_kind(label, merge, safety), "A2L", binding.a2l_name, value,
                            detail=label, unit=getattr(info, "unit", "") or "")
         return True
@@ -218,22 +219,22 @@ class DashboardMixin:
         return ok
 
     def _on_motor_start(self):
-        if not self._send_motor_command("Motor Start", self.dashboard_tab.config.motor_start):
+        if not self._send_motor_command("Motor Başlat", self.dashboard_tab.config.motor_start):
             self.dashboard_tab.set_motor_toggle("motor_start", False)       # gitmediyse ON görünmesin
 
     def _on_motor_start_off(self):
         """Toggle OFF: Başlat sinyaline 0 yazılır (güvenli yön; sınır kontrolü 0'ı zaten engellemez)."""
-        if not self._send_motor_command("Motor Start kapatma", self.dashboard_tab.config.motor_start, value=0.0):
+        if not self._send_motor_command("Motor Başlat kapatma", self.dashboard_tab.config.motor_start, value=0.0):
             self.dashboard_tab.set_motor_toggle("motor_start", True)        # gitmediyse OFF görünmesin
 
     def _on_motor_stop(self):
         # Durdurma "güvenli yön" komutudur: A2L/DBC sınırı ya da READ_ONLY yüzünden reddedilmez
         # (Motor Start sınırda kalır; bkz. _write_binding safety).
-        if not self._send_motor_command("Motor Stop", self.dashboard_tab.config.motor_stop, safety=True):
+        if not self._send_motor_command("Motor Durdur", self.dashboard_tab.config.motor_stop, safety=True):
             self.dashboard_tab.set_motor_toggle("motor_stop", False)
 
     def _on_motor_stop_off(self):
-        if not self._send_motor_command("Motor Stop kapatma", self.dashboard_tab.config.motor_stop, value=0.0):
+        if not self._send_motor_command("Motor Durdur kapatma", self.dashboard_tab.config.motor_stop, value=0.0):
             self.dashboard_tab.set_motor_toggle("motor_stop", True)
 
     def _on_estop(self):
@@ -261,27 +262,6 @@ class DashboardMixin:
             dt.reset_estop_latch()
         else:
             self._log_event("HATA", "Acil Durdurma kilidi AÇILAMADI: sinyal 0'a çekilemedi, kilitli kalıyor")
-
-    def _migrate_control_bindings(self):
-        """Eski sürümde Motor Kontrol girişleri (Start/Spark/Gaz Kolu/Birincil Yakıt) ``sim_interface.json``
-        içinde "dbc:MESAJ.SİNYAL" olarak tutuluyordu ve doğrudan gönderiliyordu. Artık Eyleyiciler gibi
-        (kilitli, değer + isteğe bağlı _sw, CAN/A2L): eski DBC eşlemesi DEĞER bağlaması olarak taşınır."""
-        cfg = self.dashboard_tab.config
-        legacy = self.sim_config.input_map
-        changed = False
-        for key in CONTROL_KEYS:
-            old = legacy.pop(key, None)
-            m = cfg.actuator_map(key)
-            if old and old.startswith("dbc:") and "." in old and not m.value.is_set:
-                msg, sig = old[4:].split(".", 1)
-                m.value = Binding(SOURCE_CAN, msg, sig)
-                changed = True
-        if legacy is not None and any(k in self.sim_config.input_values for k in CONTROL_KEYS):
-            for k in CONTROL_KEYS:
-                self.sim_config.input_values.pop(k, None)
-        if changed:
-            self.dashboard_config_store.save(cfg)
-        self.sim_config.save()
 
     def _on_dashboard_config_saved(self, cfg):
         if not self.dashboard_config_store.save(cfg):
@@ -396,7 +376,7 @@ class DashboardMixin:
         from app.session_recorder import file_fingerprint
         params = getattr(self.connection, "_params", None) or {}
         mode = getattr(self, "backend_mode", "REAL")
-        return {"operator": operator, "user": self.current_user, "role": self.current_role.value,
+        return {"operator": operator, "user": self.current_user, "role": ROL_ADI,
                 "mode": mode, "connection": {"interface": params.get("interface", ""),
                                              "channel": params.get("channel", ""),
                                              "connected": bool(self.connection.is_connected)},
@@ -441,17 +421,13 @@ class DashboardMixin:
         self._update_rec_state()
 
     def _on_record_marker(self, label: str):
-        """Elle işaret: kayıt dosyasına (events + ASC), olay günlüğüne ve trend grafiğine."""
+        """Elle işaret: kayıt dosyasına (events + ASC) ve olay günlüğüne."""
         label = (label or "").strip()
         if not label:
             return
         now = time.time()
         self.session_recorder.add_marker(label, now)
         self._log_event("ISARET", label)
-        try:
-            self.dashboard_tab.trend.add_event(label, now, "#B58900")
-        except Exception:  # noqa: BLE001 - grafik hatası işareti kaybettirmesin
-            log.debug("trend işareti eklenemedi", exc_info=True)
 
     def _update_rec_state(self):
         """REC göstergesi (üst şerit + oturum sayfası) ve canlı kayıt istatistiği. Düşen veri = yazıcı kuyruğu + CAN
@@ -471,11 +447,6 @@ class DashboardMixin:
                 chip.style().polish(chip)
             if st["dropped"] and state in ("KAYITTA", "DURAKLATILDI"):
                 chip.setToolTip(f"Kayıtta {st['dropped']} öğe kuyruk dolduğu için YAZILAMADI")
-
-    def _on_hub_sample(self, sid: str, value):
-        """Sinyal deposundan gelen örnek: yalnızca kullanıcı girişleri kayda yazılır (diğerleri kaynakta yazılır)."""
-        if sid.startswith("input:"):
-            self.session_recorder.record(sid, value)
 
     def _rebuild_record_index(self):
         """A2L yüklenince: CCP okuma anahtarı (adres, uzantı, boyut) -> A2L nesneleri. CCP iş parçacığı değeri
@@ -518,19 +489,6 @@ class DashboardMixin:
                                     "acquisition_wall_clock")
             rec.record_change(sid, phys, t)
 
-    def _sync_workspace_a2l(self):
-        summary = self.a2l_tab.db.summary
-        self.workspace_tab.set_a2l_measurements(summary.readable() if summary is not None else [])
-
-    def _on_workspace_tick(self, names: list):
-        """Çalışma Alanı'nda seçili A2L ölçümlerini CCP ile (arka planda) okuyup hub'a yazar."""
-        for name, _m, reading in self._iter_a2l_samples(names):
-            self.workspace_tab.push(f"a2l:{name}", reading.phys)
-
-    def _sync_dashboard_measurements(self):
-        summary = self.a2l_tab.db.summary
-        self.dashboard_tab.set_measurements(summary.readable() if summary is not None else [])
-
     # ---- Ana Sayfa: A2L'den (CCP) okuma --------------------------------------
     def _on_dashboard_tick(self, names: list):
         dt = self.dashboard_tab
@@ -562,12 +520,10 @@ class DashboardMixin:
             b = getattr(cfg, key).binding
             if b.source == SOURCE_A2L and b.a2l_name.strip():
                 roles.setdefault(b.a2l_name.strip(), []).append(("motor", key))
-        graph_names = set(dt.graph_measurement_names())
 
         for name in names:
             targets = roles.get(name, [])
-            graph_wanted = name in graph_names
-            if not targets and not graph_wanted:
+            if not targets:
                 continue
             m = by_name.get(name)
 
@@ -597,8 +553,6 @@ class DashboardMixin:
             except ValueError as exc:
                 fail(str(exc))
                 continue
-            if graph_wanted and isinstance(phys_value, (int, float)):
-                dt.add_measurement_sample(name, float(phys_value))
             for role, key in targets:
                 if role == "value":
                     dt.set_gauge_value(key, float(phys_value))

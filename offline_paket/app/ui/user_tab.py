@@ -1,23 +1,21 @@
-"""Kullanıcı / Profil içeriği (SRS Faz 5; artık Ayarlar penceresinde, bkz. settings_dialog.py): rol seçimi (Operatör/Mühendis/
-Yönetici) ve bağlantı+CCP ayarlarını isimli profiller olarak kaydedip
-yeniden uygulama.
+"""Kullanıcı / Profil içeriği (Ayarlar penceresinde, bkz. settings_dialog.py): kullanıcı ismi (denetim kayıtları için; tek rol
+Mühendis) ve bağlantı+CCP ayarlarını isimli profiller olarak kaydedip yeniden uygulama.
 
-Bu bir kimlik doğrulama (authentication) sistemi DEĞİLDİR — bkz.
-app/user_roles.py docstring'i.
+Bu bir kimlik doğrulama (authentication) sistemi DEĞİLDİR — bkz. app/user_roles.py docstring'i.
 """
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
-    QComboBox, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox,
+    QFormLayout, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox,
     QPushButton, QVBoxLayout, QWidget,
 )
 
 from app.ui.dash_widgets import make_card
-from app.user_roles import Role
+from app.user_roles import ROL_ADI
 
 
 class UserTab(QWidget):
-    role_applied = Signal(str, str)          # kullanıcı adı, rol (Role.value)
+    user_applied = Signal(str)               # kullanıcı adı
     profile_apply_requested = Signal(str)    # profil ismi
     profile_save_requested = Signal(str)     # profil ismi (mevcut form alanlarından)
     profile_delete_requested = Signal(str)
@@ -34,31 +32,26 @@ class UserTab(QWidget):
         layout.addWidget(self._build_profile_card(), 5)
 
     def _build_user_card(self):
-        card, v, head = make_card("Kullanıcı ve rol", "plane")
+        card, v, head = make_card("Kullanıcı", "plane")
         self.user_edit = QLineEdit()
         self.user_edit.setPlaceholderText("Kullanıcı ismi")
-        self.role_combo = QComboBox()
-        for role in Role:
-            self.role_combo.addItem(role.value, role)
-
-        apply_button = QPushButton("Rolü Uygula")
+        apply_button = QPushButton("Uygula")
         apply_button.setProperty("tone", "go")
-        apply_button.clicked.connect(self._on_apply_role)
-
-        self.current_label = QLabel("Aktif: - (Operatör)")
+        apply_button.clicked.connect(self._on_apply_user)
+        self.user_edit.returnPressed.connect(self._on_apply_user)
+        self.current_label = QLabel(f"Aktif: - ({ROL_ADI})")
         self.current_label.setObjectName("chipBlue")
-
         form = QFormLayout()
         form.setHorizontalSpacing(12)
         form.setVerticalSpacing(8)
         form.addRow("Kullanıcı ismi:", self.user_edit)
-        form.addRow("Rol:", self.role_combo)
         row = QHBoxLayout()
         row.setSpacing(10)
         row.addWidget(apply_button)
         row.addWidget(self.current_label)
         row.addStretch()
-        note = QLabel("Bu bir kimlik doğrulama değildir: rol, yetki kısıtlarını (yazma, override, flaş) belirler.")
+        note = QLabel(f"Tek rol vardır: {ROL_ADI}. İşlemler denetim günlüğüne bu kullanıcı adıyla kaydedilir; "
+                      "bu bir kimlik doğrulama değildir.")
         note.setObjectName("mutedSmall")
         note.setWordWrap(True)
         v.addLayout(form)
@@ -66,29 +59,10 @@ class UserTab(QWidget):
         v.addWidget(note)
         return card
 
-    _RANK = {Role.OPERATOR: 0, Role.ENGINEER: 1, Role.ADMIN: 2}
-
-    def _on_apply_role(self):
+    def _on_apply_user(self):
         name = self.user_edit.text().strip() or "bilinmeyen"
-        role: Role = self.role_combo.currentData()
-        current = getattr(self, "_current_role", Role.OPERATOR)
-        # Yetki YÜKSELTME bilinçli bir adım olmalı (combo'da kazara seçim).
-        if self._RANK[role] > self._RANK[current]:
-            extra = ("RAM'e kalibrasyon, harita yazma, ham tanı komutu ve eyleyici override"
-                     if role == Role.ENGINEER else
-                     "yukarıdakilere ek olarak KALICI (flaş) yazma")
-            ans = QMessageBox.question(
-                self, "Yetki yükseltme",
-                f"'{role.value}' rolüne geçiliyor. Bu rol {extra} işlemlerini açar ve ECU'ya "
-                f"zarar verebilir. İşlemler denetim günlüğüne '{name}' adıyla kaydedilir.\n\n"
-                f"Devam edilsin mi?",
-                QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
-            )
-            if ans != QMessageBox.Yes:
-                return
-        self._current_role = role
-        self.role_applied.emit(name, role.value)
-        self.current_label.setText(f"Aktif: {name} ({role.value})")
+        self.user_applied.emit(name)
+        self.current_label.setText(f"Aktif: {name} ({ROL_ADI})")
 
     def _build_profile_card(self):
         card, v, _head = make_card("Profiller", "sliders")

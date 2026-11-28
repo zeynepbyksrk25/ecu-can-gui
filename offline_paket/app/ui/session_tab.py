@@ -113,8 +113,8 @@ class SessionTab(QWidget):
         v.addWidget(self.record_label)
         return card
 
-    MARKERS = ["Motor start", "Ignition ON", "Fuel ON", "Idle", "Acceleration", "Maximum RPM", "Shutdown",
-               "Test error"]
+    MARKERS = ["Motor çalıştırma", "Kontak AÇIK", "Yakıt AÇIK", "Rölanti", "Hızlanma", "Maksimum devir", "Kapatma",
+               "Test hatası"]
 
     def _build_record_card(self):
         """Kayıt denetimi: REC göstergesi, Duraklat/Sürdür, canlı istatistik (süre, örnek, kare, boyut, düşen) ve

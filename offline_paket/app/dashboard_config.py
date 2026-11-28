@@ -75,19 +75,16 @@ EYLEYICI_KEYS = ["pompa_start", "pompa_fuel", "valf", "glow_plug", "starter"]
 # Motor Kontrol (Çalıştırma, Gaz Kolu): CAN (DBC) ya da A2L, kilitsiz DEĞER kutusu (değer + Enter ile direkt komut, rol gerekir). ANAHTAR (_sw)
 # YOKTUR: switch (_sw) yalnızca Eyleyicilerdedir (kilitlenince değer 0'a çekilir). Ateşleme ve Birincil Yakıt
 # kaldırıldı (zaten Eyleyicilerde var).
-CONTROL_KEYS = ["start", "throttle"]
 # _sw (anahtar) eşlemesi olan TEK grup: Eyleyiciler. Sensörlerde ve Motor Kontrol'de switch yoktur.
 SWITCH_KEYS = EYLEYICI_KEYS
 # Manuel-override (kilitli) davranışı olan TÜM satırlar.
-ACTUATOR_KEYS = EYLEYICI_KEYS + CONTROL_KEYS
+ACTUATOR_KEYS = EYLEYICI_KEYS
 ACTUATOR_LABELS = {
     "pompa_start": "Yakıt Pompası Start",
     "pompa_fuel": "Yakıt Pompası Fuel",
     "valf": "Yakıt Debisi Valfi",
     "glow_plug": "Glow Plug",
     "starter": "Başlatma Motoru",
-    "start": "Çalıştırma (Start)",
-    "throttle": "Gaz Kolu (PLA)",
 }
 # "valve" -> sayısal değer kutusu (Eyleyicilerde kilit açılınca _sw=1 yazılır). Ana Sayfa'da ON/OFF anahtarı
 # (toggle) YOKTUR: tüm satırlar değer kutusudur.
@@ -97,8 +94,6 @@ ACTUATOR_KINDS = {
     "valf": "valve",
     "glow_plug": "valve",
     "starter": "valve",
-    "start": "valve",
-    "throttle": "valve",
 }
 
 MOTOR_COMMAND_KEYS = ["motor_start", "motor_stop", "estop"]
@@ -108,7 +103,6 @@ MOTOR_COMMAND_LABELS = {
     "estop": "Acil Durdurma",
 }
 
-DEFAULT_GRAPH_SIGNALS = ["g:RPM", "g:Tt5", "g:FP_main"]
 
 SOURCE_CAN = "can"
 SOURCE_A2L = "a2l"
@@ -158,13 +152,10 @@ class MotorCommand:
 
 
 def strip_unused_switches(cfg: "DashboardConfig") -> "DashboardConfig":
-    """Switch (_sw) yalnızca Eyleyicilerde kullanılır: sensör ve Motor Kontrol satırlarının eski kayıtlardan gelen
+    """Switch (_sw) yalnızca Eyleyicilerde kullanılır: sensörlerin eski kayıtlardan gelen
     anahtar eşlemeleri temizlenir (arayüzde de çalışma mantığında da yoktur)."""
     for smap in cfg.sensors.values():
         smap.sw = Binding()
-    for key in CONTROL_KEYS:
-        if key in cfg.actuators:
-            cfg.actuators[key].sw = Binding()
     for key in MOTOR_COMMAND_KEYS:                    # komutlarda Değer ve Switch yok: sabit 1, anahtarsız
         cmd = getattr(cfg, key)
         cmd.value, cmd.sw = COMMAND_VALUE, Binding()
@@ -189,7 +180,6 @@ class DashboardConfig:
 
     # Canlı Trendler'de çizilen sinyaller (kalıcı). Kimlikler:
     # "g:<gösterge anahtarı>" (ör. "g:RPM") veya "m:<A2L ölçüm adı>".
-    graph_signals: list = field(default_factory=lambda: list(DEFAULT_GRAPH_SIGNALS))
 
     # ---- sorgular ---------------------------------------------------------
     def sensor_map(self, key: str) -> SignalMap:
@@ -301,11 +291,6 @@ def config_from_dict(raw: dict) -> DashboardConfig:
                 value=_float(sub.get("value")))
         setattr(cfg, key, cfg_cmd)
 
-    sigs = raw.get("graph_signals")
-    if isinstance(sigs, list):
-        # Artık var olmayan gösterge anahtarları (eski "g:FP") süzülür; yoksa grafikte verisiz hayalet seri kalır.
-        cfg.graph_signals = [s for s in sigs if isinstance(s, str) and s
-                             and (not s.startswith("g:") or s[2:] in GAUGE_KEYS)]
     return strip_unused_switches(cfg)
 
 

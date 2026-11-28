@@ -268,13 +268,11 @@ def test_dbc_encode_strict_default_rejects_out_of_range_and_non_strict_allows_it
 
 def test_actuator_override_mixed_sources_value_a2l_sw_can(win, ccp, can_out, monkeypatch):
     """Kullanıcı örneği: clbc_Fuel_pump_dc_perc (A2L) + _sw (CAN) bağımsız kaynaklar."""
-    from app.user_roles import Role
     dt = win.dashboard_tab
     cfg = DashboardConfig()
     cfg.actuators["pompa_fuel"] = SignalMap(value=Binding(SOURCE_A2L, a2l_name="clbc_Fuel_pump_dc_perc"),
                                             sw=Binding(SOURCE_CAN, "OVERRIDE", "pump_dc_sw"))
     dt.set_config(cfg)
-    dt.set_role(Role.ENGINEER)
     monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: QMessageBox.Yes))
     dt._on_actuator_lock("pompa_fuel", True)
     assert dt._act_open["pompa_fuel"]

@@ -136,7 +136,7 @@ def test_failed_start_unchecks_row_and_dlc_applied(qapp):
     assert got and len(got[0]) == 2
 
 
-def test_operator_cannot_transmit(qapp, tmp_path, monkeypatch):
+def test_manual_transmit_is_logged_and_sends(qapp, tmp_path, monkeypatch):
     import app.paths as paths
     monkeypatch.setenv("OPENECU_VERI_KLASORU", str(tmp_path))
     monkeypatch.setattr(paths, "_cached", None)
@@ -146,10 +146,7 @@ def test_operator_cannot_transmit(qapp, tmp_path, monkeypatch):
     w = MainWindow()
     sent = []
     w.connection.send = lambda *a, **k: sent.append(a)
-    w._on_manual_send(0x100, b"\x01", False)
-    assert sent == []                                  # Operatör: engellendi
-    from app.user_roles import Role
-    w._on_role_applied("test", Role.ENGINEER.value)
+    w._on_user_applied("test")
     w._on_manual_send(0x100, b"\x01", False)
     assert len(sent) == 1
     assert any(e.category == "GÖNDERİM" for e in w.event_log.entries)

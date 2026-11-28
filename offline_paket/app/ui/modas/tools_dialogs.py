@@ -1,4 +1,4 @@
-"""Modas araç pencereleri: Parameter file manager ve Macro manager.
+"""Modas araç pencereleri: Parameter file manager ve Makro yöneticisi.
 
 Pencereler yalnızca düzenleme / seçim arayüzüdür; dosya yazma, ECU'ya yazma ve macro oynatma MainWindow'daki
 (``mainwin/modas_tools.py``) güvenli yollardan yapılır; pencere bunlara geri çağrı (callback) ile bağlanır.
@@ -9,11 +9,11 @@ import time
 
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtWidgets import (
-    QAbstractItemView, QDialog, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QPushButton, QVBoxLayout,
+    QAbstractItemView, QDialog, QHBoxLayout, QInputDialog, QLabel, QListWidget, QListWidgetItem, QPushButton, QVBoxLayout,
 )
 
 from app import theme
-from app.modas_macros import describe
+from app.modas_macros import MacroError, delete_step, describe, move_step, set_step_value
 
 
 class ParameterFilesDialog(QDialog):
@@ -40,12 +40,12 @@ class ParameterFilesDialog(QDialog):
         self.status.setWordWrap(True)
         v.addWidget(self.status)
         row = QHBoxLayout()
-        self.btn_save = QPushButton("Save WP as…")
+        self.btn_save = QPushButton("WP'yi farklı kaydet…")
         self.btn_save.setToolTip("Worksheet'teki ayar değerlerini (WP) yeni bir parametre dosyası olarak kaydet")
-        self.btn_apply = QPushButton("Compare / Apply…")
+        self.btn_apply = QPushButton("Karşılaştır / Uygula…")
         self.btn_apply.setToolTip("Seçili dosyayı WP ile karşılaştır; seçtiğin farkları ECU RAM'ine yaz")
-        self.btn_delete = QPushButton("Delete")
-        self.btn_close = QPushButton("Close")
+        self.btn_delete = QPushButton("Sil")
+        self.btn_close = QPushButton("Kapat")
         self.btn_save.clicked.connect(self._save)
         self.btn_apply.clicked.connect(self._apply)
         self.btn_delete.clicked.connect(self._delete)
@@ -105,13 +105,13 @@ class ParameterFilesDialog(QDialog):
 
 
 class MacroDialog(QDialog):
-    """Macro manager (kalıcı, kalıcı-olmayan pencere): kayıtlı macro'ları listeler, kaydı başlatıp bitirir, oynatır, siler.
+    """Makro yöneticisi (kalıcı, kalıcı-olmayan pencere): kayıtlı macro'ları listeler, kaydı başlatıp bitirir, oynatır, siler.
 
     Kayıt sürerken pencere açık kalır (worksheet'te çalışabilmen için); ``Stop`` macro'yu adlandırıp kaydeder."""
 
     def __init__(self, store, recorder, on_record_toggle, on_play, on_delete, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Macro manager")
+        self.setWindowTitle("Makro yöneticisi")
         self.setMinimumSize(520, 420)
         self.setWindowFlag(Qt.Tool, True)
         self.store, self.recorder = store, recorder
@@ -126,16 +126,30 @@ class MacroDialog(QDialog):
         v.addWidget(self.list, 1)
         v.addWidget(QLabel("Adımlar"))
         self.steps = QListWidget()
-        self.steps.setSelectionMode(QAbstractItemView.NoSelection)
+        self.steps.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.steps.itemSelectionChanged.connect(self._sync_edit_buttons)
         v.addWidget(self.steps, 1)
+        edit = QHBoxLayout()
+        self.btn_step_edit = QPushButton("Değeri düzenle…")
+        self.btn_step_up = QPushButton("▲ Yukarı")
+        self.btn_step_down = QPushButton("▼ Aşağı")
+        self.btn_step_del = QPushButton("Adımı sil")
+        self.btn_step_edit.clicked.connect(self._edit_step_value)
+        self.btn_step_up.clicked.connect(lambda: self._change_steps(lambda st, i: move_step(st, i, -1), -1))
+        self.btn_step_down.clicked.connect(lambda: self._change_steps(lambda st, i: move_step(st, i, 1), 1))
+        self.btn_step_del.clicked.connect(lambda: self._change_steps(delete_step, 0))
+        for b in (self.btn_step_edit, self.btn_step_up, self.btn_step_down, self.btn_step_del):
+            edit.addWidget(b)
+        edit.addStretch(1)
+        v.addLayout(edit)
         self.status = QLabel("")
         self.status.setWordWrap(True)
         v.addWidget(self.status)
         row = QHBoxLayout()
-        self.btn_record = QPushButton("● Record")
-        self.btn_play = QPushButton("▶ Play")
-        self.btn_delete = QPushButton("Delete")
-        self.btn_close = QPushButton("Close")
+        self.btn_record = QPushButton("● Kaydet")
+        self.btn_play = QPushButton("▶ Oynat")
+        self.btn_delete = QPushButton("Sil")
+        self.btn_close = QPushButton("Kapat")
         self.btn_record.clicked.connect(self._record)
         self.btn_play.clicked.connect(self._play)
         self.btn_delete.clicked.connect(self._delete)
@@ -171,10 +185,11 @@ class MacroDialog(QDialog):
     def _sync(self):
         rec = self.recorder.active
         has = self.selected() is not None
-        self.btn_record.setText("■ Stop && save" if rec else "● Record")
+        self.btn_record.setText("■ Durdur && kaydet" if rec else "● Kaydet")
         self.btn_play.setEnabled(has and not rec)
         self.btn_delete.setEnabled(has and not rec)
         self.list.setEnabled(not rec)
+        self._sync_edit_buttons()
         if rec:
             self._show_steps(self.recorder.steps, live=True)
         elif has:
@@ -185,6 +200,54 @@ class MacroDialog(QDialog):
                 self._msg(str(exc), True)
         else:
             self.steps.clear()
+
+    # ---- adım düzenleme (kayıtlı macro dosyası güvenli şekilde yeniden yazılır) -------------
+    def _step_index(self) -> int:
+        return self.steps.currentRow() if self.steps.selectedItems() else -1
+
+    def _sync_edit_buttons(self):
+        i, name = self._step_index(), self.selected()
+        ok = name is not None and not self.recorder.active and i >= 0
+        for b in (self.btn_step_edit, self.btn_step_up, self.btn_step_down, self.btn_step_del):
+            b.setEnabled(ok)
+        if ok:
+            try:
+                self.btn_step_edit.setEnabled(self._loaded_steps()[i]["kind"] == "value")
+            except (MacroError, IndexError):
+                for b in (self.btn_step_edit, self.btn_step_up, self.btn_step_down, self.btn_step_del):
+                    b.setEnabled(False)
+
+    def _loaded_steps(self) -> list:
+        return self.store.load(self.selected())
+
+    def _change_steps(self, fn, select_delta: int):
+        name, i = self.selected(), self._step_index()
+        if name is None or i < 0:
+            return
+        try:
+            steps = fn(self._loaded_steps(), i)
+            self.store.save(name, steps, overwrite=True)
+        except MacroError as exc:
+            self._msg(str(exc), True)
+            return
+        self._msg(f"'{name}' güncellendi ({len(steps)} adım).")
+        self._show_steps(steps)
+        self.steps.setCurrentRow(max(0, min(len(steps) - 1, i + select_delta)))
+
+    def _edit_step_value(self):
+        i = self._step_index()
+        if i < 0 or self.selected() is None:
+            return
+        cur = self._loaded_steps()[i]
+        text, ok = QInputDialog.getText(self, "Adım değeri", f"{cur['label']} için yeni değer:", text=f"{cur['value']:g}")
+        if not ok:
+            return
+        try:
+            value = float(text.replace(",", "."))
+        except ValueError:
+            self._msg("Geçerli bir sayı girin.", True)
+            return
+        self._change_steps(lambda st, idx: set_step_value(st, idx, value), 0)
 
     def _show_steps(self, steps: list, live: bool = False):
         self.steps.clear()

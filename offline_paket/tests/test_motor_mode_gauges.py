@@ -7,7 +7,6 @@ from app.dashboard_config import (
     GAUGE_KEYS, MODE_KEY, MOTOR_MODE_NAMES, SENSOR_KEYS, SOURCE_CAN, Binding, DashboardConfigStore, SignalMap,
     config_from_dict, motor_mode_name,
 )
-from app.user_roles import Role
 
 
 @pytest.fixture
@@ -109,60 +108,6 @@ def test_old_measurement_format_does_not_break():
     assert cfg.sensor_map("RPM").value.a2l_name == "rpm_a2l" and "Tt2" not in cfg.sensors
 
 
-# ---- PLA sürgüsü -------------------------------------------------------------
-def _armed(tab):
-    from app.dashboard_config import DashboardConfig
-    cfg = DashboardConfig()
-    cfg.actuators["throttle"] = SignalMap(value=Binding(SOURCE_CAN, "CTRL", "pla"))
-    tab.set_config(cfg)
-    tab.set_role(Role.ENGINEER)
-
-
-def test_throttle_slider_disabled_without_role_or_mapping(tab):
-    tab.set_role(Role.OPERATOR)
-    assert not tab.throttle_slider.isEnabled()
-    _armed(tab)
-    assert tab.throttle_slider.isEnabled()
-    tab.set_role(Role.OPERATOR)
-    assert not tab.throttle_slider.isEnabled()
-
-
-def test_throttle_slider_syncs_box_and_sends(tab):
-    _armed(tab)
-    box = tab._act_rows["throttle"]["control"]
-    tab.throttle_slider.setValue(35)
-    assert box.text() == "35" and tab.throttle_pct.text() == "35 %"
-    assert tab.calls[-1] == ("CTRL.pla", 35.0)                    # ilk değişiklik hemen gider
-    tab._throttle_timer.stop()
-    tab.throttle_slider.setValue(80)
-    tab._throttle_timer.stop()
-    tab._throttle_pending = False
-    tab.calls.clear()
-    tab.throttle_slider.sliderPressed.emit()
-    tab.throttle_slider.setValue(90)
-    tab.throttle_slider.setValue(91)                              # kısıtlama aralığında: yalnız kuyruğa alınır
-    assert len(tab.calls) <= 1
-    tab.throttle_slider.sliderReleased.emit()
-    assert tab.calls[-1] == ("CTRL.pla", 91.0)                    # bırakınca SON değer kesin gider
-    # kutuya yazılan değer sürgüyü taşır, komut yalnız Enter ile gider
-    tab.calls.clear()
-    box.setText("20")
-    box.textEdited.emit("20")
-    assert tab.throttle_slider.value() == 20 and not tab.calls
-
-
-def test_throttle_failure_stops_resending_during_drag(tab):
-    _armed(tab)
-    tab.writer = lambda b, v, label: (tab.calls.append((b.text, v)), False)[1]
-    tab.throttle_slider.sliderPressed.emit()
-    tab.throttle_slider.setValue(10)
-    n = len(tab.calls)
-    tab._throttle_timer.stop()
-    tab.throttle_slider.setValue(20)
-    tab._on_throttle_tick()
-    assert len(tab.calls) == n                                    # hata sonrası sürükleme boyunca tekrar denemez
-
-
 @pytest.mark.parametrize("key", ["FP_start", "FP_main"])
 def test_fuel_pressure_gauges_turn_red_above_5_bar(tab, key):
     gc = tab._gauge_cards[key]
@@ -188,39 +133,10 @@ def test_old_single_fp_config_loads_and_both_new_gauges_start_empty():
     assert cfg.sensors["RPM"].value.is_set
     assert "FP" not in cfg.sensors
     assert not cfg.sensors["FP_start"].value.is_set and not cfg.sensors["FP_main"].value.is_set
-    assert cfg.graph_signals == ["g:RPM", "m:SomeVar"]
+    assert not hasattr(cfg, "graph_signals")
     legacy = config_from_dict({"measurement_rpm": "N_RPM", "measurement_fp": "FP_bar"})
     assert legacy.sensors["RPM"].value.a2l_name == "N_RPM"
     assert not legacy.sensors["FP_start"].value.is_set and not legacy.sensors["FP_main"].value.is_set
-
-
-def test_throttle_slider_real_mouse_drag(tab):
-    from PySide6.QtCore import QPoint, Qt
-    from PySide6.QtTest import QTest
-    _armed(tab)
-    sl = tab.throttle_slider
-    sl.resize(300, 26)
-    sl.show()
-    tab.calls.clear()
-    y = sl.height() // 2
-    QTest.mousePress(sl, Qt.LeftButton, Qt.NoModifier, QPoint(13, y))        # sol uç
-    assert sl.value() == 0
-    QTest.mouseMove(sl, QPoint(150, y))
-    assert abs(sl.value() - 50) <= 1 and tab._act_rows["throttle"]["control"].text() == str(sl.value())
-    QTest.mouseMove(sl, QPoint(900, y))                                      # aralık dışı: 100'e kıskaç
-    assert sl.value() == 100
-    QTest.mouseRelease(sl, Qt.LeftButton, Qt.NoModifier, QPoint(900, y))
-    assert tab.calls[-1] == ("CTRL.pla", 100.0) and not sl.isSliderDown()
-
-
-def test_throttle_slider_ignores_mouse_when_disabled(tab):
-    from PySide6.QtCore import QPoint, Qt
-    from PySide6.QtTest import QTest
-    tab.set_role(Role.OPERATOR)
-    sl = tab.throttle_slider
-    sl.resize(300, 26)
-    QTest.mouseClick(sl, Qt.LeftButton, Qt.NoModifier, QPoint(250, 13))
-    assert sl.value() == 0
 
 
 def test_sub_mode_names_and_keys():

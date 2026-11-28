@@ -245,7 +245,7 @@ class CCPTab(QWidget):
         self.array_hint_label.setWordWrap(True)
         self.array_hint_label.setStyleSheet(f"color: {theme.WARN_INK};")
         self.array_hint_label.setVisible(False)
-        self.open_map_button = QPushButton("Worksheets'te Aç (tüm elemanları gör/düzenle)")
+        self.open_map_button = QPushButton("Çalışma sayfasında aç (tüm elemanları gör/düzenle)")
         self.open_map_button.setVisible(False)
         self.open_map_button.clicked.connect(self._on_open_map_clicked)
 
@@ -362,7 +362,7 @@ class CCPTab(QWidget):
             self.array_hint_label.setText(
                 f"Bu nesne tek değer DEĞİL: {obj.kind} ({rows} satır × {cols} sütun = "
                 f"{rows * cols} eleman). Bu panel yalnızca İLK elemanı okur/yazar; "
-                "tüm elemanları görmek ve düzenlemek için Worksheets (Modas) sayfasını kullanın."
+                "tüm elemanları görmek ve düzenlemek için çalışma sayfasını (Modas) kullanın."
             )
         if kind == "measurement":
             self.sel_kind.setText(f"MEASUREMENT ({obj.datatype})")

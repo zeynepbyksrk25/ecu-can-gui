@@ -1,6 +1,6 @@
 """Macro manager (Qt'siz): kullanıcının yaptığı ayar yazımlarını kaydedip aynı sırayla yeniden oynatır.
 
-Bir macro, adım listesidir: ``{"kind": "value" | "table" | "input", "label": ..., "value": sayı | tablo}``. Macro dosyası ASLA
+Bir macro, adım listesidir: ``{"kind": "value" | "table", "label": ..., "value": sayı | tablo}``. Macro dosyası ASLA
 kendi başına bir şey yazmaz: oynatma, MainWindow'daki güvenli yazma yollarından (rol, yedek, doğrulama) geçer. Kayıt,
 yalnızca BAŞARILI yazımları ekler.
 """
@@ -15,7 +15,7 @@ from app.modas_dataset import _valid
 from app.persist import atomic_write_json
 from app.ui.modas.pages import _copy
 
-KINDS = ("value", "table", "input")
+KINDS = ("value", "table")
 EXT = ".json"
 _BAD = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
 
@@ -25,6 +25,8 @@ class MacroError(ValueError):
 
 
 def check_step(step) -> dict:
+    if isinstance(step, dict) and step.get("kind") == "input":
+        raise MacroError("Macro kaldırılmış bir 'input' (test girişi) adımı içeriyor; bu adımlar artık desteklenmiyor.")
     if not isinstance(step, dict) or step.get("kind") not in KINDS:
         raise MacroError("Geçersiz macro adımı.")
     label = step.get("label")
@@ -117,6 +119,37 @@ class MacroStore:
 def missing_labels(steps: list, available: set) -> list:
     """Macro'nun kullandığı ama worksheet'te açık olmayan etiketler (oynatmadan önce kullanıcıya söylenir)."""
     return sorted({s["label"] for s in steps if s["label"] not in available})
+
+
+def delete_step(steps: list, index: int) -> list:
+    """Adımı çıkarır; en az bir adım kalmalıdır (boş macro kaydedilemez)."""
+    if not 0 <= index < len(steps):
+        raise MacroError("Geçersiz adım.")
+    if len(steps) == 1:
+        raise MacroError("Son adım silinemez; macro'yu silin.")
+    return [dict(s) for i, s in enumerate(steps) if i != index]
+
+
+def move_step(steps: list, index: int, delta: int) -> list:
+    """Adımı ``delta`` kadar kaydırır (sınırda yerinde kalır)."""
+    if not 0 <= index < len(steps):
+        raise MacroError("Geçersiz adım.")
+    out = [dict(s) for s in steps]
+    j = index + delta
+    if 0 <= j < len(out):
+        out[index], out[j] = out[j], out[index]
+    return out
+
+
+def set_step_value(steps: list, index: int, value) -> list:
+    """Tek değer adımının sayısını değiştirir (tablo adımları burada düzenlenmez). Doğrulama ``check_step``'tedir."""
+    if not 0 <= index < len(steps):
+        raise MacroError("Geçersiz adım.")
+    if steps[index]["kind"] != "value":
+        raise MacroError("Yalnızca tek değer adımlarının değeri düzenlenebilir; tablo adımı silinip yeniden kaydedilir.")
+    out = [dict(s) for s in steps]
+    out[index] = check_step({**out[index], "value": value})
+    return out
 
 
 def describe(step: dict) -> str:

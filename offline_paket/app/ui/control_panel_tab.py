@@ -560,7 +560,6 @@ class ControlPanelTab(QWidget):
         self._ccp_connected = False
         self._can_connected = False
         self._lost = False
-        self._can_allowed = True
         self._tx_running: set = set()
         self._tx_paused = False
         self._src_mtimes: dict = {}
@@ -711,12 +710,12 @@ class ControlPanelTab(QWidget):
         # --- boş durum yönlendirmesi (hiç sinyal yokken 4 boş bölüm yerine) ---
         self.onboarding = QLabel(
             "<b>Kontrol Paneli — ECU'ya test girdisi verin ve çıkışları izleyin</b><br><br>"
-            "1. DBC (CAN Monitor sekmesi) ve A2L (Kalibrasyon &gt; A2L) dosyalarını yükleyin.<br>"
+            "1. DBC (CAN Trace penceresi) ve A2L (Project Manager &gt; workbase) dosyalarını yükleyin.<br>"
             "2. <b>+ Sinyal kataloğu</b> ile istediğiniz sinyalleri panele ekleyin.<br>"
             "3. Değer hücresine yazın (sarı = bekleyen), sensör için <b>Override</b> kutusunu işaretleyin.<br>"
             "4. <b>Uygula</b> ile gönderin; sonucu <b>ECU'nun gördüğü</b> ve çıkış tablosunda izleyin.<br>"
             "5. İşiniz bitince <b>Tüm override'ları kapat</b>.<br><br>"
-            f"<span style='color:{theme.MUTED}'>Değer göndermek için Mühendis veya Yönetici rolü gerekir.</span>")
+            f"<span style='color:{theme.MUTED}'>Gönderim ve override işlemleri denetim günlüğüne kaydedilir.</span>")
         self.onboarding.setTextFormat(Qt.RichText)
         self.onboarding.setWordWrap(True)
         self.onboarding.setStyleSheet(f"background:{theme.SURFACE};border:1px solid {theme.LINE_MID};border-radius:10px;"
@@ -958,15 +957,15 @@ class ControlPanelTab(QWidget):
             vi = t.item(r, 2)
             vi.setData(ROLE_CHOICES, s.choices)
             vi.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            if self._can_allowed and not s.missing:
+            if not s.missing:
                 vi.setFlags(vi.flags() | Qt.ItemIsEditable)
         elif role == ROLE_SENSOR_OVR:
             vi = t.item(r, 3)
             vi.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            if self._can_allowed and not s.missing and s.ovr_val is not None:
+            if not s.missing and s.ovr_val is not None:
                 vi.setFlags(vi.flags() | Qt.ItemIsEditable)
             oi = t.item(r, 2)
-            if s.ovr_en is not None and self._can_allowed and not s.missing:
+            if s.ovr_en is not None and not s.missing:
                 oi.setFlags(oi.flags() | Qt.ItemIsUserCheckable)
                 oi.setCheckState(Qt.Unchecked)
             else:
@@ -1270,9 +1269,6 @@ class ControlPanelTab(QWidget):
         items = self.pending_items()
         if not items:
             return
-        if not self._can_allowed:
-            self._set_status("Yetki yok: giriş göndermek için Mühendis veya Yönetici rolü gerekir.", False)
-            return
         oor = [self._sig(k).name for k, f, v, _o in items
                if f == "value" and self._out_of_range(self._sig(k), v)]
         if oor:
@@ -1521,7 +1517,7 @@ class ControlPanelTab(QWidget):
         items = self.pending_items()
         n = len(items)
         self.apply_button.setText(f"Uygula ({n})")
-        self.apply_button.setEnabled(n > 0 and self._can_allowed)
+        self.apply_button.setEnabled(n > 0)
         self.revert_button.setEnabled(n > 0)
         self.pending_label.setText(f"<b style='color:{theme.WARN_INK}'>{n} bekleyen değişiklik</b>" if n else "Bekleyen değişiklik yok")
         n_ovr = sum(1 for k in self._rows if self._sig(k).role == ROLE_SENSOR_OVR and self._st(k)["en"])
@@ -1573,13 +1569,6 @@ class ControlPanelTab(QWidget):
             self.banner.setVisible(False)
         for k in list(self._rows):
             self._refresh_row(k)
-
-    def set_allowed(self, allowed: bool):
-        """Rol yetkisi (Mühendis/Yönetici). Operatörde giriş kutuları kilitlenir."""
-        if allowed != self._can_allowed:
-            self._can_allowed = allowed
-            self._rebuild_tables()
-        self.kill_button.setEnabled(True)   # güvenlik amaçlı bırakma: rol gerektirmez
 
     def set_tx_running(self, names: set, paused: bool = False):
         self._tx_running = set(names)

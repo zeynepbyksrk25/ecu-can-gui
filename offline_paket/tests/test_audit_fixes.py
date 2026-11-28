@@ -115,9 +115,6 @@ def test_ccp_event_queue_is_bounded_and_keeps_the_newest_events():
 
 # ---- 5 yazmada geri okuma ---------------------------------------------------------------------------------------------
 def test_worksheet_value_write_verifies_by_reading_back(win, ccp):
-    from app.user_roles import Role
-    win.current_role = Role.ENGINEER
-    win._modas_sync_permissions()
     win.modas_tab.set_summary(win.a2l_tab.db.summary)
     obj = next(c for c in win.a2l_tab.db.summary.characteristics if c.name == "clbc_Fuel_pump_gain")
     w = win.modas_tab.add_label(obj.name)

@@ -75,15 +75,22 @@ Sürücü kurulduktan sonra adaptörü takıp Aygıt Yöneticisi'nde
 
 ## Adım 4 — Uygulamayı kullanma
 
-`ECU_CAN_Arayuzu.exe` çalıştırıldığında sekmeler sırasıyla:
+`ECU_CAN_Arayuzu.exe` çalıştırıldığında **Modas tarzı tek ana pencere** (ribbon: Start / Label / Worksheets / Tools / Windows)
+açılır; diğer sayfalar **Tools** sekmesinden (ya da `Ctrl+1…6`) bağımsız araç pencereleri olarak açılır:
 
-| Sekme | Ne işe yarar |
+| Sayfa | Ne işe yarar |
 |---|---|
-| **Ana Sayfa** | Annunciator lamba şeridi (RED STOP LAMP/MIL LAMP/vb.), Motor Komutları, 9 ibre göstergeli Motor Parametreleri (RPM/İtki/PLA/Tt5/Başlangıç Yakıt Basıncı/Ana Yakıt Basıncı/FT/Ps2/Ps3), Sensör Durumu ve Arıza Tablosu, gömülü canlı grafik, **Eyleyiciler** (manuel override anahtarları — MATLAB/Simulink ile donanım testi için). Aşağıdaki "Ayarlar" bölümüne bakın — bu sekmenin çalışması için DBC/A2L eşlemelerini bir kere girmeniz gerekir. |
-| **CAN Monitor** | Bağlantı (arayüz/kanal/baudrate — arayüz seçimi "▸ Gelişmiş ayarlar" arkasında, varsayılan arayüz `virtual` — **gerçek test için `pcan` seçin**), İzleme (gelen/giden CAN trafiği), Gönderim (manuel/periyodik mesaj + DBC yükleme — Ana Sayfa'daki motor komutları ve eyleyici override'ları da aynı DBC'yi kullanır), Log (CAN trafiğini CSV'ye kaydetme) — tek sekmede birleşik |
-| **Kalibrasyon** | İç sekmeler (3): **A2L** (A2L dosyası yükleyip Measurement/Characteristic nesnelerini gezme; kalibrasyonun ilk adımı), **CCP** (canlı değer okuma, RAM'e geçici yazma, **Yönetici rolüyle flaşa kalıcı yazma**), **Geçmiş** (RAM ve FLAŞ yazımlarının eski/yeni değerleri, geri alma — FLAŞ kaydı uygulama kapansa bile kalıcıdır) |
-| **Tanılama ve Oturum** | CCP bağlantı testi + ham DIAG_SERVICE isteği, CAN bağlantı sağlığı, test oturumu (başlat/bitir, PDF test raporu) ve TEK olay günlüğü ("Tümü / Yalnız hatalar" süzgeci) — birleşik |
-| **⚙ Ayarlar** (komut şeridi; sekme değil) | Rol seçimi (Operatör/Mühendis/Yönetici), bağlantı+CCP ayarlarını profil olarak kaydetme ve Eşleşmeler. "Rol: …" etiketine tıklayarak da açılır |
+| **Worksheets** (ana pencere) | Etiket pencereleri (değer / harita), **Scope** (osiloskop), WP/RP sayfaları, Diff, Variable list, Log-Windows. A2L etiketleri burada okunur/yazılır; değişiklikler kırmızı ok ve fark ile görünür. **Osiloskop**: A2L etiketleri Değişken listesinden sürüklenir; DBC sinyali, gösterge, matematik sinyali (ölçekle / A ○ B / hareketli ortalama) ve CSV kaydı **Sinyaller… / ƒ Matematik / CSV** düğmeleriyle eklenir. |
+| **Test Bench** (`Ctrl+2`) | **Motor Parametreleri** (RPM/İtki/PLA/Tt5/Fp Başl./Fp Ana/Ft/Ps2/Ps3 göstergeleri, sensör sağlığı, alt modlar), **Eyleyiciler** (manuel override: kilit + onay) ve MIL modunda Simulink model kontrol paneli. Motoru Başlat / Durdur / Acil Durdurma anahtarları ana şeritte. Çalışması için ⚙ Eşleşmeler'de DBC/A2L eşlemelerini bir kere girin. |
+| **CAN Trace** (`Ctrl+3`) | Bağlantı (PCAN, baudrate), İzleme (gelen/giden CAN, DBC çözümü), Gönderim (manuel/periyodik, DBC yükleme), Kayıt. |
+| **Calibration Tools** (`Ctrl+4`) | **CCP** (bağlantı, canlı değer okuma, RAM'e geçici yazma, **Yönetici rolüyle flaşa kalıcı yazma**) ve **Geçmiş** (RAM/FLAŞ yazımlarının eski/yeni değerleri, geri alma). A2L'nin ayrı sekmesi yok: Project Manager'daki workbase'den yüklenir. |
+| **Control Panel** (`Ctrl+5`) | Genel ECU test girdisi: uçak girişleri, sensör/eyleyici override'ları, çıkış izleme (aşağıdaki bölüm). PLA / uçuş koşulları gibi girişler buradan gönderilir. |
+| **Diagnostics** (`Ctrl+6`) | CCP bağlantı testi + DIAG_SERVICE, CAN sağlığı, test oturumu (kayıt, PDF/HTML rapor, Excel), kayıtlı oturumlar, tetikleyici ile otomatik kayıt, test senaryoları. |
+| **⚙ Ayarlar** (komut şeridi) | Kullanıcı ismi (denetim kayıtları için; tek rol: Mühendis) ve profiller; ⚙ Eşleşmeler ayrı düğme. |
+
+> Kaldırılan eski sayfalar: Analiz (Çalışma Alanı, Performans), Test Bench'teki Uçuş Koşulları / Motor Kontrol / Son Olaylar /
+> Canlı Trendler kartları, Worksheets'teki Input pencereleri, Calibration Tools'taki A2L sekmesi. Karşılıkları: Scope, Control Panel,
+> Log-Windows, Project Manager + Variable list.
 
 ### Eyleyici manuel override (MATLAB/Simulink donanım testi)
 
@@ -97,23 +104,17 @@ sürebilir. Anahtarı kapatınca "enable=0" gönderilir ve model kendi iç
 hesaplamasına döner. DBC mesaj/sinyal eşlemesi Ana Sayfa → Ayarlar'dan
 girilir (bkz. aşağıdaki bölüm).
 
-### Simülasyon Girişleri (Ana Sayfa) ve Performans sayfası
+### Test Bench: eşleşmeler ve anahtarlar
 
-**Ana Sayfa → Uçuş Koşulları (sol panel):** Altitude (0–30 kft), Alfa/Beta (±90°) ve sabit değerler (Ma, Toplam Giriş Basıncı, Ortam Basıncı, Ortam Sıcaklığı). Değerler Enter/bırakma ile anında CAN'dan gönderilir; "Hepsini gönder" tümünü yollar. Girişler DBC sinyallerine bağlanır: panel ilk DBC yüklemesinde isimle otomatik eşler, olmayanlar ⚙ Eşleşmeler > Uçuş Koşulları'ndan seçilir. Gönderim için Mühendis/Yönetici rolü ve CAN bağlantısı gerekir. Kontrol Paneli ile aynı değer tablosunu paylaşır.
-
-**Ana Sayfa → Motor Kontrol** (Çalıştırma/Start, Gaz Kolu/PLA): her satırın **Değer** eşleşmesi **CAN (DBC) ya da A2L** seçilir (⚙ Eşleşmeler > Sinyaller > Motor Kontrol); **kilit yoktur**: kutuya değer yazıp **Enter**'a basınca komut doğrudan gönderilir (Mühendis/Yönetici rolü gerekir, onay sorulmaz). **Switch (`_sw`) YOKTUR ve ON/OFF anahtarı yoktur.** Ateşleme (Spark) ve Birincil Yakıt kaldırıldı (zaten Eyleyicilerde var).
-
-**Switch (`_sw`) yalnızca Eyleyicilerdedir.** Sensörlerde (Motor Parametreleri) ve Motor Kontrol'de switch eşlemesi ve manuel değer/kilit yoktur; eski `dashboard_config.json` içindeki bu `_sw`'ler yüklenirken temizlenir.
+**Switch (`_sw`) yalnızca Eyleyicilerdedir.** Sensörlerde (Motor Parametreleri) switch eşlemesi ve manuel değer/kilit yoktur; eski `dashboard_config.json` içindeki bu `_sw`'ler yüklenirken temizlenir.
 
 **Motor Komutları (Başlat / Durdur / Acil Durdurma)** ⚙ Eşleşmeler'de yalnızca **Komut** (CAN `MESAJ.SİNYAL` ya da A2L değişken) alır; **Değer ve Switch yoktur**. Düğmeye basınca eşlenen sinyale doğrudan **1** yazılır (tek sinyallik, tek seferlik darbe). Komutlar kilitsizdir ve onay sormaz (Acil Durdurma her zaman basılabilir). Eski kayıttaki değer/switch yok sayılır.
-
-**Analiz → Performans:** Compressor / Combustion / Turbine / Nozzle kartları (kadran + siyah dijital kutular), A kartında gönderilen uçuş koşullarının geri okunuşu ve 3 grafik. Değerler DBC (CAN) ya da A2L (CCP) kaynağından okunur; eşleme isimle otomatik denenir, eşleşmeyen kutuya **sağ tık → Sinyal bağla…**. Kutuya sağ tık → **Eşik ayarla…** (ör. Surge Margin altında sarı/kırmızı); eşik girilmezse renk değişmez. Kadran aralığı A2L min/max'tan alınır, yoksa otomatiktir (sağ tık → Aralığı ayarla). Grafiklerde "Seç…" ile sinyaller, "Normalize" ile farklı birimler tek eksende karşılaştırılır. Ayarlar `sim_interface.json` içinde saklanır.
 
 ### Kontrol Paneli (Simulink/MATLAB tabanlı ECU testi)
 
 Sol menüde **Kontrol Paneli**: uçak girişlerini, sensör override'larını, çıkışları ve iç sinyalleri TEK sayfada toplar.
 
-1. **CAN Monitor → DBC yükle** ve **Kalibrasyon → A2L** sekmesinden A2L dosyasını yükleyin. Sinyal kataloğu bu dosyalardan otomatik çıkar (CSV gerekmez).
+1. **CAN Trace → DBC yükle** ve Project Manager'da workbase'e A2L dosyasını tanımlayıp açın. Sinyal kataloğu bu dosyalardan otomatik çıkar (CSV gerekmez).
 2. Sınıflandırma: DBC mesajının göndericisi `AIRCRAFT / UCAK / TESTER / HOST` ise **Uçak girişi** (GUI'den periyodik gönderilir; bir mesajın tüm sinyalleri TEK karede gider). Diğer DBC mesajları **Çıkış**. A2L'de `<İsim>_Ovr_Val` + `<İsim>_Ovr_En` çifti **Sensör girişi** (önce değer, sonra bayrak CCP ile yazılır; "ECU'nun gördüğü" = A2L'deki `<İsim>` ölçümü). Diğer A2L ölçümleri **Çıkış**; istenirse İç sinyal yapılır.
 3. **+ Sinyal kataloğu** ile ağaçtan işaretleyip **Panele ekle**. Görünümler, çalışma listesi ve senaryolar `kontrol_paneli.json` içinde saklanır.
 4. Değerleri yazın (sarı = bekliyor), **Uygula (N)** ile hepsini birlikte gönderin. Aralık dışı değer onay sorar. **Bekleyenleri geri al**, **Tüm override'ları kapat** ve **Gönderimi durdur/başlat** düğmeleri vardır.
@@ -158,13 +159,10 @@ uygulamada donanımla doğrulanmamıştır**. Bu yüzden:
 
 ### Ana Sayfa (tek ekran, sidebar'sız)
 
-- Üstte yatay sekme çubuğu; **Ana Sayfa sekmesi sabittir** (kapatılamaz/taşınamaz) ve
-  16" laptopta (en az ~1280x720 etkin çözünürlük) **kaydırma olmadan** tek ekrana sığar.
-- Sol: **Uçuş Koşulları**, **Motor Kontrol** (kilitsiz değer kutusu: değer + Enter ile direkt komut, switch yok) ve **Eyleyiciler** (kilitli, değer + `_sw`, CAN/A2L) +
-  **Son olaylar** (komut gönderildi / hata / bağlantı, renkli). Sağ: **Motor Parametreleri** (8 gösterge) + **Canlı Trendler**.
+- Sol: **Eyleyiciler** (kilitli, değer + `_sw`, CAN/A2L). Sağ: **Motor Parametreleri** (göstergeler) ve MIL modunda model kontrol paneli.
 - **⚙ Eşleşmeler**: sensör, eyleyici, motor komutu ve giriş sinyalleri. Eyleyicilerde **Değer** ve
   **Anahtar (`_sw`)** eşleşmesi ayrı ayrı **CAN (DBC) ya da A2L** seçilir; sensörlerde yalnızca **Değer** (+ isteğe bağlı
-  *Arıza* biti), Motor Kontrol'de yalnızca **Değer**, Motoru Başlat / Durdur / Acil Durdurma'da yalnızca **Komut**
+  *Arıza* biti), Motoru Başlat / Durdur / Acil Durdurma'da yalnızca **Komut**
   eşlenir (switch yalnızca Eyleyicilerdedir). Eski `dashboard_config.json` otomatik göç eder.
 - **Arayüz uzun işlemlerde donmaz:** harita/tablo, flaş ve toplu parametre yazmaları arka plan iş
   parçacığında yürür (durum çubuğunda "⏳ … yazılıyor"; o sırada Kalibrasyon ve Kontrol Paneli sayfaları
@@ -201,9 +199,6 @@ uygulamada donanımla doğrulanmamıştır**. Bu yüzden:
   testlerle yazılım düzeyinde sınanmıştır; gerçek ECU'da motoru durdurduğu donanımda ayrıca doğrulanmalıdır.
 - **Kilit (`_sw`, yalnızca Eyleyiciler)**: kilitli (anahtar=0) iken değer değiştirilemez. Kilit açılınca (Mühendis/Yönetici
   + onay) önce değer, sonra `<ad>_sw = 1` yazılır; tekrar kilitleyince `<ad>_sw = 0`.
-- **Canlı Trendler**: normalize yok, her sinyal gerçek birimiyle (çoklu Y ekseni); 60 sn/5 dk/10 dk/1 sa,
-  yakınlaştır/uzaklaştır, A/B imleçleri ve Δ, iki sinyalin farkı, Test Başlat/Bitir işaretleri,
-  CSV/MAT/MDF dışa aktarım.
 - Gösterge değer göstermiyorsa nedeni kartın altında yazar (CCP bağlı değil, ECU adresi yok, ECU
   cevap vermedi…); fare ile üzerine gelince kaynak/ham/fiziksel değer görünür. A2L'deki
   `MOD_COMMON BYTE_ORDER` artık okunur (küçük-endian ECU'larda değerler eskiden bozuk çıkıyordu).
@@ -244,33 +239,21 @@ uygulamada donanımla doğrulanmamıştır**. Bu yüzden:
   göstergeler orantılı ölçeklenir.
 - **Kalıcı dosyalar** sabit kullanıcı klasöründe: Belgelerim\OpenECU_M220_Veri (exe nereden açılırsa açılsın aynı; eski exe-yanı dosyalar ilk açılışta oraya kopyalanır):
   `audit_log.txt` (5 MB'ı aşınca `.1` yedeği), `calibration_history.json` (son 5000 yazım),
-  `profiles.json`, `dashboard_config.json`, `modas_worksheets.json`, `modas_templates.json`, `kontrol_paneli.json`, `sim_interface.json`,
-  `workspace_layouts.json`, `openecu.log` (hata günlüğü); CAN kayıtları `can_loglari\`, tablo yazım yedekleri
+  `profiles.json`, `dashboard_config.json`, `modas_worksheets.json`, `modas_templates.json`, `kontrol_paneli.json`,
+  `openecu.log` (hata günlüğü); CAN kayıtları `can_loglari\`, tablo yazım yedekleri
   `tablo_yedekleri\`. Her JSON için bir `.bak` yedeği tutulur; bozulan dosya `*.corrupt-<zaman>` olarak saklanır.
 - **Simge**: `app_icon.ico` (exe'ye `--icon` ile gömülür).
 - **Tablolar (Worksheets)**: Modas Sport tarzı tablo penceresi (X üstte, Y solda, köşede Y\X, hücrelerde Z).
 
-## Ana Sayfa – kompakt yerleşim
-- Solda dar "Simülasyon Girişleri" sütunu; sağda 8 gösterge tek satırda (dar ekranda otomatik 4×2), altında Sensör Durumu ile Canlı Grafik yan yana, en altta Eyleyiciler şeridi.
-- DBC/A2L eşlemeleri (eski "Ayarlar" formu) artık sayfada değil: Motor Parametreleri başlığındaki **⚙ Eşlemeler** düğmesiyle açılan pencerede. Bağlı olmayan gösterge varsa yanında "⚠ N gösterge bağlı değil" uyarısı çıkar.
-
-## Ana Sayfa – son düzen
-- Sol: Simülasyon Girişleri + Eyleyiciler (gönderdiklerim). Sağ: Motor Parametreleri (4×2) ve Sensör tablosu yan yana, altta kalan alanı dolduran Canlı Grafik (izlediklerim). Dar pencerede tablo göstergelerin altına iner, sayfa dikey kayar.
-
-## Ana Sayfa – seçilebilir Canlı Grafik
-- Canlı Grafik'in sağ üstündeki **Sinyalleri seç** düğmesiyle istediğiniz sayıda sinyal çizdirilir: 8 gösterge sinyali (RPM, İtki, PLA ...) ve yüklü A2L'deki tüm ölçümler. Penceredeki **İsme göre ara...** kutusu listeyi süzer.
-- Seçim kaydedilir (dashboard_config.json) ve Analiz → Çalışma Alanı'ndaki grafik panellerinden bağımsızdır. A2L ölçümlerinin okunması için CCP bağlantısı gerekir.
-
-## Çalışma Alanı (Concerto / Data Inspector tarzı)
-**Analiz → Çalışma Alanı** iç sekmesi. Tek ekranda istediğiniz pencereleri kurarsınız:
-- **+ Grafik / + Gösterge / + Tablo** düğmeleriyle pencere ekleyin (giriş gönderimi için Ana Sayfa veya Kontrol Paneli kullanılır; eski yerleşimlerdeki "Kontrol" pencereleri açılışta atlanır); başlıklarından sürükleyip kenarlarından boyutlandırın. **Döşe / Kademeli** otomatik düzenler.
-- **Yerleşimi kaydet** ile düzeni isimle saklayın, listeden seçince yüklenir. Son düzen program kapanırken otomatik hatırlanır (workspace_layouts.json).
-- Soldaki **Sinyaller** listesi: A2L ölçümleri (CCP ile okunur), DBC sinyalleri (CAN'den çözülür), göstergeler, girişler, matematik ve içe aktarılan kayıtlar. **İsme göre ara...** ile süzün, çift tıklayıp etkin pencereye ekleyin.
-- **Dondur:** ekran sabitlenir, veri arka planda kaydedilmeye devam eder; fareyle yakınlaştırıp kaydırabilirsiniz. **Devam** canlı akışa döner.
-- Grafik penceresi: **Üst üste / Ayrı ayrı** çizim, tablodan sinyal başına **renk ve kalınlık**, fareyle gezince anlık değerler, **İmleçler (A/B)** ile aralıkta Δ, ortalama, min, maks.
-- **ƒ Matematik sinyali…**: ölçekle (a·x+b), A+B / A−B / A×B / A÷B (örn. P3/P2), hareketli ortalama. Sonuç yeni bir sinyal olarak çizilir; geçmiş veriye de uygulanır.
-- **⧉ Paneli ayır:** seçili paneli (başlığına tıklayıp) uygulamanın dışında ayrı bir pencereye alır; ikinci monitöre taşıyabilirsiniz. Ayrı penceredeki **Çalışma alanına geri yerleştir** düğmesi geri getirir. Ayrılmış pencereler konumlarıyla birlikte yerleşime kaydedilir.
-- **Kaydı temizle:** veriyi siler, zamanı 0'a alır. **CSV'ye aktar / CSV aç:** kayıtları dışa/içe aktarır; eski bir kaydı yenisiyle üst üste çizip karşılaştırabilirsiniz.
+## Scope (osiloskop) — Worksheets
+**Label → Scope** (ya da Variable list'te etiket seçip Scope) yeni bir osiloskop penceresi açar. Aynı grafikte:
+- **A2L etiketleri:** Variable list'ten sürükleyip bırakın; veri **F9 (Measurement)** ile akar.
+- **Sinyaller…:** DBC sinyalleri (CAN'den çözülür), göstergeler ve matematik / CSV sinyalleri. Yalnızca grafikte olan DBC sinyalleri çözülür.
+- **ƒ Matematik:** ölçekle (a·x+b), A+B / A−B / A×B / A÷B (örn. P3/P2), hareketli ortalama; düzenle / sil. Tanımlar Worksheets kaydıyla birlikte saklanır (`modas_worksheets.json`).
+- **CSV:** *Kayıt aç* eski bir oturum kaydını salt okunur sinyaller olarak çizer (yeni kayıtla üst üste karşılaştırma); *Canlı kaydı CSV'ye aktar*.
+- **Hold:** grafiği dondurur (veri arka planda sürer); **Span** zaman penceresi; **Çizim** üst üste / ayrı ayrı; **İmleçler (A/B)** Δ / ortalama / min / maks; sinyal başına renk-kalınlık tablosu.
+- Düzen (pencereler, Scope sinyalleri, matematik tanımları) **Worksheets** ile saklanır: **F12** ya da Workfolder › Save; **Tile / Cascade** ile düzenlenir.
+- Kaldırıldı: Çalışma Alanı'nın gösterge/tablo panelleri ve "Paneli ayır" (ayrı pencere); Test Bench göstergeleri ve Worksheets değer pencereleri aynı işi görür.
 
 ## Güvenli yazma ve kararlılık notları
 - **Yazma doğrulaması:** Her kalibrasyon yazımı önce doğrulanır (sonlu sayı, veri tipi aralığı, A2L alt/üst sınırı, READ_ONLY) ve yazdıktan sonra ECU'dan geri okunup karşılaştırılır. Dönüşüm (COMPU_METHOD) çevrilemiyorsa hiçbir şey yazılmaz.
@@ -314,8 +297,7 @@ Aşağıdakiler yazılımın otomatik testleriyle **kanıtlanamaz**; gerçek ECU
    periyodik gönderilir; ECU'nun periyodik değeri beklediğini doğrulayın.)
 4. **Bus-off ve kopma:** Hattı/kabloyu çıkarıp takın; yazılımın toparlanması ve sonrasında komutların
    gönderilmesi (README "Doğrulanmayanlar": PCAN bus-off davranışı ve ECU açılış süresi donanımda doğrulanmadı).
-5. **Performans kadranları:** Gerçek veriyle iğne, değer ve etiketler okunuyor mu? Aralıklar (sağ tık →
-   Aralığı ayarla) doğru mu?
+5. **Test Bench kadranları:** Gerçek veriyle iğne, değer ve etiketler okunuyor mu?
 6. **Eşleşmeler:** Acil Durdurma dahil tüm motor komutları ⚙ Eşleşmeler'de tanımlı mı? (Tanımsızsa komut
    şeridinde "⚠ Acil Durdurma eşlenmemiş" görünür.)
 
@@ -324,10 +306,10 @@ Aşağıdakiler yazılımın otomatik testleriyle **kanıtlanamaz**; gerçek ECU
 - **Dosya:** veri klasöründe `oturum_kayitlari\<test_ismi>_<tarih_saat>.csv`. Her oturum yeni dosya açar, eskisinin üzerine yazılmaz. Yol oturum kartında ve olay günlüğünde (OTURUM) görünür.
 - **Kayıt ilkesi — her veri kendi geliş zamanında ve kendi periyoduyla yazılır** (arayüz zamanlayıcısına bağlı örnekleme yoktur, veri kaybolmaz):
   - **CAN (`dbc:<MESAJ>.<SİNYAL>`):** DBC'deki **tüm** mesajların **her gelişinde**, mesajdaki tüm sinyaller, karenin gerçek geliş zamanıyla yazılır; ekranda kullanılmayan sinyaller de dahil. 10 ms'de bir gelen mesaj 10 ms'de bir, 100 sn'de bir gelen 100 sn'de bir satır üretir. Aynı değer tekrar gelse de her geliş bir satırdır. Ayrı bir iş parçacığında yazılır; kuyruk dolarsa düşen kare sayısı olay günlüğüne HATA olarak yazılır.
-  - **A2L/CCP (`a2l:<ölçüm>`):** CCP iş parçacığı her okumada değeri izler; **değer değiştiğinde** okuma zamanıyla bir satır yazılır (başlangıç değeri dahil). ECU'daki bir değişken 10 sn'de bir güncelleniyorsa 10 sn'de bir satır oluşur; değişmeyen değer tekrar tekrar yazılmaz (Excel'in **Geniş tablo** sayfası son değeri korur). Yalnızca arayüzde izlenen (gösterge, Worksheets, Çalışma Alanı, Kontrol Paneli...) değişkenler okunduğu için yalnızca onlar kaydolur.
+  - **A2L/CCP (`a2l:<ölçüm>`):** CCP iş parçacığı her okumada değeri izler; **değer değiştiğinde** okuma zamanıyla bir satır yazılır (başlangıç değeri dahil). ECU'daki bir değişken 10 sn'de bir güncelleniyorsa 10 sn'de bir satır oluşur; değişmeyen değer tekrar tekrar yazılmaz (Excel'in **Geniş tablo** sayfası son değeri korur). Yalnızca arayüzde izlenen (gösterge, Worksheets, Scope, Kontrol Paneli...) değişkenler okunduğu için yalnızca onlar kaydolur.
   - **Kullanıcı girişleri (`input:<anahtar>`):** girildikleri anda. Ana Sayfa göstergeleri ayrıca yazılmaz; değerleri kaynak kimlikleriyle (`a2l:`/`dbc:`) zaten kayıttadır.
 - **Biçim:** `time,signal,value,unix_time` (time = oturum başından saniye; unix_time = mutlak zaman). Excel'de açılabilir.
-- **Geri açma:** Analiz → Çalışma Alanı → **CSV aç** ile kayıt yüklenip grafikte çizilir, yeni bir kayıtla üst üste karşılaştırılabilir.
+- **Geri açma:** Worksheets › Scope › **CSV › Kayıt aç** ile kayıt yüklenip grafikte çizilir, yeni bir kayıtla üst üste karşılaştırılabilir.
 - Veri saniyede bir diske işlenir (çökmede en çok ~1 sn kaybolur). Oturum boyunca girişleriniz de ayrıca `<oturum>_girisler.csv` dosyasına satır satır yazılır. Disk hatasında kayıt durur ve olay günlüğüne HATA yazılır. Oturum başlatılmadıkça kayıt yapılmaz.
 
 ## Kayıtlar ve Excel (.xlsx) — testlerden sonra inceleme
@@ -366,7 +348,7 @@ Notlar:
   bağlantılarını ve kapanışı içerir. İş mantığı `app/ui/mainwin/` altındadır: `connection.py` (CAN bağlantısı,
   sağlık izleme, alım/gönderim), `calibration.py` (CCP oturumu, arka plan CCP işleri, harita / Parametre
   Listesi / tanılama / geri alma), `dashboard.py` (eşleşme yazımı, motor komutları, göstergeler),
-  `panel.py` (Kontrol Paneli, simülasyon, Performans), `profiles.py` (rol ve profiller), `common.py` (sabitler).
+  `panel.py` (Kontrol Paneli), `profiles.py` (rol ve profiller), `common.py` (sabitler).
 - **Renkler tek yerden:** `app/theme.py` içindeki token'lar (`theme.DANGER`, `theme.OK`, `theme.ACCENT`…).
   Arayüz kodunda yeni renk sabiti yazmayın; token kullanın. Süslü parantezli stil metinlerinde
   `theme.paint("... color: @@DANGER@@; ...")` yer tutucusu kullanılır (bir test token'ı olan renklerin elle
@@ -384,3 +366,11 @@ Notlar:
 - **Statik denetim:** `ruff check .` (ayar: `ruff.toml`; yalnızca gerçek hata kuralları).
 - **CI:** `.github/workflows/testler.yml` her push ve pull request'te ruff + tüm testleri çalıştırır
   (Ubuntu, Python 3.11, ekransız Qt).
+
+
+## Arayüz notları (2026-11-28)
+- **Dil ve rol:** Arayüz tamamen Türkçedir. Tek rol vardır: **Mühendis** (Operatör/Yönetici yok; kimlik doğrulama yoktur). Riskli işlemler rol yerine açık onayla korunur (override kilidi + onay, flaş yazma için "Deneysel flaş yazmayı etkinleştir" kutusu + güçlü onay).
+- **Durum çubuğu:** ECU durumu, ölçüm (F9), kayıt süresi, bus yükü, çalışma tabanı ve **bekleyen** (ECU'ya yazılmamış) değişiklik sayısı her zaman görünür. Bekleyen değişiklik varken ribbon altında sarı şerit çıkar: **ECU'ya yaz** / **Geri al** (geri al ECU'ya hiçbir şey göndermez).
+- **Yeni pencereler** çalışma alanında çakışmayan ilk boş yere açılır (yer yoksa kademeli).
+- **Harita penceresi:** sağ tık › **Isı haritası** hücreleri değerine göre renklendirir (yalnızca görünüm; bekleyen hücreler sarı kalır).
+- **Gösterge penceresi:** Etiket › **Gösterge**, seçili ölçümler için ibreli gösterge açar; aralık A2L sınırından gelir, sınır yoksa görülen değerlere göre genişler.

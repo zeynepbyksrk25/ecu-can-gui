@@ -64,3 +64,18 @@ Her madde bitince `[x]` yapılır; yanına test sonucu ve bilinen eksikler yazı
 - `session_export.py`: `t_axis` (monotonik analiz ekseni), `data_gaps`, `integrity`; `ui/session_browser.py`: iki zamanlı olay çizelgesi + bütünlük özeti, grafik ekseni monotonik; `session_report.py`: bütünlük, boşluk tablosu, iki zaman sütunu.
 - Testler: `tests/test_time_and_integrity.py` (15). Gerçek ECU/PCAN ve gerçek güç kesintisinde doğrulanmadı (sahte zaman/saat atlaması ve sahte hat sessizliği ile test edildi).
 - Bilinen eksik: `.asc` zamanları ASC kuralı gereği ilk kareye göre göreli (monotonik değil, sistem saatiyle damgalı kareler); PCAN donanım damgası kaydedilmiyor.
+
+## Modas temizlik turu (2026-11-28)
+- Kaldırıldı: Calibration Tools › A2L sekmesi; Analysis penceresi (Çalışma Alanı + Performans); Test Bench'te Uçuş Koşulları, Motor Kontrol, Son Olaylar, Canlı Trendler; Worksheets Input pencereleri; `workspace_tab`, `analiz_tab`, `performance_tab`, `sim_inputs`, `sim_widgets`, `sim_interface`, `graph_signal_dialog`, `modas/testbench` (≈ 6000 satır).
+- Eklendi: `signal_feed.py` (Qt'siz besleme: DBC/gösterge → Scope hub'ı, PDF anlık görüntüsü), `ui/modas/signal_picker.py`, `ui/math_dialog.py`; Scope'ta **Sinyaller… / ƒ Matematik / CSV**; matematik tanımları `modas_worksheets.json`'da kalıcı.
+- Testler: `test_scope_signals.py` (13) eklendi; kaldırılan sayfalara ait testler silindi/yeniden yazıldı (atlama/devre dışı bırakma yok). Tam paket: 611 geçti (offscreen, `-n 4`).
+- Bilinen eksikler / bilinçli kayıplar: Çalışma Alanı gösterge/tablo panelleri ve ayrı pencereye alma yok; Uçuş Koşulları periyodik CAN gönderimi ve A2L eşlemesi yok; Test Bench'te PLA/Start kutusu yok (Control Panel kullanılır); `.asc` ve Scope davranışları gerçek donanımda doğrulanmadı. Not: `test_mapping_dialog` ile `test_modas` flight testi arasındaki sıra bağımlılığı bu turda ilgili testler silindiği için ortadan kalktı.
+
+## Arayüz turu 2 (2026-11-28)
+- Roller: yalnız Mühendis; `user_roles.py` tek sabite (`ROL_ADI`) indi; `can_*` denetimleri ve operatör testleri silindi; kullanıcı etiketi başlıkta ("Kullanıcı: ad · Mühendis").
+- Türkçe: ribbon, araç pencere adları, Modas pencere/diyalogları, model paneli, süzgeç adları, işaret listesi; `test_turkish_ui.py` İngilizce etiket regresyonunu yakalar.
+- Tema: Modas paleti tüm araç pencerelerinde; `test_modas_theme.py`.
+- Yeni: `ui/mainwin/status.py` (durum çubuğu alanları + bekleyen değişiklik şeridi), `_free_pos` (çakışmayan yerleşim), `TableWindow.set_heatmap/discard_edits`, `ui/modas/gauge_window.py` (+ ribbon "Gösterge"). Testler: `test_status_and_pending.py` (12), `test_user_single_role.py` (3), `test_modas.py` (gösterge, ölçüm turu).
+- Tam paket: 627 geçti (offscreen, `-n 4`). Gerçek ECU/ekranda doğrulanmadı.
+- Yapılmayanlar (önceki liste) tamamlandı: bkz. DECISIONS ARAYÜZ-2b. Yeni: `app/undo_stack.py`, `ui/modas/surface3d.py`, `ui/modas/actuator_window.py`; makro düzenleme `modas_macros.py` + `MacroDialog`.
+- Bilinen eksik: Eyleyiciler penceresi ve geri al gerçek ECU/CAN donanımında doğrulanmadı (sahte/simülatörle test edildi); 3B görünümde eksen değer etiketleri yok.

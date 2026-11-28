@@ -16,7 +16,7 @@ MODE_RAW = "Ham (ID + bit)"
 MODE_DBC = "DBC mesajı"
 
 PERIODIC_COLUMNS = ["Aktif", "Mod", "ID / Mesaj", "Frame Type / Sinyaller",
-                    "Data", "Periyot (ms)", "Durum"]
+                    "Veri", "Periyot (ms)", "Durum"]
 
 
 MIN_SAFE_PERIOD_MS = 5   # bunun altındaki periyotlarda kullanıcıdan onay istenir
@@ -110,7 +110,8 @@ class TransmitTab(QWidget):
         self.manual_id_edit = QLineEdit()
         self.manual_id_edit.setPlaceholderText("CAN ID (hex)")
         self.manual_frame_combo = QComboBox()
-        self.manual_frame_combo.addItems(["Standard", "Extended"])
+        self.manual_frame_combo.addItem("Standart", "Standard")
+        self.manual_frame_combo.addItem("Genişletilmiş", "Extended")
         manual_bitfields_button = QPushButton("Bit alanları...")
         manual_bitfields_button.clicked.connect(self._on_manual_bitfields_clicked)
         self.manual_dlc_spin = QSpinBox()
@@ -293,7 +294,7 @@ class TransmitTab(QWidget):
                 raise ValueError("Bir DBC mesajı seçin.")
             return self.dbc.encode(state["message"], state["values"])
 
-        extended = frame_combo.currentText() == "Extended"
+        extended = frame_combo.currentData() == "Extended"
         can_id = validate_can_id(id_edit.text(), extended)
         try:
             data = pack_fields(state["bitfields"], state.get("dlc", 8))
@@ -413,7 +414,8 @@ class TransmitTab(QWidget):
             self.periodic_table.setCellWidget(row, 2, id_edit)
 
             frame_combo = QComboBox()
-            frame_combo.addItems(["Standard", "Extended"])
+            frame_combo.addItem("Standart", "Standard")
+            frame_combo.addItem("Genişletilmiş", "Extended")
             self.periodic_table.setCellWidget(row, 3, frame_combo)
 
             bitfields_button = QPushButton("Bit alanları...")

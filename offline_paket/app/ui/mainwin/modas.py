@@ -1,6 +1,6 @@
 """Modas çalışma alanının MainWindow tarafı: ölçüm turu, değer/tablo okuma-yazma, WP/RP, Ribbon düğmeleri, kısayollar.
 
-Güvenlik: yazma yolları CCP sekmesindeki RAM yazımıyla AYNI ilkelere uyar — rol denetimi (Mühendis/Yönetici), CCP bağlı olma,
+Güvenlik: yazma yolları CCP sekmesindeki RAM yazımıyla AYNI ilkelere uyar — denetim kaydı, CCP bağlı olma,
 ``encode_for_write`` doğrulaması, yazma sonrası geri okuma, tablo yedeği + geri alma, giriş kaydı ve kalibrasyon geçmişi.
 Modas penceresi yalnızca arayüzdür; ECU'ya doğrudan dokunmaz.
 """
@@ -21,24 +21,24 @@ from app.ccp import codec as ccp_codec
 from app.ccp import protocol as ccp_protocol
 from app.ccp.worker import IDLE, CONNECTING, LOST, ONLINE
 from app.ui.mainwin.common import _CCP_IO_ERRORS
+from app.ui.modas.workspace import ModasSheetStore
 from app.ui.modas.pages import RP, WP, _same
 from app.modas_dataset import DatasetStore, compare
 from app.modas_projects import ProjectStore
 from app.modas_templates import BUILTINS, TemplateStore, build_specs
 from app.paths import data_path
-from app.ui.modas.dataset_dialogs import LATER, READ_ECU, WRITE_PC, DatasetChoiceDialog, DiffListDialog
+from app.ui.modas.dataset_dialogs import READ_ECU, WRITE_PC, DatasetChoiceDialog, DiffListDialog
 from app.ui.modas.project_manager import ProjectManagerDialog
-from app.ui.modas.testbench import TEST_INPUTS
 from app.ui.modas.ribbon import glyph_icon
 from app.ui.modas.windows import TableWindow, ValueWindow, format_phys
 from app.value_text import parse_value_text
-from app.user_roles import can_override_actuator, can_write_calibration
+from app.user_roles import ROL_ADI
 
 log = logging.getLogger(__name__)
 
-PAGE = "Worksheets"
-ECU_STATES = {IDLE: ("off", "OFFLINE"), CONNECTING: ("wait", "CONNECTING"), ONLINE: ("on", "ONLINE"),
-              LOST: ("off", "ECU LOST")}
+PAGE = "Çalışma Sayfaları"
+ECU_STATES = {IDLE: ("off", "ÇEVRİMDIŞI"), CONNECTING: ("wait", "BAĞLANIYOR"), ONLINE: ("on", "ÇEVRİMİÇİ"),
+              LOST: ("off", "ECU KAYIP")}
 
 
 class ModasMixin:
@@ -88,24 +88,16 @@ class ModasMixin:
         b["add_label"].clicked.connect(self._modas_add_selected)
         b["remove_label"].clicked.connect(tab.remove_selected)
         b["add_scope"].clicked.connect(lambda: tab.add_scope(self._selected_var_labels()))
-        self._modas_control_values: dict = {}            # son gönderilen motor komutu değerleri (start / throttle)
-        tab.input_value_provider = self._modas_input_value
-        tab.input_submitted.connect(self._modas_send_input)
-        self.dashboard_tab.sim_inputs.values_changed.connect(tab.refresh_inputs)
+        b["add_actuators"].clicked.connect(tab.add_actuators)
+        tab.actuator_state = lambda: dict(self.dashboard_tab._act_open)
+        tab.actuator_lock_requested.connect(self._modas_actuator_lock)
+        tab.actuator_submit_requested.connect(self._modas_actuator_submit)
+        b["add_gauge"].clicked.connect(lambda: [tab.add_gauge(n) for n in self._selected_var_labels()])
         self.template_store = TemplateStore(data_path("modas_templates.json"))
         tmenu = QMenu(b["sheet_template"])
         tmenu.aboutToShow.connect(lambda: self._modas_fill_template_menu(tmenu))
         b["sheet_template"].setMenu(tmenu)
         b["sheet_template"].setPopupMode(QToolButton.InstantPopup)
-        menu = QMenu(b["add_input"])
-        for d in TEST_INPUTS:
-            menu.addAction(f"{d.label}" + (f"  [{d.unit}]" if d.unit else "")).triggered.connect(
-                lambda _c=False, k=d.key: tab.add_input(k))
-        menu.addSeparator()
-        menu.addAction("All flight conditions").triggered.connect(
-            lambda _c=False: [tab.add_input(d.key) for d in TEST_INPUTS if d.group == "flight"])
-        b["add_input"].setMenu(menu)
-        b["add_input"].setPopupMode(QToolButton.InstantPopup)
         b["var_info"].clicked.connect(self._modas_show_info)
         for key, fmt in (("fmt_phys", "phys"), ("fmt_dec", "dec"), ("fmt_hex", "hex"), ("fmt_bin", "bin")):
             b[key].clicked.connect(lambda _c=False, f=fmt: tab.set_format(f))
@@ -122,7 +114,6 @@ class ModasMixin:
         rb._pages_btn_group.idClicked.connect(lambda i: self.open_tool(self._nav_pages[i][2]))
 
         self._install_modas_shortcuts()
-        self._modas_sync_permissions()
         self._modas_on_a2l_loaded()
         self._modas_sync_status(force=True)
 
@@ -154,6 +145,8 @@ class ModasMixin:
             app_sc("F4", self._modas_add_marker),
             app_sc("F10", rb.toggle_key_tips),
             app_sc("F12", self._modas_save),
+            ws_sc("Ctrl+Z", lambda: self._modas_undo_redo(False)),
+            ws_sc("Ctrl+Y", lambda: self._modas_undo_redo(True)),
             ws_sc("Ctrl+P", lambda: tab.set_format("phys")),
             ws_sc("Ctrl+D", lambda: tab.set_format("dec")),
             ws_sc("Ctrl+H", lambda: tab.set_format("hex")),
@@ -175,11 +168,11 @@ class ModasMixin:
         elif not self._dataset_checked and self._modas_workbase is not None:
             self._dataset_checked = True
             QTimer.singleShot(0, self._modas_check_dataset)
-        status = (state, self.a2l_tab.db.summary is not None, self.current_role)
+        status = (state, self.a2l_tab.db.summary is not None)
         if not force and status == getattr(self, "_modas_last_status", None):
             return
         self._modas_last_status = status
-        led, text = ECU_STATES.get(state, ("off", "OFFLINE"))
+        led, text = ECU_STATES.get(state, ("off", "ÇEVRİMDIŞI"))
         rb = self.modas_ribbon
         rb.set_ecu_state(led, text)
         online = state == ONLINE
@@ -196,13 +189,6 @@ class ModasMixin:
         except Exception:  # noqa: BLE001 - sekme henüz hazır değilse alan boş kalır
             iface = ""
         rb.set_field("workbase", wbk[1].name if wbk else iface)
-
-    def _modas_sync_permissions(self):
-        self.modas_tab.set_allowed(can_write_calibration(self.current_role))
-        self.modas_tab.set_inputs_allowed(can_override_actuator(self.current_role),
-                                          "Yetki yok: test girişi göndermek için Mühendis veya Yönetici rolü gerekir.")
-        self._modas_last_status = None
-        self._modas_sync_status(force=True)
 
     def _modas_on_a2l_loaded(self):
         self.modas_tab.set_summary(self.a2l_tab.db.summary)
@@ -239,7 +225,7 @@ class ModasMixin:
     def _modas_show_history(self, name: str):
         """Değişiklik okuna tıklanınca: Calibration Tools > Geçmiş sekmesini açar, parametreyi süzüp son kaydı seçer."""
         found = self.history_tab.show_object(name)
-        self.open_tool("Calibration Tools")
+        self.open_tool("Kalibrasyon Araçları")
         self.kalibrasyon_tab.inner_tabs.setCurrentWidget(self.history_tab)
         if not found:
             self.statusBar().showMessage(f"{name}: Değişiklik Geçmişi'nde kayıt yok.", 5000)
@@ -264,6 +250,8 @@ class ModasMixin:
         for name in self.modas_tab.scope_labels():
             if name not in open_labels:
                 self._modas_scope_sample(name)
+        for g in self.modas_tab.gauge_windows():
+            self._modas_gauge_sample(g)
         self.page_model.adopt_missing(self._modas_value_snapshot())
         self._modas_update_diff()
 
@@ -278,6 +266,17 @@ class ModasMixin:
             return
         self.modas_tab.push_sample(name, reading.phys)
 
+    def _modas_gauge_sample(self, gauge):
+        """Gösterge penceresinin ölçümünü arka plan CCP önbelleğinden okur; okunamazsa gösterge boşalır (eski değer kalmaz)."""
+        obj = gauge.obj
+        if getattr(obj, "address", None) is None or not getattr(obj, "datatype", ""):
+            gauge.set_value(None)
+            return
+        try:
+            gauge.set_value(ccp_codec.read_value(self.ccp_reader, obj).phys)
+        except Exception:  # noqa: BLE001 - tek gösterge hatası ölçüm turunu bozmasın
+            gauge.set_value(None)
+
     def _modas_value_snapshot(self) -> dict:
         return {w.label: w.wp_value() for w in self.modas_tab.value_windows() if w.is_calibration and w.wp_value() is not None}
 
@@ -290,7 +289,7 @@ class ModasMixin:
         self.modas_tab.set_reference(self.page_model.reference)
         self._modas_update_diff()
         if ok:
-            self._log_event("KALIBRASYON", f"Worksheets: {ok}/{len(wins)} tablo ECU'dan okundu")
+            self._log_event("KALIBRASYON", f"Çalışma sayfası: {ok}/{len(wins)} tablo ECU'dan okundu")
 
     def _modas_read_all(self):
         """Read data from ECU: çalışma alanındaki tüm etiketler (değerler + tablolar) ECU'dan okunur."""
@@ -305,7 +304,7 @@ class ModasMixin:
         self.page_model.adopt_missing(self._modas_value_snapshot())
         self.modas_tab.set_reference(self.page_model.reference)
         self._modas_update_diff()
-        self._log_event("KALIBRASYON", f"Worksheets: ECU'dan okundu ({len(values)} değer, {len(tables)} tablo)")
+        self._log_event("KALIBRASYON", f"Çalışma sayfası: ECU'dan okundu ({len(values)} değer, {len(tables)} tablo)")
         self.statusBar().showMessage(f"ECU'dan okundu: {len(values)} değer, {len(tables)} tablo", 4000)
 
     def _modas_refresh(self):
@@ -319,7 +318,7 @@ class ModasMixin:
         b.blockSignals(True)
         b.setChecked(on)
         b.blockSignals(False)
-        b.setText("Stop" if on else "Start")
+        b.setText("Durdur" if on else "Başlat")
         b.setIcon(glyph_icon("■" if on else "▶"))
         self.statusBar().showMessage("Ölçüm başladı" if on else "Ölçüm durdu", 2500)
 
@@ -347,7 +346,7 @@ class ModasMixin:
         b.blockSignals(True)
         b.setChecked(on)
         b.blockSignals(False)
-        b.setText("Stop" if on else "Start")
+        b.setText("Durdur" if on else "Başlat")
         b.setIcon(glyph_icon("■" if on else "●", theme.DANGER))
         if on:
             self._modas_marker_count = 0                       # işaretler her kayıtta #1'den başlar
@@ -373,7 +372,7 @@ class ModasMixin:
         """Kayıt adı: ``Proje_Workbase_20260101-120000`` (workbase açık değilse yalnızca zaman damgası)."""
         stamp = time.strftime("%Y%m%d-%H%M%S")
         wbk = self._modas_workbase
-        return f"{wbk[0].name}_{wbk[1].name}_{stamp}" if wbk is not None else f"Worksheets_{stamp}"
+        return f"{wbk[0].name}_{wbk[1].name}_{stamp}" if wbk is not None else f"Oturum_{stamp}"
 
     def _modas_prefill_session(self):
         """Tek tuşla kayıt: boş bırakılan oturum adı ve operatör otomatik doldurulur (kullanıcının yazdığı değer korunur)."""
@@ -415,8 +414,6 @@ class ModasMixin:
 
         if self.ccp_client is None:
             return deny("CCP bağlı değil; değer yazılamadı.")
-        if not can_write_calibration(self.current_role):
-            return deny("Yetki yok: kalibrasyon yazmak için Mühendis veya Yönetici rolü gerekir.")
         if getattr(obj, "address", None) is None or not getattr(obj, "datatype", ""):
             return deny("ECU adresi / veri tipi A2L'de tanımlı değil.")
         try:
@@ -444,9 +441,11 @@ class ModasMixin:
             self._modas_mark_change(win)
             return deny(detail)
         win.set_write_result(True, "RAM'e yazıldı (ECU'dan doğrulandı).")
+        if not self._undo_busy:
+            self.undo_stack.push("value", obj.name, old, phys)
         self.macro_recorder.add("value", obj.name, phys)
-        self._log_event("KALIBRASYON", f"{obj.name} = {phys} {unit} (RAM, Worksheets) yazıldı")
-        self.calibration_history.add(self.current_user, self.current_role.value, obj.name, old, phys, unit,
+        self._log_event("KALIBRASYON", f"{obj.name} = {phys} {unit} (RAM, çalışma sayfası) yazıldı")
+        self.calibration_history.add(self.current_user, ROL_ADI, obj.name, old, phys, unit,
                                      persistent=False, source="worksheets")
         self.change_tracker.applied(obj.name, old, phys, unit)
         self._modas_mark_change(win)
@@ -460,19 +459,64 @@ class ModasMixin:
         if self.ccp_client is None:
             win.set_write_result(False, "CCP bağlı değil; tablo yazılamadı.")
             return
-        if not can_write_calibration(self.current_role):
-            win.set_write_result(False, "Yetki yok: tablo yazmak için Mühendis veya Yönetici rolü gerekir.")
-            self._record_denied_write(PAGE, "Tablo yazımı (RAM)", "Yetki yok: Mühendis veya Yönetici rolü gerekir",
-                                      win.characteristic.name)
-            return
+        before = [list(r) for r in win._original] if win._original is not None else None
         self._write_map_docs([win])
         if not win.is_modified():                          # başarılı yazım (yedek + geri okuma doğrulandı)
+            if not self._undo_busy and before is not None and before != win.current_grid():
+                self.undo_stack.push("table", win.label, before, win.current_grid())
             self.macro_recorder.add("table", win.label, win.current_grid())
         self._modas_update_diff()
 
+    def _modas_undo_redo(self, redo: bool):
+        """Ctrl+Z / Ctrl+Y: son başarılı yazımı güvenli yazım yoluyla geri alır / yineler."""
+        st = self.undo_stack
+        entry = st.peek_redo() if redo else st.peek_undo()
+        verb = "Yinelenecek" if redo else "Geri alınacak"
+        if entry is None:
+            self.statusBar().showMessage(f"{verb} yazım yok.", 3000)
+            return
+        win = next((w for w in self.modas_tab.windows() if w.label == entry.name
+                    and isinstance(w, ValueWindow if entry.kind == "value" else TableWindow)), None)
+        if win is None or self.ccp_client is None:
+            self.statusBar().showMessage(
+                f"{entry.name}: " + ("pencere açık değil." if win is None else "ECU çevrimdışı."), 4000)
+            return
+        target = entry.new if redo else entry.old
+        self._undo_busy = True
+        try:
+            if entry.kind == "value":
+                self._modas_write_value(win, format_phys(target, 9))
+                ok = not win.edit.property("bad")
+            else:
+                win.load_grid_as_edit(target)
+                self._modas_write_table(win)
+                ok = not win.is_modified()
+        finally:
+            self._undo_busy = False
+        if ok:
+            (st.commit_redo if redo else st.commit_undo)()
+            self._log_event("KALIBRASYON", f"{entry.name}: {'yinele' if redo else 'geri al'} uygulandı")
+            self.statusBar().showMessage(f"{entry.name}: {'yinelendi' if redo else 'geri alındı'}.", 4000)
+        else:
+            self.statusBar().showMessage(f"{entry.name}: yazılamadı; ECU değeri değişmedi.", 5000)
+
+    def _modas_actuator_lock(self, key: str, want_open: bool):
+        """Eyleyiciler penceresi → Test Tezgâhı mantığı (eşleşme, oturum onayı, yazım, bırakma tek yerde)."""
+        self.dashboard_tab._on_actuator_lock(key, want_open)
+        for w in self.modas_tab.actuator_windows():
+            w.sync()
+
+    def _modas_actuator_submit(self, key: str, text: str):
+        dash = self.dashboard_tab
+        dash._act_rows[key]["control"].setText(text)
+        dash._on_actuator_submit(key)
+        bad = bool(dash._act_rows[key]["control"].property("bad"))
+        for w in self.modas_tab.actuator_windows():
+            w.mark(key, bad)
+
     def _modas_write_pending(self):
         """Write data to ECU: bekleyen (sarı) değerleri RAM'e yazar. Kalıcı (Flaş) yazma ayrı ve riskli bir işlemdir:
-        Kalibrasyon > CCP sayfasındaki 'Kalıcı Kaydet (Flaş)' akışı (Yönetici + onay) kullanılır."""
+        Kalibrasyon > CCP sayfasındaki 'Kalıcı Kaydet (Flaş)' akışı (güçlü onay) kullanılır."""
         pend = [w for w in self.modas_tab.value_windows() if w.has_pending]
         tabs = [t for t in self.modas_tab.table_windows() if t.is_modified() and t.is_writable()]
         if not pend and not tabs:
@@ -517,7 +561,7 @@ class ModasMixin:
         self._modas_save_dataset()
         self.modas_tab.set_reference(self.page_model.reference)
         self._modas_update_diff()
-        self._log_event("KALIBRASYON", f"Worksheets: WP → RP kopyalandı ({n} etiket, yerel referans)")
+        self._log_event("KALIBRASYON", f"Çalışma sayfası: WP → RP kopyalandı ({n} etiket, yerel referans)")
         self.statusBar().showMessage(f"WP → RP: {n} etiket referans olarak saklandı (ECU Flaş'ına yazılmadı).", 5000)
 
     def _modas_copy_rp_to_wp(self):
@@ -537,9 +581,6 @@ class ModasMixin:
         if self.ccp_client is None:
             self.statusBar().showMessage("ECU çevrimdışı: RP → WP yapılamaz.", 4000)
             return
-        if not can_write_calibration(self.current_role):
-            QMessageBox.warning(self, "Yetki yok", "Kalibrasyon yazmak için Mühendis veya Yönetici rolü gerekir.")
-            return
         names = ", ".join(sorted(plan)[:8]) + (" …" if len(plan) > 8 else "")
         ans = QMessageBox.question(
             self, title,
@@ -557,7 +598,7 @@ class ModasMixin:
                 win.load_grid_as_edit(ref)
                 self._modas_write_table(win)
                 done += 1
-        self._log_event("KALIBRASYON", f"Worksheets: {title} yazıldı ({done}/{len(plan)} etiket)")
+        self._log_event("KALIBRASYON", f"Çalışma sayfası: {title} yazıldı ({done}/{len(plan)} etiket)")
         self._modas_update_diff()
 
     def _modas_show_diff_list(self):
@@ -565,9 +606,8 @@ class ModasMixin:
         snap = self._modas_snapshot()
         names = self.page_model.diff_names(snap)
         rows = [(n, snap[n], self.page_model.reference[n]) for n in names]
-        ok = can_write_calibration(self.current_role) and self.ccp_client is not None
-        reason = "" if ok else ("ECU çevrimdışı." if self.ccp_client is None
-                                else "Yetki yok: Mühendis veya Yönetici rolü gerekir.")
+        ok = self.ccp_client is not None
+        reason = "" if ok else "ECU çevrimdışı."
         dlg = DiffListDialog(rows, ok, reason, self)
         if dlg.exec() == DiffListDialog.Accepted and dlg.selected_names():
             self._modas_restore_labels(dlg.selected_names())
@@ -612,9 +652,7 @@ class ModasMixin:
             return
         self._dataset_diffs = diffs
         self.modas_ribbon.set_dataset_alert(True)
-        can_write = can_write_calibration(self.current_role)
-        dlg = DatasetChoiceDialog(diffs, can_write, "" if can_write else
-                                  "Yetki yok: ECU'ya yazmak için Mühendis veya Yönetici rolü gerekir.", self)
+        dlg = DatasetChoiceDialog(diffs, True, "", self)
         self._dataset_dialog_open = True
         try:
             dlg.exec()
@@ -624,8 +662,6 @@ class ModasMixin:
 
     def _modas_apply_dataset_choice(self, choice: str, diffs: list, pc: dict, ecu: dict):
         n = len(diffs)
-        if choice == WRITE_PC and not can_write_calibration(self.current_role):
-            choice = LATER                               # savunma: düğme pasif olsa da yetkisiz yazma yolu yok
         if choice == WRITE_PC:
             done = 0
             for d in diffs:
@@ -700,46 +736,6 @@ class ModasMixin:
             self.modas_tab.add_label(o)
 
     # ======================================================================
-    # Test girişleri (uçuş koşulları / motor komutları): mevcut güvenli yoldan gönderilir
-    # ======================================================================
-    def _modas_input_value(self, key: str):
-        if key in self._modas_control_values:
-            return self._modas_control_values[key]
-        try:
-            return self.dashboard_tab.sim_inputs.value_of(key)         # yalnızca uçuş koşulları kutu taşır
-        except KeyError:
-            return None
-
-    def _modas_send_input(self, win, value: float):
-        d = win.defn
-        if not can_override_actuator(self.current_role):
-            reason = "Yetki yok: Mühendis veya Yönetici rolü gerekir."
-            win.set_result(False, reason)
-            self._record_input(PAGE, "Test girişi", "Worksheets", d.label, value, ok=False, detail=reason, unit=d.unit)
-            return
-        if d.group == "flight":
-            panel = self.dashboard_tab.sim_inputs
-            if not panel.is_bound(d.key):
-                reason = "Eşleşme yok: ⚙ Eşleşmeler ile DBC sinyali / A2L değişkeni seçin."
-                win.set_result(False, reason)
-                self._record_input(PAGE, "Test girişi", "Worksheets", d.label, value, ok=False, detail=reason, unit=d.unit)
-                return
-            panel.send_value(d.key, value)                              # → _on_sim_inputs (CAN / CCP, giriş kaydı, günlük)
-            text, ok = panel.last_status()
-            message = text
-        else:
-            ok, message = self.dashboard_tab.submit_control(d.key, value)
-            if not ok:
-                self._record_input(PAGE, "Test girişi", "Worksheets", d.label, value, ok=False, detail=message, unit=d.unit)
-            if ok:
-                self._modas_control_values[d.key] = float(value)
-        win.set_result(bool(ok), message)
-        if ok:
-            self.macro_recorder.add("input", win.label, float(value))
-            win.set_value(value)
-            self.statusBar().showMessage(f"{d.label} = {value:g} {d.unit} gönderildi.", 3000)
-
-    # ======================================================================
     # Worksheet şablonları
     # ======================================================================
     def _modas_fill_template_menu(self, menu: QMenu):
@@ -754,9 +750,9 @@ class ModasMixin:
             for n in user:
                 menu.addAction(n).triggered.connect(lambda _c=False, n=n: self._modas_apply_template(n))
         menu.addSeparator()
-        menu.addAction("Save worksheet as template…").triggered.connect(self._modas_save_template)
+        menu.addAction("Çalışma sayfasını şablon olarak kaydet…").triggered.connect(self._modas_save_template)
         if user:
-            sub = menu.addMenu("Delete template")
+            sub = menu.addMenu("Şablonu sil")
             for n in user:
                 sub.addAction(n).triggered.connect(lambda _c=False, n=n: self._modas_delete_template(n))
 
@@ -776,7 +772,7 @@ class ModasMixin:
         self._modas_update_diff()
 
     def _modas_save_template(self):
-        name, ok = QInputDialog.getText(self, "Save as template", "Şablon adı:")
+        name, ok = QInputDialog.getText(self, "Şablon olarak kaydet", "Şablon adı:")
         if not ok or not name.strip():
             return
         if not self.template_store.save(name, self.modas_tab.sheet_specs()):
@@ -785,7 +781,7 @@ class ModasMixin:
         self.statusBar().showMessage(f"Şablon kaydedildi: {name.strip()}", 4000)
 
     def _modas_delete_template(self, name: str):
-        if QMessageBox.question(self, "Delete template", f"'{name}' şablonu silinsin mi?") == QMessageBox.Yes:
+        if QMessageBox.question(self, "Şablonu sil", f"'{name}' şablonu silinsin mi?") == QMessageBox.Yes:
             self.template_store.delete(name)
 
     def _selected_var_labels(self) -> list:
@@ -832,11 +828,21 @@ class ModasMixin:
         self.project_manager.refresh()
         self.project_manager.exec()
 
+    def _modas_switch_layout(self, wb):
+        """Çalışma sayfası düzeni çalışma tabanına aittir (``<workbase klasörü>/calisma_sayfalari.json``). Tabanın düzeni
+        yoksa mevcut düzen ona devredilir; varsa o düzen yüklenir."""
+        if not getattr(wb, "path", "") or not os.path.isdir(wb.path):
+            return
+        result = self.modas_tab.switch_store(ModasSheetStore(os.path.join(wb.path, "calisma_sayfalari.json")))
+        if result == "loaded":
+            self._log_event("KULLANICI", f"Çalışma sayfası düzeni yüklendi: {wb.name}")
+
     def _modas_open_workbase(self, project, wb):
         """Workbase açma (kılavuz §2): A2L yüklenir, iletişim ayarları uygulanır, ECU'ya bağlanmayı dener.
         Hata olursa workbase yine açık sayılır; neden Log'a ve durum çubuğuna yazılır (sessiz hata yok)."""
         self._modas_workbase = (project, wb)
         self._log_event("KULLANICI", f"Workbase açıldı: {project.name} / {wb.name}")
+        self._modas_switch_layout(wb)
         if wb.a2l:
             try:
                 self.a2l_tab.load_path(wb.a2l)

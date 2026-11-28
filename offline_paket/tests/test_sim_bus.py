@@ -165,7 +165,6 @@ def test_main_window_mil_connect_records_mode_and_no_ccp(qapp, tmp_path, monkeyp
         assert w.backend_mode == "MIL"
         w._on_connect("sim_udp", "0:127.0.0.1:1", 500000)
         assert w.connection.is_connected and w.backend_mode == "MIL"
-        assert w.dashboard_tab.signal_source == "Simulink MIL"
         w.session_tab.name_edit.setText("mil")
         w.session_tab._on_start()
         import json

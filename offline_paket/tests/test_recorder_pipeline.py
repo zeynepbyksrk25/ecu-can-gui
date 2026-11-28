@@ -221,14 +221,12 @@ def test_record_and_freeze_shortcuts(qapp, tmp_path, monkeypatch):
     w = MainWindow()
     try:
         keys = {sc.key().toString(): sc for sc in w._rec_shortcuts}
-        assert set(keys) == {"Ctrl+Shift+R", "Ctrl+Shift+P", "Ctrl+Shift+M", "Ctrl+Shift+F"}
+        assert set(keys) == {"Ctrl+Shift+R", "Ctrl+Shift+P", "Ctrl+Shift+M"}
         keys["Ctrl+Shift+R"].activated.emit()
         assert w.session_recorder.is_active
         keys["Ctrl+Shift+P"].activated.emit()
         assert w.session_recorder.is_paused
         keys["Ctrl+Shift+M"].activated.emit()
-        keys["Ctrl+Shift+F"].activated.emit()
-        assert w.dashboard_tab.trend.btn_freeze.isChecked()
         keys["Ctrl+Shift+R"].activated.emit()
         assert not w.session_recorder.is_active
     finally:

@@ -182,7 +182,7 @@ class ValueWindow(ModasSub):
         self.kind = kind
         self.fmt = "phys"
         self.step = 0.1 if str(getattr(obj, "datatype", "")).upper().startswith("FLOAT") else 1.0
-        self._allowed = True           # rol / bağlantı izni (kalibrasyon yazmak için)
+        self._allowed = True           # bağlantı izni (çevrimdışıyken yazma kapalı)
         self._last_reading = None
         self._pending = False
         self._rp_view = False          # RP (referans) gösteriminde değer salt okunur ve referans değeri gösterir
@@ -310,7 +310,7 @@ class ValueWindow(ModasSub):
         self.refresh_style(self.edit)
 
     def set_allowed(self, allowed: bool):
-        """Kalibrasyon yazma izni (rol + bağlantı). İzin yoksa değer kutusu salt okunur olur."""
+        """Kalibrasyon yazma izni (bağlantı). İzin yoksa değer kutusu salt okunur olur."""
         self._allowed = bool(allowed)
         if not self._allowed:
             self.discard_pending()
@@ -421,6 +421,20 @@ class ValueWindow(ModasSub):
         return {"kind": "value", "name": self.label, "geom": self.geometry_state(), "fmt": self.fmt}
 
 
+_HEAT = ((0xCF, 0xE3, 0xFA), (0xFF, 0xF6, 0xC8), (0xF6, 0xB8, 0xA0))      # düşük → orta → yüksek (açık mavi, sarı, turuncu)
+
+
+def heat_color(value: float, lo: float, hi: float) -> QColor:
+    """Isı haritası rengi: ``lo`` açık mavi, orta açık sarı, ``hi`` açık turuncu-kırmızı. lo == hi ise orta renk."""
+    if hi <= lo:
+        t = 0.5
+    else:
+        t = min(1.0, max(0.0, (value - lo) / (hi - lo)))
+    (a, b) = (_HEAT[0], _HEAT[1]) if t < 0.5 else (_HEAT[1], _HEAT[2])
+    u = t * 2 if t < 0.5 else (t - 0.5) * 2
+    return QColor(*(int(a[i] + (b[i] - a[i]) * u) for i in range(3)))
+
+
 class TableWindow(ModasSub):
     """Eğri / harita penceresi (``MapDocument`` ile aynı doküman arayüzü)."""
     write_requested = Signal(object)
@@ -438,6 +452,7 @@ class TableWindow(ModasSub):
         self._rp_view = False
         self._wp_backup: list | None = None     # RP gösteriminde WP tablosunun saklandığı yer
         self.fmt = "phys"                       # Physical | Decimal | Hexadecimal | Binary (Modas Ctrl+P/D/H/B)
+        self.heatmap = False                    # hücreleri değerine göre renklendir (yalnızca görünüm)
         self._phys_cache: list | None = None    # Physical dışı biçimde gerçek (fiziksel) değerler; hücre metni yalnızca gösterimdir
 
         body = QWidget()
@@ -582,6 +597,11 @@ class TableWindow(ModasSub):
                     return True
         return False
 
+    def discard_edits(self):
+        """Yazılmamış hücre düzenlemelerini atar: tablo son ECU okumasına döner (ECU'ya hiçbir şey gönderilmez)."""
+        if self._original is not None and not self._rp_view:
+            self._fill(self._original)
+
     def set_grid_from_ecu(self, grid: list):
         self._original = [list(row) for row in grid]
         if self._baseline is None and all(v is not None for row in grid for v in row):
@@ -664,10 +684,20 @@ class TableWindow(ModasSub):
                     change_tracker.format_delta(mark[0], mark[1], "", with_arrow=False)
         return "", "", ""
 
+    def _heat_range(self):
+        vals = [v for row in self._read_table_grid() for v in row if v is not None]
+        return (min(vals), max(vals)) if vals else None
+
+    def set_heatmap(self, on: bool):
+        """Isı haritası renklendirmesi (görünüm; veri değişmez). Bekleyen (sarı) hücreler renklenmez."""
+        self.heatmap = bool(on)
+        self._refresh_pending()
+
     def _refresh_pending(self):
         if self._rp_view:
             return
         counts = {"pending": [0, 0], "applied": [0, 0]}                    # [artış, azalış]
+        heat = self._heat_range() if self.heatmap else None
         self._updating = True
         try:
             for r in range(self.rows):
@@ -678,7 +708,12 @@ class TableWindow(ModasSub):
                     changed = (self._original is not None and
                                (self._cell_value(r, c) is None or
                                 abs((self._original[r][c] or 0.0) - (self._cell_value(r, c) or 0.0)) > 1e-9))
-                    it.setBackground(QColor(theme.PENDING_BG) if changed else QColor(theme.MODAS_CAL_BG))
+                    if changed:
+                        it.setBackground(QColor(theme.PENDING_BG))               # bekleyen düzenleme her zaman sarı
+                    elif heat is not None and self._cell_value(r, c) is not None:
+                        it.setBackground(heat_color(self._cell_value(r, c), *heat))
+                    else:
+                        it.setBackground(QColor(theme.MODAS_CAL_BG))
                     state, arrow, delta = self.cell_change(r, c)
                     if state:
                         up = arrow == change_tracker.ARROW_UP
@@ -817,14 +852,31 @@ class TableWindow(ModasSub):
         act_backup = menu.addAction("Yedekten Yükle…")
         act_backup.setEnabled(editable)
         menu.addSeparator()
+        act_heat = menu.addAction("Isı haritası")
+        act_heat.setCheckable(True)
+        act_heat.setChecked(self.heatmap)
+        act_3d = menu.addAction("3B görünüm…")
         act_hist = menu.addAction("Değişiklik Geçmişi'nde göster")
         chosen = menu.exec(self.table.viewport().mapToGlobal(pos))
+        if chosen is act_3d:
+            self.open_surface()
+        if chosen is act_heat:
+            self.set_heatmap(act_heat.isChecked())
         if chosen is act_hist:
             self.history_requested.emit(self.characteristic.name)
         if chosen is act_restore:
             self.restore_selection()
         elif chosen is act_backup:
             self.restore_from_backup()
+
+    def open_surface(self):
+        """Tabloyu 3B yüzey olarak gösterir (salt okunur; ayrı pencere)."""
+        from app.ui.modas.surface3d import Surface3DDialog
+        if getattr(self, "_surface", None) is None or not self._surface.isVisible():
+            self._surface = Surface3DDialog(self, self.window())
+        self._surface.show()
+        self._surface.raise_()
+        return self._surface
 
     def restore_from_backup(self) -> bool:
         """Tablonun, ECU'ya yazılmadan önce otomatik alınan yedeklerinden birini hücrelere DÜZENLEME olarak yükler.
@@ -889,4 +941,4 @@ class TableWindow(ModasSub):
         return QSize(self.width(), self.height())
 
     def state(self) -> dict:
-        return {"kind": "table", "name": self.label, "geom": self.geometry_state(), "fmt": self.fmt}
+        return {"kind": "table", "name": self.label, "geom": self.geometry_state(), "fmt": self.fmt, "heat": self.heatmap}

@@ -46,15 +46,13 @@ def _pump(w, cond, t=3.0):
     return False
 
 
-def test_model_output_reaches_dashboard_monitor_and_trend(mil):
+def test_model_output_reaches_dashboard_and_monitor(mil):
     w, model = mil
     dbc = w.transmit_tab.dbc
     cid, data, ext = dbc.encode("ENG_STATUS", {"rpm": 4321.0, "tt2_c": 100.0, "tt2_fault": 0})
     model.send_frame(cid, data, ext, sim_time=5.0)
     assert _pump(w, lambda: "RPM" in w.dashboard_tab._values)
     assert w.dashboard_tab._values["RPM"][0] == pytest.approx(4321.0)
-    ser = w.dashboard_tab.trend._series.get("g:RPM")
-    assert ser is None or ser.source == "Simulink MIL"
     assert w.connection_tab.status_label.text().startswith("Bağlı · MIL")
 
 
@@ -107,8 +105,6 @@ def test_mil_calibration_via_manifest_changes_model_and_history(mil, tmp_path):
     """MIL'de Kalibrasyon: A2L + manifest → model parametresi yazılır, geçmişe/izleyiciye yansır."""
     import json as _json
     w, model = mil
-    from app.user_roles import Role
-    w.current_role = Role.ENGINEER
     w.a2l_tab.db.load(os.path.join(DATA, "sample.a2l"))
     summary = w.a2l_tab.db.summary
     ch = next(c for c in summary.characteristics if c.kind == "SCALAR" and not c.read_only and c.address is not None)
@@ -120,7 +116,6 @@ def test_mil_calibration_via_manifest_changes_model_and_history(mil, tmp_path):
     assert w._load_sim_manifest(str(mp))
     w._apply_sim_params()
     assert w.ccp_client is not None
-    w._modas_sync_permissions()
     w.modas_tab.set_summary(summary)
     win = w.modas_tab.add_label(ch.name)
     w._modas_write_value(win, "3")
@@ -152,7 +147,7 @@ def test_model_panel_lifecycle_events_recorded_and_hidden_outside_mil(mil):
     while time.time() < end and (w.model_ctl is None or w.model_ctl.state != "READY"):
         time.sleep(0.02)
     w._update_model_panel()
-    assert panel.state_chip.text() == "READY" and panel.buttons["start"].isEnabled() and not panel.buttons["stop"].isEnabled()
+    assert panel.state_chip.text() == "HAZIR" and panel.buttons["start"].isEnabled() and not panel.buttons["stop"].isEnabled()
     panel.buttons["start"].click()
     end = time.time() + 3
     while time.time() < end and not model.received_cmds:
@@ -165,7 +160,7 @@ def test_model_panel_lifecycle_events_recorded_and_hidden_outside_mil(mil):
     while time.time() < end and not (w.model_ctl.state == "RUNNING" and w.model_ctl.sim_time == 12.0):
         time.sleep(0.02)
     w._update_model_panel()
-    assert panel.state_chip.text() == "RUNNING" and "12.000" in panel.time_label.text()
+    assert panel.state_chip.text() == "ÇALIŞIYOR" and "12.000" in panel.time_label.text()
     assert panel.udp_chip.text() == "UDP: ok"
     panel.estop_button.click()
     end = time.time() + 3

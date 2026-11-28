@@ -1,11 +1,9 @@
 """Kayıt / MIL / trend yerleşimi bağlantıları: sinyaller, zamanlayıcılar, kısayollar ve mod değişimi (MainWindow'u
 küçük tutmak için ayrı parça; bkz. test_main_window_logic_lives_in_area_modules)."""
-import os
 
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QKeySequence, QShortcut
 
-from app.paths import data_path
 
 
 class RecordingMixin:
@@ -35,16 +33,9 @@ class RecordingMixin:
         self._rec_timer.timeout.connect(self._update_rec_state)
         self._rec_timer.start()
 
-    def _load_trend_layout(self):
-        """Trend yerleşimi oturumlar arası kalıcı: önce yükle; sonra yalnızca kullanıcı değişiklikleri otomatik kaydedilir."""
-        path = data_path("trend_yerlesim.json")
-        if os.path.exists(path):
-            self.dashboard_tab.trend.load_layout(path)
-        self.dashboard_tab.trend.layout_path = path
-
     def _install_record_shortcuts(self):
-        """Kayıt / trend kısayolları (uygulama kapsamlı, üç tuşlu: yanlışlıkla basılmasın)."""
-        st, dt = self.session_tab, self.dashboard_tab
+        """Kayıt kısayolları (uygulama kapsamlı, üç tuşlu: yanlışlıkla basılmasın)."""
+        st = self.session_tab
 
         def app_sc(seq: str, fn):
             sc = QShortcut(QKeySequence(seq), self)
@@ -55,19 +46,16 @@ class RecordingMixin:
             app_sc("Ctrl+Shift+R", lambda: st._on_start() if st.start_button.isEnabled() else st._on_stop()),
             app_sc("Ctrl+Shift+P", lambda: st.pause_button.click() if st.pause_button.isEnabled() else None),
             app_sc("Ctrl+Shift+M", lambda: st.marker_button.click() if st.marker_button.isEnabled() else None),
-            app_sc("Ctrl+Shift+F", lambda: dt.trend.btn_freeze.toggle()),
         ]
         st.start_button.setToolTip("Kaydı başlatır (Ctrl+Shift+R)")
         st.stop_button.setToolTip("Kaydı bitirir (Ctrl+Shift+R)")
         st.pause_button.setToolTip("Kaydı duraklatır / sürdürür (Ctrl+Shift+P)")
-        st.marker_button.setToolTip("Kayda ve trende olay işareti ekler (Ctrl+Shift+M)")
-        dt.trend.btn_freeze.setToolTip(dt.trend.btn_freeze.toolTip() + " (Ctrl+Shift+F)")
+        st.marker_button.setToolTip("Kayda olay işareti ekler (Ctrl+Shift+M)")
 
     def _on_backend_mode_changed(self, mode: str):
         """Mod değişince (yalnızca bağlı değilken mümkün) açık kayıt güvenle kapatılır; REAL/MIL kayıtları karışmaz."""
         self.backend_mode = mode
         self.dashboard_tab.sim_panel.setVisible(mode == "MIL")
-        self.dashboard_tab.set_signal_source({"REAL": "PCAN", "MIL": "Simulink MIL"}.get(mode, "Sanal"))
         if self.session_recorder.is_active:
             self.session_tab._on_stop()
             self._log_event("OTURUM", f"Mod {mode} olarak değişti: açık kayıt güvenle kapatıldı")

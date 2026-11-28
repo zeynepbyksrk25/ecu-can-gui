@@ -10,7 +10,7 @@ def test_legacy_measurement_fields_migrate_to_a2l_sensor_bindings():
     assert cfg.sensors["RPM"].value == Binding(SOURCE_A2L, a2l_name="N_RPM")
     assert cfg.sensors["Ps3"].value.a2l_name == "T_T2"
     assert cfg.gauge_a2l_map() == {"RPM": "N_RPM", "Ps3": "T_T2"}
-    assert cfg.graph_signals == ["g:RPM", "m:X"]
+    assert not hasattr(cfg, "graph_signals")                       # trend grafiği kalktı: eski anahtar yok sayılır
     assert "Tt5" in cfg.unbound_gauges()
 
 
