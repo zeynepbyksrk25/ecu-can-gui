@@ -1425,3 +1425,27 @@ def test_table_paste_rejects_everything_on_one_bad_value(qapp):
     assert tw.paste_text("1,5\t2,5") == 2 and tw.current_grid()[0][:2] == [1.5, 2.5]    # ondalık virgül (Excel TR)
     tw.set_allowed(False)
     assert tw.paste_text("9") == 0                                              # salt okunurken yapıştırılmaz
+
+
+def test_diff_text_scalar_table_and_incomparable():
+    from app.ui.modas.dataset_dialogs import diff_text
+    assert diff_text(10.0, 12.5) == "+2.5" and diff_text(5, 3) == "-2"
+    assert diff_text([[1, 2], [3, 4]], [[1, 5], [3, 4]]) == "1 hücre, en büyük 3"
+    assert diff_text([[1, 2]], [[1, 2]]) == "aynı" and diff_text([[1, 2]], [[1], [2]]) == "boyut farklı"
+    assert diff_text(None, 3) == "—" and diff_text("x", 1) == "—"
+
+
+def test_diff_dialog_has_diff_column_filter_and_select_all(qapp):
+    from app.ui.modas.dataset_dialogs import DiffListDialog
+    rows = [("kp_gain", 1.0, 2.0), ("kp_limit", 5.0, 4.0), ("temp_map", [[1, 2]], [[1, 9]])]
+    d = DiffListDialog(rows, True)
+    assert d.table.columnCount() == 4 and d.table.horizontalHeaderItem(3).text() == "Fark"
+    assert d.table.item(0, 3).text() == "+1" and d.table.item(1, 3).text() == "-1"
+    d.filter.setText("kp")
+    assert d.table.isRowHidden(2) and not d.table.isRowHidden(0)
+    d.btn_all.click()
+    assert d.selected_names() == ["kp_gain", "kp_limit"]                       # gizli satır seçilmez/yazılmaz
+    assert d.btn_revert.isEnabled()
+    d.filter.setText("")
+    d.table.clearSelection()
+    assert not d.btn_revert.isEnabled() and "yaz" in d.btn_revert.text()

@@ -11,7 +11,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from app import theme
 from PySide6.QtWidgets import (
-    QAbstractItemView, QDialog, QHBoxLayout, QHeaderView, QLabel, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout,
+    QAbstractItemView, QDialog, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout,
 )
 
 WRITE_PC, READ_ECU, LATER = "write_pc", "read_ecu", "later"
@@ -25,6 +25,21 @@ def value_text(v) -> str:
         return f"{float(v):.9g}"
     except (TypeError, ValueError):
         return str(v)
+
+
+def diff_text(a, b) -> str:
+    """Karşı değere göre fark: sayı için işaretli ``b − a`` (a = WP); tablo için farklı hücre sayısı ve en büyük mutlak fark.
+    Karşılaştırılamıyorsa (boş / farklı boyut) ``—``."""
+    try:
+        if isinstance(a, list) and isinstance(b, list):
+            if len(a) != len(b) or any(len(x) != len(y) for x, y in zip(a, b)):
+                return "boyut farklı"
+            pairs = [(x, y) for ra, rb in zip(a, b) for x, y in zip(ra, rb)]
+            diffs = [abs(float(y) - float(x)) for x, y in pairs if x is not None and y is not None and abs(float(y) - float(x)) > 1e-9]
+            return f"{len(diffs)} hücre, en büyük {max(diffs):.6g}" if diffs else "aynı"
+        return f"{float(b) - float(a):+.6g}"
+    except (TypeError, ValueError):
+        return "—"
 
 
 def _table(headers: list, rows: list, multi: bool = False) -> QTableWidget:
@@ -91,18 +106,29 @@ class DatasetChoiceDialog(QDialog):
 class DiffListDialog(QDialog):
     def __init__(self, rows: list, can_write: bool, deny_reason: str = "", parent=None,
                  headers: tuple = ("Etiket", "WP", "RP"), title: str = "Fark — WP ≠ RP",
-                 action_text: str = "Revert selected (RP → WP)", intro: str | None = None):
+                 action_text: str = "Seçilenleri yaz (RP → WP)", intro: str | None = None):
         """``rows``: ``[(etiket, WP değeri, karşı değer), ...]`` (karşı değer: RP ya da dosya)."""
         super().__init__(parent)
         self.setWindowTitle(title)
         self.setMinimumSize(520, 360)
         self.names = [r[0] for r in rows]
+        self.all_rows = list(rows)
         v = QVBoxLayout(self)
         v.addWidget(QLabel(intro or (f"{len(rows)} etiketin WP (çalışma) ve RP (referans) değeri farklı."
                                      if rows else "WP ve RP aynı.")))
-        self.table = _table(list(headers), [[n, value_text(w), value_text(r)] for n, w, r in rows], multi=True)
+        self.filter = QLineEdit()
+        self.filter.setPlaceholderText("Etiket ara…")
+        self.filter.setClearButtonEnabled(True)
+        self.filter.textChanged.connect(self._apply_filter)
+        v.addWidget(self.filter)
+        self.table = _table([*headers, "Fark"], [[n, value_text(w), value_text(r), diff_text(w, r)] for n, w, r in rows],
+                            multi=True)
         v.addWidget(self.table, 1)
         row = QHBoxLayout()
+        self.btn_all = QPushButton("Görünenlerin hepsini seç")
+        self.btn_all.setToolTip("Süzgeçten geçen tüm farkları seçer (yazma için yine onay sorulur)")
+        self.btn_all.clicked.connect(self.table.selectAll)
+        row.addWidget(self.btn_all)
         self.btn_revert = QPushButton(action_text)
         self.btn_revert.setToolTip("Seçili etiketleri karşı değere yazar (ECU RAM)")
         self.btn_revert.setEnabled(False)
@@ -118,9 +144,15 @@ class DiffListDialog(QDialog):
         row.addWidget(self.btn_close)
         v.addLayout(row)
 
+    def _apply_filter(self, text: str):
+        t = text.strip().lower()
+        for r, name in enumerate(self.names):
+            self.table.setRowHidden(r, bool(t) and t not in name.lower())
+        self._sync()
+
     def _sync(self):
         self.btn_revert.setEnabled(self._can_write and bool(self.selected_names()))
 
     def selected_names(self) -> list:
-        rows = sorted({i.row() for i in self.table.selectedIndexes()})
+        rows = sorted({i.row() for i in self.table.selectedIndexes() if not self.table.isRowHidden(i.row())})
         return [self.names[r] for r in rows]
