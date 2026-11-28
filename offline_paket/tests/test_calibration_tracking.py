@@ -63,9 +63,6 @@ def _fuel(win):
 
 
 def test_worksheet_write_feeds_tracker_history_and_arrow(win, ccp):
-    from app.user_roles import Role
-    win.current_role = Role.ENGINEER
-    win._modas_sync_permissions()
     obj, w = _fuel(win)
     win._modas_write_value(w, "21")
     st = win.change_tracker.state(obj.name)
@@ -79,9 +76,6 @@ def test_worksheet_write_feeds_tracker_history_and_arrow(win, ccp):
 
 
 def test_worksheet_failed_write_is_recorded_as_failed_in_history_and_tracker(win, ccp, monkeypatch):
-    from app.user_roles import Role
-    win.current_role = Role.ENGINEER
-    win._modas_sync_permissions()
     obj, w = _fuel(win)
     win._modas_read_window(w)
 
@@ -98,9 +92,6 @@ def test_worksheet_failed_write_is_recorded_as_failed_in_history_and_tracker(win
 def test_clicking_change_arrow_opens_history_filtered_on_parameter(win, ccp):
     from PySide6.QtCore import QPoint, Qt
     from PySide6.QtTest import QTest
-    from app.user_roles import Role
-    win.current_role = Role.ENGINEER
-    win._modas_sync_permissions()
     obj, w = _fuel(win)
     win._modas_write_value(w, "21")
     win._modas_write_value(w, "22")

@@ -3,7 +3,6 @@ import pytest
 from PySide6.QtWidgets import QMessageBox
 
 from app.dashboard_config import SOURCE_A2L, SOURCE_CAN, Binding, DashboardConfig, SignalMap
-from app.user_roles import Role
 
 
 @pytest.fixture
@@ -22,7 +21,6 @@ def tab(qapp, monkeypatch):
     cfg.sensors["RPM"] = SignalMap(value=Binding(SOURCE_A2L, a2l_name="rpm"),
                                    sw=Binding(SOURCE_A2L, a2l_name="rpm_sw"))
     t.set_config(cfg)
-    t.set_role(Role.ENGINEER)
     return t
 
 
@@ -87,13 +85,6 @@ def test_actuator_box_rejects_letters(tab):
     v = tab._act_rows["valf"]["control"].validator()
     assert v.validate("12a", 3)[0] == QValidator.Invalid
     assert v.validate("1,5", 3)[0] != QValidator.Invalid
-
-
-def test_operator_role_cannot_unlock(tab):
-    tab.set_role(Role.OPERATOR)
-    tab._on_actuator_lock("valf", True)
-    assert tab.calls == []
-    assert not tab._act_open["valf"]
 
 
 def test_unbound_sw_cannot_unlock(tab):

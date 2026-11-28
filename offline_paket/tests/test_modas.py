@@ -1,6 +1,5 @@
 """Modas Sport tarzı arayüz: Ribbon, çalışma alanı (worksheet / MDI / Variable list), WP/RP ve uçtan uca (CCP simülatörü)."""
 import itertools
-import json
 import os
 import struct
 import time
@@ -20,7 +19,6 @@ from app.ui.modas.windows import TableWindow, ValueWindow, format_phys, format_r
 from app.ui.modas.workspace import ModasSheetStore, ModasWorkspace
 from app.modas_projects import Workbase
 from PySide6.QtWidgets import QAbstractItemView
-from app.user_roles import Role
 
 DATA = os.path.join(os.path.dirname(__file__), "data")
 _ch = itertools.count()
@@ -316,8 +314,6 @@ def live(qapp, monkeypatch):
     summary = w.a2l_tab.db.summary
     obj = next(c for c in summary.characteristics if c.name == "clbc_Fuel_pump_gain")
     ecu.write_memory_bytes(obj.address, struct.pack("<f", 12.5))
-    w.current_role = Role.ENGINEER
-    w._modas_sync_permissions()
 
     def pump():
         qapp.processEvents()
@@ -451,20 +447,6 @@ def test_end_to_end_values_write_wp_rp_diff_and_copy(live):
     assert not tab.is_measuring
     log_text = "\n".join(tab.log_panel.texts())
     assert "KALIBRASYON" in log_text and "clbc_Fuel_pump_gain" in log_text      # F3 Log penceresi olayları gösterir
-
-
-def test_operator_cannot_write_from_a_worksheet(live):
-    w, ecu, obj, pump = live
-    assert wait_for(lambda: w.ccp_session.state == ONLINE, pump)
-    win = w.modas_tab.add_label(obj)
-    assert wait_for(lambda: win.edit.text() == "12.5", pump) or w._modas_read_window(win)
-    w._on_role_applied("zeynep", Role.OPERATOR.value)
-    assert win.edit.isReadOnly()                                       # operatör: kutu salt okunur
-    w._modas_write_value(win, "99")                                    # yine de doğrudan çağrılsa da reddedilir
-    assert struct.unpack("<f", ecu.read_memory_bytes(obj.address, 4))[0] == pytest.approx(12.5)
-    assert win.edit.property("bad") is True
-    w._on_role_applied("zeynep", Role.ENGINEER.value)
-    assert not win.edit.isReadOnly()
 
 
 def test_table_label_reads_and_writes_through_the_safe_map_path(live):
@@ -732,18 +714,6 @@ def test_dataset_decide_later_keeps_alert_and_explicit_read_resolves_it(live, mo
     assert w.modas_ribbon.buttons["wp"].property("alert") is False
 
 
-def test_dataset_operator_cannot_write_pc_data_even_if_chosen(live, monkeypatch):
-    from app.ui.modas.dataset_dialogs import WRITE_PC
-    w, ecu, obj, pump = live
-    d = _Dataset(w, ecu, obj, pump, monkeypatch)
-    d.store.save({obj.name: 99.0})
-    w.current_role = Role.OPERATOR
-    d.choice = WRITE_PC
-    d.check()
-    assert d.ecu_value() == pytest.approx(12.5)                        # yetkisiz yazma yolu yok
-    assert w._dataset_diffs
-
-
 def test_dataset_check_is_silent_without_workbase_or_saved_dataset_and_triggers_on_online(live, monkeypatch):
     from app.ui.modas.dataset_dialogs import LATER
     w, ecu, obj, pump = live
@@ -993,19 +963,7 @@ def test_data_file_compare_reports_identical_unreadable_and_unauthorized(live, m
     bad.write_text("{bozuk", encoding="utf-8")
     ok, msg = w._modas_compare_file(str(bad))
     assert not ok and warned
-    # Operatör: fark listesi açılır ama yazma düğmesi pasif (kilitli)
-    w.current_role = Role.OPERATOR
-    data = json.loads(open(path, encoding="utf-8").read())
-    data["values"][obj.name] = 99.0
-    open(path, "w", encoding="utf-8").write(json.dumps(data))
-    seen = {}
 
-    def fake_exec(d):
-        seen["can"] = d.btn_revert.isEnabled() or d._can_write
-        return 0
-    monkeypatch.setattr(mt.DiffListDialog, "exec", fake_exec)
-    w._modas_compare_file(str(path))
-    assert seen["can"] is False and struct.unpack("<f", ecu.read_memory_bytes(obj.address, 4))[0] == pytest.approx(12.5)
 
 
 def test_parameter_file_manager_saves_applies_and_deletes(live, monkeypatch, tmp_path):
@@ -1073,10 +1031,6 @@ def test_macro_play_checks_preconditions_before_writing_anything(live, monkeypat
     assert not ok and "YOK_TABLO" in msg and not asked
     assert struct.unpack("<f", ecu.read_memory_bytes(obj.address, 4))[0] == pytest.approx(12.5)
     store.save("Tek", [{"kind": "value", "label": obj.name, "value": 77.0}])
-    w.current_role = Role.OPERATOR
-    ok, msg = w._modas_macro_play("Tek")
-    assert not ok and "Yetki" in msg and struct.unpack("<f", ecu.read_memory_bytes(obj.address, 4))[0] == pytest.approx(12.5)
-    w.current_role = Role.ENGINEER
     monkeypatch.setattr("app.ui.mainwin.modas_tools.QMessageBox.question", staticmethod(lambda *a, **k: QMessageBox.No))
     ok, msg = w._modas_macro_play("Tek")                                          # onay Hayır: yazılmaz
     assert not ok and struct.unpack("<f", ecu.read_memory_bytes(obj.address, 4))[0] == pytest.approx(12.5)

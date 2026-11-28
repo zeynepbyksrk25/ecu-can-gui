@@ -87,7 +87,7 @@ def test_small_pages_dark_and_accessors(tmp_path):
     s = w.session_tab
     assert s.stop_button.isEnabled() is False and s.state_chip.text() == "Oturum yok"
     assert hasattr(w.tanilama_tab, "diagnostics") and hasattr(w.tanilama_tab, "errors")
-    assert w.user_tab.role_combo.count() >= 3 and w.user_tab.profile_list is not None
+    assert not hasattr(w.user_tab, "role_combo") and w.user_tab.profile_list is not None
     w.close()
 
 

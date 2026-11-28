@@ -8,7 +8,6 @@ from PySide6.QtWidgets import QLabel, QMessageBox
 from app.dashboard_config import (
     ACTUATOR_KEYS, EYLEYICI_KEYS, SOURCE_A2L, SOURCE_CAN, Binding, DashboardConfig, SignalMap, config_from_dict,
 )
-from app.user_roles import Role
 
 DATA = os.path.join(os.path.dirname(__file__), "data")
 
@@ -52,9 +51,8 @@ def win(qapp, monkeypatch):
     w.close()
 
 
-def _tab(win, role=Role.ENGINEER):
+def _tab(win):
     dt = win.dashboard_tab
-    dt.set_role(role)
     calls = []
     dt.writer = lambda binding, value, label: calls.append((binding.text, value)) or True
     return dt, calls
@@ -71,20 +69,14 @@ def test_test_bench_has_only_actuators_gauges_and_model_panel(win):
     assert hasattr(dt, "sim_panel")                                           # MIL model kontrolü kalır
 
 
-def test_eyleyici_lock_is_role_gated_and_requires_sw(win):
-    dt, calls = _tab(win, Role.OPERATOR)
+def test_eyleyici_lock_requires_sw(win):
+    dt, calls = _tab(win)
     cfg = DashboardConfig()
-    cfg.actuators["valf"] = SignalMap(value=Binding(SOURCE_CAN, "OVERRIDE", "valf_cmd"),
-                                      sw=Binding(SOURCE_CAN, "OVERRIDE", "valf_cmd_sw"))
+    cfg.actuators["valf"] = SignalMap(value=Binding(SOURCE_CAN, "OVERRIDE", "valf_cmd"))   # sw yok
     dt.set_config(cfg)
     dt._on_actuator_lock("valf", True)
-    assert not dt._act_open["valf"] and calls == []                           # Operatör: yetki yok
-    dt.set_role(Role.ENGINEER)
-    cfg2 = DashboardConfig()
-    cfg2.actuators["valf"] = SignalMap(value=Binding(SOURCE_CAN, "OVERRIDE", "valf_cmd"))   # sw yok
-    dt.set_config(cfg2)
-    dt._on_actuator_lock("valf", True)
-    assert not dt._act_open["valf"]                                           # Eyleyicide _sw ZORUNLU
+    assert not dt._act_open["valf"] and calls == []                           # Eyleyicide _sw ZORUNLU
+    assert not hasattr(dt, "set_role") and not hasattr(dt, "role_banner")     # rol kavramı kalktı
 
 
 # ---------------------------------------------------------------- eşleşme penceresi

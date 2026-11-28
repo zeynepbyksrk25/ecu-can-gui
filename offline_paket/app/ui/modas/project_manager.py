@@ -114,7 +114,7 @@ class ProjectManagerDialog(QDialog):
         self.btn_open = tb("Open", "Workbase'i aç: A2L yüklenir, ECU'ya bağlanılır   (çift tık)", self._open_workbase)
         self.btn_edit = tb("Edit", "Seçili workbase'in ayarlarını düzenle", self._edit_workbase)
         self.btn_delete = tb("Delete", "Seçili workbase'i sil", self._delete_workbase)
-        self.btn_settings = tb("Settings / Users…", "Kullanıcı, rol ve profiller", self.settings_requested.emit)
+        self.btn_settings = tb("Settings / Users…", "Kullanıcı ve profiller", self.settings_requested.emit)
 
         bar = QHBoxLayout()
         for lab, btns in (("Project", (self.btn_add_new, self.btn_add_existing, self.btn_remove)),

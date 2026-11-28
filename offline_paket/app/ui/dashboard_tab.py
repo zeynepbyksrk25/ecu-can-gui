@@ -34,7 +34,6 @@ from app.ui.dash_widgets import (  # noqa: F401  (ToggleSwitch: eski import yolu
     format_value,
 )
 from app.ui.dark_theme import dark_qss
-from app.user_roles import Role, can_override_actuator
 
 TICK_INTERVAL_MS = 500
 STALE_S = 3.0
@@ -133,7 +132,6 @@ class DashboardTab(QWidget):
     def __init__(self):
         super().__init__()
         self.config = DashboardConfig()
-        self._role = Role.OPERATOR
         self._override_confirmed_session = False
         # MainWindow atar: writer(binding, value, label) -> bool
         self.writer = None
@@ -164,11 +162,6 @@ class DashboardTab(QWidget):
 
         left = QVBoxLayout()
         left.setSpacing(10)
-        self.role_banner = QLabel("")
-        self.role_banner.setObjectName("roleBanner")
-        self.role_banner.setWordWrap(True)
-        self.role_banner.setVisible(False)
-        left.addWidget(self.role_banner, 0)
         # Eyleyiciler: kilit, rol + onay, değer + _sw
         left.addWidget(self._build_actuators_card(), 0)
         left.addStretch(1)
@@ -705,22 +698,7 @@ class DashboardTab(QWidget):
         e["control"].setEnabled(opened)
         e["name"].setStyleSheet("" if opened else theme.paint("color:@@SLATE@@;"))
 
-    def set_role(self, role: Role):
-        self._role = role
-        locked = not can_override_actuator(role)
-        self.role_banner.setVisible(locked)
-        if locked:
-            self.role_banner.setText(
-                f"🔒 {role.value} rolü: girişler, motor komutları ve manuel (kilit) kontrolleri kapalı. "
-                "Açmak için Mühendis veya Yönetici rolü gerekir.")
-
     def _confirm_override(self, label: str) -> bool:
-        if not can_override_actuator(self._role):
-            QMessageBox.warning(
-                self, "Yetki yok",
-                f"{label} için manuel değeri açmak için Mühendis veya Yönetici rolü gerekir "
-                "(sağ üstteki ⚙ Ayarlar penceresinden rol seçin).")
-            return False
         if not self._override_confirmed_session:
             confirm = QMessageBox.warning(
                 self, "MANUEL DEĞER — devam edilsin mi?",

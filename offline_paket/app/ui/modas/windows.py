@@ -182,7 +182,7 @@ class ValueWindow(ModasSub):
         self.kind = kind
         self.fmt = "phys"
         self.step = 0.1 if str(getattr(obj, "datatype", "")).upper().startswith("FLOAT") else 1.0
-        self._allowed = True           # rol / bağlantı izni (kalibrasyon yazmak için)
+        self._allowed = True           # bağlantı izni (çevrimdışıyken yazma kapalı)
         self._last_reading = None
         self._pending = False
         self._rp_view = False          # RP (referans) gösteriminde değer salt okunur ve referans değeri gösterir
@@ -310,7 +310,7 @@ class ValueWindow(ModasSub):
         self.refresh_style(self.edit)
 
     def set_allowed(self, allowed: bool):
-        """Kalibrasyon yazma izni (rol + bağlantı). İzin yoksa değer kutusu salt okunur olur."""
+        """Kalibrasyon yazma izni (bağlantı). İzin yoksa değer kutusu salt okunur olur."""
         self._allowed = bool(allowed)
         if not self._allowed:
             self.discard_pending()

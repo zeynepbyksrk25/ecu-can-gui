@@ -1,7 +1,7 @@
-"""Ayarlar penceresi: kullanıcı/rol seçimi ve bağlantı+CCP profilleri.
+"""Ayarlar penceresi: kullanıcı ve bağlantı+CCP profilleri.
 
 Eskiden ayrı bir "Profil" üst sekmesiydi; seyrek kullanılan bu ayarlar artık komut şeridindeki
-"⚙ Ayarlar" düğmesinden (ya da "Rol: …" etiketine tıklayarak) açılan pencerededir. İçindeki
+"⚙ Ayarlar" düğmesinden (ya da "Kullanıcı: …" etiketine tıklayarak) açılan pencerededir. İçindeki
 ``UserTab`` widget'ı değişmeden yeniden kullanılır; MainWindow onun sinyallerine bağlı kalır.
 """
 

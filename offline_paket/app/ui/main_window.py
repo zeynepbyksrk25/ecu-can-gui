@@ -33,9 +33,7 @@ from app.ui.kalibrasyon_tab import KalibrasyonTab
 from app.ui.tanilama_tab import TanilamaTab
 from app.ui.settings_dialog import SettingsDialog
 from app.ui.user_tab import UserTab
-from app.user_roles import (
-    Role, can_override_actuator,
-)
+from app.user_roles import ROL_ADI
 
 # Eski içe aktarma yolu (app.ui.main_window) çalışmaya devam etsin diye yeniden dışa aktarılır.
 from app.ui.mainwin.common import (  # noqa: F401
@@ -108,7 +106,6 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self.profile_store = ProfileStore(path=data_path("profiles.json"))
         self.dashboard_config_store = DashboardConfigStore(path=data_path("dashboard_config.json"))
         self.current_user = "bilinmeyen"
-        self.current_role = Role.OPERATOR
 
         # ---- Bağlantı kopması izleme durumu (bkz. _check_connection_health)
         self._unhealthy_since: float | None = None
@@ -155,7 +152,7 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
 
         self.session_tab = self.tanilama_tab.session      # Tanılama ve Oturum sayfasının parçası
         self.user_tab = UserTab()
-        # Profil artık üst sekme değil: komut şeridindeki "⚙ Ayarlar" penceresi (rol + profiller)
+        # Profil artık üst sekme değil: komut şeridindeki "⚙ Ayarlar" penceresi (kullanıcı + profiller)
         self.settings_dialog = SettingsDialog(self.user_tab, self)
 
         # ---- Tek ana pencere (Modas). Eski sayfa widget'ları değişmedi; aşağıdaki takma adlar `self.xxx_tab`
@@ -239,16 +236,15 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self.dashboard_tab.writer = self._write_binding
         self.transmit_tab.dbc_loaded.connect(self._on_dashboard_sources_changed)
         self.a2l_tab.a2l_loaded.connect(self._on_dashboard_sources_changed)
-        self.dashboard_tab.set_role(self.current_role)
-        if hasattr(self, "header_role_label"):
-            self._update_role_label()
+        if hasattr(self, "header_user_label"):
+            self._update_user_label()
 
         self._wire_signals()
         self._install_shortcuts_and_accessibility()
         self._wire_modas()
         self._wire_modas_tools()
         for sig in (self.transmit_tab.dbc_loaded, self.a2l_tab.a2l_loaded, self.dashboard_tab.config_saved,
-                    self.user_tab.role_applied):
+                    self.user_tab.user_applied):
             sig.connect(self._schedule_minimum_size_refresh)
 
         self.rx_timer = QTimer(self)
@@ -414,7 +410,7 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
 
     def _build_modas_chrome(self) -> QWidget:
         """Üst şerit = Modas Ribbon (bkz. app/ui/modas/ribbon.py). Eski başlık + komut şeridindeki tüm widget'lar
-        (bağlantı hapı, CCP durumu, rol, Ayarlar, Eşleşmeler, Motor Başlat/Durdur/ACİL DURDURMA) aynı adlarla yaşar:
+        (bağlantı hapı, CCP durumu, kullanıcı, Ayarlar, Eşleşmeler, Motor Başlat/Durdur/ACİL DURDURMA) aynı adlarla yaşar:
         durum alanı sekme satırının sağında, Motor grubu HER sekmede görünen sağ bölmede (Acil Durdurma gizlenmez).
         Araç pencereleri: Tools sekmesi, Ctrl+1…6, bağlantı hapı (bkz. ``open_tool``)."""
         rb = self.modas_ribbon
@@ -434,23 +430,23 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self.rec_chip.setObjectName("recChip")
         self.rec_chip.setProperty("state", "")
         self.rec_chip.setToolTip("Veri kaydı durumu: Test oturumu başlayınca REC; duraklatma ve yazma hataları burada görünür")
-        self.header_role_label = _ClickLabel("")
-        self.header_role_label.setObjectName("headerReadout")
-        self.header_role_label.setTextFormat(Qt.RichText)
-        self.header_role_label.setCursor(Qt.PointingHandCursor)
-        self.header_role_label.setToolTip("Tıkla: kullanıcı ve rol ayarları")
-        self.header_role_label.clicked.connect(self.open_settings)
+        self.header_user_label = _ClickLabel("")
+        self.header_user_label.setObjectName("headerReadout")
+        self.header_user_label.setTextFormat(Qt.RichText)
+        self.header_user_label.setCursor(Qt.PointingHandCursor)
+        self.header_user_label.setToolTip("Tıkla: kullanıcı ayarları")
+        self.header_user_label.clicked.connect(self.open_settings)
         self.settings_button = QPushButton("⚙  Ayarlar")
         self.settings_button.setFixedHeight(24)
         self.settings_button.setCursor(Qt.PointingHandCursor)
-        self.settings_button.setToolTip("Kullanıcı / rol ve bağlantı+CCP profilleri")
+        self.settings_button.setToolTip("Kullanıcı ve bağlantı+CCP profilleri")
         self.settings_button.clicked.connect(self.open_settings)
         self.mappings_button = QPushButton("⚙  Eşleşmeler")
         self.mappings_button.setFixedHeight(24)
         self.mappings_button.setCursor(Qt.PointingHandCursor)
         self.mappings_button.setToolTip("Sensör, eyleyici, motor komutu ve giriş sinyallerinin CAN (DBC) / A2L eşleşmeleri")
         self.mappings_button.clicked.connect(self.dashboard_tab.open_mappings)
-        for w in (self.rec_chip, self.ccp_chip, self.header_role_label, self.settings_button, self.mappings_button, self.header_conn_pill):
+        for w in (self.rec_chip, self.ccp_chip, self.header_user_label, self.settings_button, self.mappings_button, self.header_conn_pill):
             rb.add_status_widget(w)
 
         dt = self.dashboard_tab
@@ -463,7 +459,7 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
                 rb.add_motor_widget(sep)
             rb.add_motor_widget(tg)
         rb.add_motor_note(dt.estop_warn)
-        self._update_role_label()
+        self._update_user_label()
         return rb
 
     ESTOP_SHORTCUT = "Ctrl+Shift+E"
@@ -491,8 +487,8 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
             dt.estop_warn: ("Acil durdurma eşlenmemiş uyarısı", "Eşleşmeler penceresini açar"),
             self.header_conn_pill: ("CAN bağlantı durumu", "CAN Trace penceresini açar"),
             self.ccp_chip: ("CCP durumu", "CCP oturumunun durumu"),
-            self.header_role_label: ("Kullanıcı rolü", "Kullanıcı ve rol ayarlarını açar"),
-            self.settings_button: ("Ayarlar", "Kullanıcı, rol ve profiller"),
+            self.header_user_label: ("Kullanıcı", "Kullanıcı ayarlarını açar"),
+            self.settings_button: ("Ayarlar", "Kullanıcı ve profiller"),
             self.mappings_button: ("Eşleşmeler", "CAN ve A2L eşleşmeleri"),
         }
         for widget, (name, desc) in names.items():
@@ -504,11 +500,11 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self.open_tool("CAN Trace")
 
     def open_settings(self):
-        """Ayarlar penceresi (kullanıcı/rol + profiller)."""
+        """Ayarlar penceresi (kullanıcı + profiller)."""
         self.settings_dialog.exec()
 
-    def _update_role_label(self):
-        self.header_role_label.setText(f"Rol: <b style='color:{theme.INK}'>{self.current_role.value} ▾</b>")
+    def _update_user_label(self):
+        self.header_user_label.setText(f"Kullanıcı: <b style='color:{theme.INK}'>{self.current_user} · {ROL_ADI} ▾</b>")
 
     def _update_clock(self):
         now_text = datetime.now().strftime("%d.%m.%Y  %H:%M:%S")
@@ -585,7 +581,6 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self.tx_scheduler.failed.connect(self._on_panel_tx_failed)
         self.tx_scheduler.recovered.connect(self._on_panel_tx_recovered)
         self.tx_scheduler.state_changed.connect(self._panel_tx_state)
-        self.control_panel_tab.set_allowed(can_override_actuator(self.current_role))
 
         self.diagnostics_tab.test_requested.connect(self._on_diag_test_requested)
         self.diagnostics_tab.diag_requested.connect(self._on_diag_requested)
@@ -593,13 +588,13 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self.history_tab.revert_requested.connect(self._on_history_revert)
 
         self.settings_dialog.mappings_requested.connect(self.dashboard_tab.open_mappings)
-        self.user_tab.role_applied.connect(self._on_role_applied)
+        self.user_tab.user_applied.connect(self._on_user_applied)
         self.user_tab.profile_save_requested.connect(self._on_profile_save)
         self.user_tab.profile_apply_requested.connect(self._on_profile_apply)
         self.user_tab.profile_delete_requested.connect(self._on_profile_delete)
 
     def _log_event(self, category: str, message: str):
-        self.event_log.add(category, message, user=self.current_user, role=self.current_role.value)
+        self.event_log.add(category, message, user=self.current_user, role=ROL_ADI)
         rec = getattr(self, "session_recorder", None)
         if rec is not None:
             rec.record_event(category, message)       # kayıt açıkken olay dosyasına (bağlantı, hata, kalibrasyon…)

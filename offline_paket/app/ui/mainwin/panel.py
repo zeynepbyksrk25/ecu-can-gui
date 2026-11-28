@@ -6,9 +6,6 @@ from PySide6.QtWidgets import (
 
 from app.ccp import protocol as ccp_protocol
 from app import control_panel as cpanel
-from app.user_roles import (
-    can_override_actuator,
-)
 
 
 class PanelMixin:
@@ -55,9 +52,6 @@ class PanelMixin:
     def _on_panel_apply(self, changes: dict):
         panel = self.control_panel_tab
         results = []
-        if not can_override_actuator(self.current_role):
-            panel._set_status("Yetki yok: Mühendis veya Yönetici rolü gerekir.", False)
-            return
         can_items = changes.get("can", {})
         if can_items and not self.connection.is_connected:
             panel._set_status("CAN bağlı değil: uçak girişleri gönderilemedi.", False)

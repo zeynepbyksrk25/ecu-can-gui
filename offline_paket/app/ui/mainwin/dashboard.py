@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
 )
 
+from app.user_roles import ROL_ADI
 from app.ccp import codec as ccp_codec
 from app.ccp import protocol as ccp_protocol
 from app import control_panel as cpanel
@@ -108,7 +109,7 @@ class DashboardMixin:
             return False
         self._drain_tx_queue()
         self._log_event("EYLEYICI", f"{label} [CAN {binding.message}.{binding.signal}] = {value:g} "
-                                    f"({self.current_user}/{self.current_role.value})")
+                                    f"({self.current_user}/{ROL_ADI})")
         self._record_input("Ana Sayfa", self._input_kind(label, merge, safety), "CAN",
                            f"{binding.message}.{binding.signal}", value, detail=label)
         if safety:
@@ -195,7 +196,7 @@ class DashboardMixin:
                                ok=False, detail=f"{label}: {exc}", unit=getattr(info, "unit", "") or "")
             return False
         self._log_event("EYLEYICI", f"{label} [A2L {binding.a2l_name}] = {value:g} "
-                                    f"({self.current_user}/{self.current_role.value})")
+                                    f"({self.current_user}/{ROL_ADI})")
         self._record_input("Ana Sayfa", self._input_kind(label, merge, safety), "A2L", binding.a2l_name, value,
                            detail=label, unit=getattr(info, "unit", "") or "")
         return True
@@ -375,7 +376,7 @@ class DashboardMixin:
         from app.session_recorder import file_fingerprint
         params = getattr(self.connection, "_params", None) or {}
         mode = getattr(self, "backend_mode", "REAL")
-        return {"operator": operator, "user": self.current_user, "role": self.current_role.value,
+        return {"operator": operator, "user": self.current_user, "role": ROL_ADI,
                 "mode": mode, "connection": {"interface": params.get("interface", ""),
                                              "channel": params.get("channel", ""),
                                              "connected": bool(self.connection.is_connected)},

@@ -126,7 +126,6 @@ class ModasWorkspace(QWidget):
         self._by_name: dict = {}
         self._sheets: list[_Sheet] = []
         self._online = False
-        self._allowed = True
         self._page = WP
         self._reference: dict = {}
         self._cascade = 0
@@ -397,14 +396,13 @@ class ModasWorkspace(QWidget):
             win.write_requested.connect(self.table_write_requested.emit)
             win.history_requested.connect(self.history_requested.emit)
             win.read_requested.connect(lambda w: self.table_read_requested.emit([w]))
-            win.set_allowed(self._allowed)
             if fmt:
                 win.set_format(fmt)
         else:
             win = ValueWindow(obj, "cal" if kind == "value" else "meas")
             win.write_requested.connect(self.value_write_requested.emit)
             win.history_requested.connect(self.history_requested.emit)
-            win.set_allowed(self._allowed and self._online)
+            win.set_allowed(self._online)
             if fmt:
                 win.set_format(fmt)
         win.closed.connect(lambda w, s=sheet: self._on_closed(s, w))
@@ -696,17 +694,9 @@ class ModasWorkspace(QWidget):
         if self._online and not was:
             self._warmup()
         for w in self.value_windows():
-            w.set_allowed(self._allowed and self._online)
+            w.set_allowed(self._online)
         if not online:
             self.stop_measurement()
-
-    def set_allowed(self, allowed: bool):
-        """Rol, kalibrasyon yazmaya izin veriyor mu."""
-        self._allowed = bool(allowed)
-        for w in self.value_windows():
-            w.set_allowed(self._allowed and self._online)
-        for w in self.table_windows():
-            w.set_allowed(self._allowed)
 
     # ======================================================================
     # WP / RP gösterimi

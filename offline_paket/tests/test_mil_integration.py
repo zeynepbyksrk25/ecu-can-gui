@@ -105,8 +105,6 @@ def test_mil_calibration_via_manifest_changes_model_and_history(mil, tmp_path):
     """MIL'de Kalibrasyon: A2L + manifest → model parametresi yazılır, geçmişe/izleyiciye yansır."""
     import json as _json
     w, model = mil
-    from app.user_roles import Role
-    w.current_role = Role.ENGINEER
     w.a2l_tab.db.load(os.path.join(DATA, "sample.a2l"))
     summary = w.a2l_tab.db.summary
     ch = next(c for c in summary.characteristics if c.kind == "SCALAR" and not c.read_only and c.address is not None)
@@ -118,7 +116,6 @@ def test_mil_calibration_via_manifest_changes_model_and_history(mil, tmp_path):
     assert w._load_sim_manifest(str(mp))
     w._apply_sim_params()
     assert w.ccp_client is not None
-    w._modas_sync_permissions()
     w.modas_tab.set_summary(summary)
     win = w.modas_tab.add_label(ch.name)
     w._modas_write_value(win, "3")

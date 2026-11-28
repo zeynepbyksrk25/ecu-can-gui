@@ -19,7 +19,6 @@ from app.paths import data_path
 from app.ui.modas.dataset_dialogs import DiffListDialog
 from app.ui.modas.tools_dialogs import MacroDialog, ParameterFilesDialog
 from app.ui.modas.windows import TableWindow, ValueWindow, format_phys
-from app.user_roles import can_write_calibration
 
 log = logging.getLogger(__name__)
 
@@ -94,8 +93,8 @@ class ModasToolsMixin:
             msg = "Dosya ile WP aynı." + note
             self.statusBar().showMessage(msg, 6000)
             return True, msg
-        can = can_write_calibration(self.current_role) and self.ccp_client is not None
-        reason = "" if can else ("ECU çevrimdışı." if self.ccp_client is None else "Yetki yok: Mühendis veya Yönetici rolü gerekir.")
+        can = self.ccp_client is not None
+        reason = "" if can else "ECU çevrimdışı."
         dlg = DiffListDialog([(d.name, d.pc, d.ecu) for d in diffs], can, reason, self,
                              headers=("Label", "WP", "File"), title="Compare file with WP",
                              action_text="Write selected (File → WP)",
@@ -204,9 +203,6 @@ class ModasToolsMixin:
             return False, "Kayıt sürerken oynatılamaz."
         if self.ccp_client is None:
             return False, "ECU çevrimdışı: macro oynatılamaz."
-        for s in steps:
-            if not can_write_calibration(self.current_role):
-                return False, "Yetki yok: Mühendis veya Yönetici rolü gerekir."
         windows = {w.label: w for w in self.modas_tab.windows()}
         missing = missing_labels(steps, set(windows))
         if missing:

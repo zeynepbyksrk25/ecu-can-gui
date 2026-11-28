@@ -11,9 +11,6 @@ from PySide6.QtWidgets import (
 
 from app.ccp.worker import IDLE
 from app.scheduler import PeriodicManager
-from app.user_roles import (
-    can_transmit_frames,
-)
 from app.ui.mainwin.common import (
     CONNECTION_LOSS_CONFIRM_S, SILENT_NOTICE_S,
 )
@@ -367,11 +364,6 @@ class ConnectionMixin:
         return f"ID=0x{can_id:X}{' (ext)' if extended else ''} DLC={len(data)} DATA={data.hex(' ').upper()}"
 
     def _on_manual_send(self, can_id: int, data: bytes, extended: bool):
-        if not can_transmit_frames(self.current_role):
-            QMessageBox.warning(self, "Yetki yok",
-                                "CAN çerçevesi göndermek için Mühendis veya Yönetici rolü gerekir "
-                                "(sağ üstteki ⚙ Ayarlar penceresinden rol seçin).")
-            return
         try:
             self.connection.send(can_id, data, extended)
         except Exception as exc:
@@ -383,12 +375,6 @@ class ConnectionMixin:
 
     def _on_periodic_start(self, row_key: str, can_id: int, data: bytes,
                             extended: bool, period_ms: int):
-        if not can_transmit_frames(self.current_role):
-            self.transmit_tab.mark_start_failed(row_key)
-            QMessageBox.warning(self, "Yetki yok",
-                                "Periyodik gönderim için Mühendis veya Yönetici rolü gerekir "
-                                "(sağ üstteki ⚙ Ayarlar penceresinden rol seçin).")
-            return
         if self.periodic_manager is None:
             self.transmit_tab.mark_start_failed(row_key)
             QMessageBox.warning(self, "Bağlantı yok", "Önce CAN hattına bağlanın.")

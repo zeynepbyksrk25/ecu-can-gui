@@ -1,6 +1,6 @@
 """Modas çalışma alanının MainWindow tarafı: ölçüm turu, değer/tablo okuma-yazma, WP/RP, Ribbon düğmeleri, kısayollar.
 
-Güvenlik: yazma yolları CCP sekmesindeki RAM yazımıyla AYNI ilkelere uyar — rol denetimi (Mühendis/Yönetici), CCP bağlı olma,
+Güvenlik: yazma yolları CCP sekmesindeki RAM yazımıyla AYNI ilkelere uyar — denetim kaydı, CCP bağlı olma,
 ``encode_for_write`` doğrulaması, yazma sonrası geri okuma, tablo yedeği + geri alma, giriş kaydı ve kalibrasyon geçmişi.
 Modas penceresi yalnızca arayüzdür; ECU'ya doğrudan dokunmaz.
 """
@@ -26,12 +26,12 @@ from app.modas_dataset import DatasetStore, compare
 from app.modas_projects import ProjectStore
 from app.modas_templates import BUILTINS, TemplateStore, build_specs
 from app.paths import data_path
-from app.ui.modas.dataset_dialogs import LATER, READ_ECU, WRITE_PC, DatasetChoiceDialog, DiffListDialog
+from app.ui.modas.dataset_dialogs import READ_ECU, WRITE_PC, DatasetChoiceDialog, DiffListDialog
 from app.ui.modas.project_manager import ProjectManagerDialog
 from app.ui.modas.ribbon import glyph_icon
 from app.ui.modas.windows import TableWindow, ValueWindow, format_phys
 from app.value_text import parse_value_text
-from app.user_roles import can_write_calibration
+from app.user_roles import ROL_ADI
 
 log = logging.getLogger(__name__)
 
@@ -108,7 +108,6 @@ class ModasMixin:
         rb._pages_btn_group.idClicked.connect(lambda i: self.open_tool(self._nav_pages[i][2]))
 
         self._install_modas_shortcuts()
-        self._modas_sync_permissions()
         self._modas_on_a2l_loaded()
         self._modas_sync_status(force=True)
 
@@ -161,7 +160,7 @@ class ModasMixin:
         elif not self._dataset_checked and self._modas_workbase is not None:
             self._dataset_checked = True
             QTimer.singleShot(0, self._modas_check_dataset)
-        status = (state, self.a2l_tab.db.summary is not None, self.current_role)
+        status = (state, self.a2l_tab.db.summary is not None)
         if not force and status == getattr(self, "_modas_last_status", None):
             return
         self._modas_last_status = status
@@ -182,11 +181,6 @@ class ModasMixin:
         except Exception:  # noqa: BLE001 - sekme henüz hazır değilse alan boş kalır
             iface = ""
         rb.set_field("workbase", wbk[1].name if wbk else iface)
-
-    def _modas_sync_permissions(self):
-        self.modas_tab.set_allowed(can_write_calibration(self.current_role))
-        self._modas_last_status = None
-        self._modas_sync_status(force=True)
 
     def _modas_on_a2l_loaded(self):
         self.modas_tab.set_summary(self.a2l_tab.db.summary)
@@ -399,8 +393,6 @@ class ModasMixin:
 
         if self.ccp_client is None:
             return deny("CCP bağlı değil; değer yazılamadı.")
-        if not can_write_calibration(self.current_role):
-            return deny("Yetki yok: kalibrasyon yazmak için Mühendis veya Yönetici rolü gerekir.")
         if getattr(obj, "address", None) is None or not getattr(obj, "datatype", ""):
             return deny("ECU adresi / veri tipi A2L'de tanımlı değil.")
         try:
@@ -430,7 +422,7 @@ class ModasMixin:
         win.set_write_result(True, "RAM'e yazıldı (ECU'dan doğrulandı).")
         self.macro_recorder.add("value", obj.name, phys)
         self._log_event("KALIBRASYON", f"{obj.name} = {phys} {unit} (RAM, Worksheets) yazıldı")
-        self.calibration_history.add(self.current_user, self.current_role.value, obj.name, old, phys, unit,
+        self.calibration_history.add(self.current_user, ROL_ADI, obj.name, old, phys, unit,
                                      persistent=False, source="worksheets")
         self.change_tracker.applied(obj.name, old, phys, unit)
         self._modas_mark_change(win)
@@ -444,11 +436,6 @@ class ModasMixin:
         if self.ccp_client is None:
             win.set_write_result(False, "CCP bağlı değil; tablo yazılamadı.")
             return
-        if not can_write_calibration(self.current_role):
-            win.set_write_result(False, "Yetki yok: tablo yazmak için Mühendis veya Yönetici rolü gerekir.")
-            self._record_denied_write(PAGE, "Tablo yazımı (RAM)", "Yetki yok: Mühendis veya Yönetici rolü gerekir",
-                                      win.characteristic.name)
-            return
         self._write_map_docs([win])
         if not win.is_modified():                          # başarılı yazım (yedek + geri okuma doğrulandı)
             self.macro_recorder.add("table", win.label, win.current_grid())
@@ -456,7 +443,7 @@ class ModasMixin:
 
     def _modas_write_pending(self):
         """Write data to ECU: bekleyen (sarı) değerleri RAM'e yazar. Kalıcı (Flaş) yazma ayrı ve riskli bir işlemdir:
-        Kalibrasyon > CCP sayfasındaki 'Kalıcı Kaydet (Flaş)' akışı (Yönetici + onay) kullanılır."""
+        Kalibrasyon > CCP sayfasındaki 'Kalıcı Kaydet (Flaş)' akışı (güçlü onay) kullanılır."""
         pend = [w for w in self.modas_tab.value_windows() if w.has_pending]
         tabs = [t for t in self.modas_tab.table_windows() if t.is_modified() and t.is_writable()]
         if not pend and not tabs:
@@ -521,9 +508,6 @@ class ModasMixin:
         if self.ccp_client is None:
             self.statusBar().showMessage("ECU çevrimdışı: RP → WP yapılamaz.", 4000)
             return
-        if not can_write_calibration(self.current_role):
-            QMessageBox.warning(self, "Yetki yok", "Kalibrasyon yazmak için Mühendis veya Yönetici rolü gerekir.")
-            return
         names = ", ".join(sorted(plan)[:8]) + (" …" if len(plan) > 8 else "")
         ans = QMessageBox.question(
             self, title,
@@ -549,9 +533,8 @@ class ModasMixin:
         snap = self._modas_snapshot()
         names = self.page_model.diff_names(snap)
         rows = [(n, snap[n], self.page_model.reference[n]) for n in names]
-        ok = can_write_calibration(self.current_role) and self.ccp_client is not None
-        reason = "" if ok else ("ECU çevrimdışı." if self.ccp_client is None
-                                else "Yetki yok: Mühendis veya Yönetici rolü gerekir.")
+        ok = self.ccp_client is not None
+        reason = "" if ok else "ECU çevrimdışı."
         dlg = DiffListDialog(rows, ok, reason, self)
         if dlg.exec() == DiffListDialog.Accepted and dlg.selected_names():
             self._modas_restore_labels(dlg.selected_names())
@@ -596,9 +579,7 @@ class ModasMixin:
             return
         self._dataset_diffs = diffs
         self.modas_ribbon.set_dataset_alert(True)
-        can_write = can_write_calibration(self.current_role)
-        dlg = DatasetChoiceDialog(diffs, can_write, "" if can_write else
-                                  "Yetki yok: ECU'ya yazmak için Mühendis veya Yönetici rolü gerekir.", self)
+        dlg = DatasetChoiceDialog(diffs, True, "", self)
         self._dataset_dialog_open = True
         try:
             dlg.exec()
@@ -608,8 +589,6 @@ class ModasMixin:
 
     def _modas_apply_dataset_choice(self, choice: str, diffs: list, pc: dict, ecu: dict):
         n = len(diffs)
-        if choice == WRITE_PC and not can_write_calibration(self.current_role):
-            choice = LATER                               # savunma: düğme pasif olsa da yetkisiz yazma yolu yok
         if choice == WRITE_PC:
             done = 0
             for d in diffs:

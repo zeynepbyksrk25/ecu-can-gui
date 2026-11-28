@@ -246,17 +246,13 @@ def test_manual_excel_export_and_can_log_stop_create_files(win, tmp_path, monkey
 @pytest.fixture
 def can_win(win, monkeypatch):
     """DBC yüklü, CAN 'bağlı' (gönderilen kareler toplanır), Mühendis rolü."""
-    from app.user_roles import Role
     sent = []
     monkeypatch.setattr(type(win.connection), "is_connected", property(lambda s: True))
     monkeypatch.setattr(win.connection, "send", lambda i, d, e: sent.append((i, bytes(d))))
     win.transmit_tab.dbc.load(os.path.join(os.path.dirname(__file__), "data", "sample.dbc"))
     win._on_dashboard_sources_changed()
     win._panel_sources_changed()
-    win.current_role = Role.ENGINEER
     win.current_user = "Zeynep"
-    win.dashboard_tab.set_role(Role.ENGINEER)
-    win.control_panel_tab.set_allowed(True)
     return win
 
 
