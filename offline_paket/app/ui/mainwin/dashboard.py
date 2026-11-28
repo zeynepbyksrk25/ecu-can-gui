@@ -13,7 +13,7 @@ from app.ccp import codec as ccp_codec
 from app.ccp import protocol as ccp_protocol
 from app import control_panel as cpanel
 from app.dashboard_config import (
-    COMMAND_VALUE, CONTROL_KEYS, GAUGE_KEYS, MOTOR_COMMAND_KEYS, SENSOR_KEYS, SOURCE_A2L, SOURCE_CAN, Binding,
+    COMMAND_VALUE, GAUGE_KEYS, MOTOR_COMMAND_KEYS, SENSOR_KEYS, SOURCE_A2L, SOURCE_CAN, Binding,
 )
 from app.paths import data_path
 from app.ui.mainwin.common import (
@@ -262,27 +262,6 @@ class DashboardMixin:
         else:
             self._log_event("HATA", "Acil Durdurma kilidi AÇILAMADI: sinyal 0'a çekilemedi, kilitli kalıyor")
 
-    def _migrate_control_bindings(self):
-        """Eski sürümde Motor Kontrol girişleri (Start/Spark/Gaz Kolu/Birincil Yakıt) ``sim_interface.json``
-        içinde "dbc:MESAJ.SİNYAL" olarak tutuluyordu ve doğrudan gönderiliyordu. Artık Eyleyiciler gibi
-        (kilitli, değer + isteğe bağlı _sw, CAN/A2L): eski DBC eşlemesi DEĞER bağlaması olarak taşınır."""
-        cfg = self.dashboard_tab.config
-        legacy = self.sim_config.input_map
-        changed = False
-        for key in CONTROL_KEYS:
-            old = legacy.pop(key, None)
-            m = cfg.actuator_map(key)
-            if old and old.startswith("dbc:") and "." in old and not m.value.is_set:
-                msg, sig = old[4:].split(".", 1)
-                m.value = Binding(SOURCE_CAN, msg, sig)
-                changed = True
-        if legacy is not None and any(k in self.sim_config.input_values for k in CONTROL_KEYS):
-            for k in CONTROL_KEYS:
-                self.sim_config.input_values.pop(k, None)
-        if changed:
-            self.dashboard_config_store.save(cfg)
-        self.sim_config.save()
-
     def _on_dashboard_config_saved(self, cfg):
         if not self.dashboard_config_store.save(cfg):
             self._log_event("HATA", "Eşleşmeler DİSKE YAZILAMADI (bellekte geçerli, yeniden açınca kaybolur).")
@@ -467,11 +446,6 @@ class DashboardMixin:
                 chip.style().polish(chip)
             if st["dropped"] and state in ("KAYITTA", "DURAKLATILDI"):
                 chip.setToolTip(f"Kayıtta {st['dropped']} öğe kuyruk dolduğu için YAZILAMADI")
-
-    def _on_hub_sample(self, sid: str, value):
-        """Sinyal deposundan gelen örnek: yalnızca kullanıcı girişleri kayda yazılır (diğerleri kaynakta yazılır)."""
-        if sid.startswith("input:"):
-            self.session_recorder.record(sid, value)
 
     def _rebuild_record_index(self):
         """A2L yüklenince: CCP okuma anahtarı (adres, uzantı, boyut) -> A2L nesneleri. CCP iş parçacığı değeri

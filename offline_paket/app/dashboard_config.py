@@ -75,19 +75,16 @@ EYLEYICI_KEYS = ["pompa_start", "pompa_fuel", "valf", "glow_plug", "starter"]
 # Motor Kontrol (Çalıştırma, Gaz Kolu): CAN (DBC) ya da A2L, kilitsiz DEĞER kutusu (değer + Enter ile direkt komut, rol gerekir). ANAHTAR (_sw)
 # YOKTUR: switch (_sw) yalnızca Eyleyicilerdedir (kilitlenince değer 0'a çekilir). Ateşleme ve Birincil Yakıt
 # kaldırıldı (zaten Eyleyicilerde var).
-CONTROL_KEYS = ["start", "throttle"]
 # _sw (anahtar) eşlemesi olan TEK grup: Eyleyiciler. Sensörlerde ve Motor Kontrol'de switch yoktur.
 SWITCH_KEYS = EYLEYICI_KEYS
 # Manuel-override (kilitli) davranışı olan TÜM satırlar.
-ACTUATOR_KEYS = EYLEYICI_KEYS + CONTROL_KEYS
+ACTUATOR_KEYS = EYLEYICI_KEYS
 ACTUATOR_LABELS = {
     "pompa_start": "Yakıt Pompası Start",
     "pompa_fuel": "Yakıt Pompası Fuel",
     "valf": "Yakıt Debisi Valfi",
     "glow_plug": "Glow Plug",
     "starter": "Başlatma Motoru",
-    "start": "Çalıştırma (Start)",
-    "throttle": "Gaz Kolu (PLA)",
 }
 # "valve" -> sayısal değer kutusu (Eyleyicilerde kilit açılınca _sw=1 yazılır). Ana Sayfa'da ON/OFF anahtarı
 # (toggle) YOKTUR: tüm satırlar değer kutusudur.
@@ -97,8 +94,6 @@ ACTUATOR_KINDS = {
     "valf": "valve",
     "glow_plug": "valve",
     "starter": "valve",
-    "start": "valve",
-    "throttle": "valve",
 }
 
 MOTOR_COMMAND_KEYS = ["motor_start", "motor_stop", "estop"]
@@ -157,13 +152,10 @@ class MotorCommand:
 
 
 def strip_unused_switches(cfg: "DashboardConfig") -> "DashboardConfig":
-    """Switch (_sw) yalnızca Eyleyicilerde kullanılır: sensör ve Motor Kontrol satırlarının eski kayıtlardan gelen
+    """Switch (_sw) yalnızca Eyleyicilerde kullanılır: sensörlerin eski kayıtlardan gelen
     anahtar eşlemeleri temizlenir (arayüzde de çalışma mantığında da yoktur)."""
     for smap in cfg.sensors.values():
         smap.sw = Binding()
-    for key in CONTROL_KEYS:
-        if key in cfg.actuators:
-            cfg.actuators[key].sw = Binding()
     for key in MOTOR_COMMAND_KEYS:                    # komutlarda Değer ve Switch yok: sabit 1, anahtarsız
         cmd = getattr(cfg, key)
         cmd.value, cmd.sw = COMMAND_VALUE, Binding()

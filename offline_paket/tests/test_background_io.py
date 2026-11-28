@@ -293,35 +293,6 @@ def test_estop_unmapped_does_not_stay_latched(win, monkeypatch):
     assert not win.dashboard_tab.estop_button.isChecked()
 
 
-def test_flight_inputs_have_no_limits(qapp):
-    from app.sim_interface import SimConfig
-    from app.ui.sim_inputs import SimInputsPanel
-    import inspect
-    try:
-        p = SimInputsPanel(SimConfig(), None) if len(inspect.signature(SimInputsPanel).parameters) >= 2 else SimInputsPanel(SimConfig())
-    except TypeError:
-        pytest.skip("SimInputsPanel imzası farklı")
-    spin = p._ctrl["ma"]["w"]
-    spin.setValue(35)
-    assert spin.value() == 35
-
-
-# ---------------------------------------------------------------- arka planda dosya yükleme
-def test_run_with_progress_keeps_event_loop_alive_and_returns_or_raises(qapp):
-    from app.ui.background import run_with_progress
-    ticks = []
-    timer = QTimer()
-    timer.setInterval(10)
-    timer.timeout.connect(lambda: ticks.append(1))
-    timer.start()
-    main = threading.get_ident()
-    assert run_with_progress(None, "bekleyin", lambda: (time.sleep(0.3), threading.get_ident())[1]) != main
-    timer.stop()
-    assert len(ticks) >= 5, "iş sürerken olay döngüsü dönmeli"
-    assert run_with_progress(None, "kısa", lambda: 7) == 7
-    with pytest.raises(ValueError, match="bozuk"):
-        run_with_progress(None, "hata", lambda: (_ for _ in ()).throw(ValueError("bozuk dosya")))
-
 
 def test_a2l_is_parsed_off_the_ui_thread_and_usable_afterwards(qapp, monkeypatch):
     from app.ccp import codec

@@ -32,9 +32,7 @@ def dlg(qapp):
     w.transmit_tab.dbc.load(os.path.join(DATA, "sample.dbc"))
     w.a2l_tab.db.load(os.path.join(DATA, "sample.a2l"))
     w._on_dashboard_sources_changed()
-    w.dashboard_tab.sim_inputs.refresh_sources(w.transmit_tab.dbc)
-    d = MappingDialog(w.dashboard_tab.config, w.dashboard_tab.sim_inputs, w.transmit_tab.dbc,
-                      w.a2l_tab.db.summary, w)
+    d = MappingDialog(w.dashboard_tab.config, w.transmit_tab.dbc, w.a2l_tab.db.summary, w)
     yield w, d
     w.close()
 
@@ -43,11 +41,10 @@ def test_switch_column_exists_only_for_actuators(dlg):
     w, d = dlg
     assert set(d.sensor_ed["RPM"]) == {"value", "fault"}                             # sensörde switch yok
     assert set(d.actuator_ed["pompa_fuel"]) == {"value", "sw"}                        # switch YALNIZCA Eyleyicilerde
-    assert set(d.control_ed) == {"start", "throttle"}                                # Spark / Birincil Yakıt kaldırıldı
-    assert set(d.control_ed["start"]) == {"value"}                                   # Motor Kontrol'de switch yok
+    assert not hasattr(d, "control_ed") and not hasattr(d, "input_ed")               # Motor Kontrol ve Uçuş Koşulları kalktı
     assert set(d.motor_ed) == {"motor_start", "motor_stop", "estop"}                  # komutlarda yalnızca eşleme (Değer/Switch yok)
     assert not hasattr(d, "motor_sw_ed")
-    assert [d.tabs.tabText(i) for i in range(d.tabs.count())] == ["Sinyaller", "Uçuş Koşulları"]
+    assert not hasattr(d, "tabs")                                                    # tek sayfa: Sinyaller
 
 
 def test_result_config_keeps_independent_sources_and_auto_sw(dlg):
@@ -64,51 +61,6 @@ def test_result_config_keeps_independent_sources_and_auto_sw(dlg):
     assert cfg.estop.binding.source == SOURCE_A2L
 
 
-def test_input_tab_saves_dbc_mapping_for_flight_and_control(dlg):
-    w, d = dlg
-    d._auto_inputs()
-    d.input_ed["altitude"].set_binding(Binding(SOURCE_CAN, "AIRCRAFT", "altitude"))
-    d.accept()
-    assert w.dashboard_tab.sim_inputs.config.input_map["altitude"] == "dbc:AIRCRAFT.altitude"
-    assert w.dashboard_tab.sim_inputs.mapped("altitude") == ("AIRCRAFT", "altitude")
-
-
-def test_flight_inputs_are_sent_over_can_from_the_panel(qapp, monkeypatch):
-    from app.user_roles import Role
-    from app.ui.main_window import MainWindow
-    w = MainWindow()
-    w.transmit_tab.dbc.load(os.path.join(DATA, "sample.dbc"))
-    w._on_dashboard_sources_changed()
-    panel = w.dashboard_tab.sim_inputs
-    panel.refresh_sources(w.transmit_tab.dbc)
-    assert panel.mapped("altitude") == ("AIRCRAFT", "altitude")      # isimden otomatik eşleşti
-    assert panel.mapped("ma") == ("AIRCRAFT", "mach")
-    w.current_role = Role.ENGINEER
-    panel.set_allowed(True)
-    monkeypatch.setattr(type(w.connection), "is_connected", property(lambda s: True))
-    got = []
-    monkeypatch.setattr(w.tx_scheduler, "set_values", lambda msg, vals, *a, **k: got.append((msg, dict(vals))))
-    panel.send_value("altitude", 8.2)
-    assert got == [("AIRCRAFT", {"altitude": 8.2})]
-    w.close()
-
-
-def test_alfa_beta_are_enabled_and_sent_over_can(qapp, monkeypatch):
-    from app.user_roles import Role
-    from app.ui.main_window import MainWindow
-    w = MainWindow()
-    panel = w.dashboard_tab.sim_inputs
-    panel.config.input_map.update({"alfa": "dbc:AIRCRAFT.altitude", "beta": "dbc:AIRCRAFT.mach"})
-    w.current_role = Role.ENGINEER
-    panel.set_allowed(True)
-    assert panel._ctrl["alfa"]["w"].isEnabled() and panel._ctrl["beta"]["w"].isEnabled()
-    panel.refresh_sources(w.transmit_tab.dbc)
-    w.transmit_tab.dbc.load(os.path.join(DATA, "sample.dbc"))
-    panel.refresh_sources(w.transmit_tab.dbc)
-    assert {"alfa", "beta"} <= set(panel.sendable_keys())
-    w.close()
-
-
 def test_dialog_is_dark_scoped_and_message_boxes_stay_light(dlg):
     from PySide6.QtWidgets import QMessageBox, QWidget
     w, d = dlg
@@ -117,35 +69,6 @@ def test_dialog_is_dark_scoped_and_message_boxes_stay_light(dlg):
     assert "mapBody" not in d.styleSheet()                              # iletişim kutusunun kendisinde yalnız zemin rengi
     box = QMessageBox(d)                                                # açık tema korunur (okunaklı kalır)
     assert box.styleSheet() == "" and not body.isAncestorOf(box)
-
-
-def test_flight_input_can_be_mapped_to_a2l_and_is_written_over_ccp(qapp, monkeypatch):
-    from app import control_panel as cpanel
-    from app.ui.main_window import MainWindow
-    from app.user_roles import Role
-    w = MainWindow()
-    w.transmit_tab.dbc.load(os.path.join(DATA, "sample.dbc"))
-    w.a2l_tab.db.load(os.path.join(DATA, "sample.a2l"))
-    panel = w.dashboard_tab.sim_inputs
-    panel.refresh_sources(w.transmit_tab.dbc, w.a2l_tab.db.summary)
-    name = next(m.name for m in w.a2l_tab.db.summary.measurements if m.address is not None)
-    panel.config.input_map["beta"] = f"a2l:{name}"
-    panel.refresh_sources()
-    assert panel.mapped("beta") is None and panel.mapped_a2l("beta") == name and panel.is_bound("beta")
-    # Eşleşmeler penceresi A2L eşleşmesini doğru gösterir ve geri kaydeder
-    d = MappingDialog(w.dashboard_tab.config, panel, w.transmit_tab.dbc, w.a2l_tab.db.summary, w)
-    assert d.input_ed["beta"].binding() == Binding(SOURCE_A2L, a2l_name=name)
-    d.accept()
-    assert panel.config.input_map["beta"] == f"a2l:{name}"
-    w.current_role = Role.ENGINEER
-    got = []
-    monkeypatch.setattr(cpanel, "ccp_write_value", lambda client, info, v, **k: got.append((info.name, v)))
-    w._on_sim_inputs({"beta": 3.0})                 # CCP bağlı değil: yazılmaz
-    assert got == []
-    monkeypatch.setattr(type(w), "ccp_client", property(lambda s: object(), lambda s, v: None))
-    w._on_sim_inputs({"beta": 3.0})
-    assert got == [(name, 3.0)]
-    w.close()
 
 
 def test_binding_editor_wheel_does_not_change_mapping(qapp):

@@ -14,7 +14,6 @@ from app.change_tracker import ChangeTracker
 from app.ccp.worker import IDLE, CcpSession
 from app import control_panel as cpanel
 from app.ui.control_panel_tab import ControlPanelTab
-from app.sim_interface import SimConfig
 from app.dashboard_config import (
     DashboardConfigStore,
 )
@@ -124,8 +123,7 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self._ccp_busy = False               # arka planda uzun bir CCP işi sürüyor (bkz. _ccp_job)
         self._job_progress = ""              # işin durum çubuğunda gösterilen ilerleme metni
 
-        self.sim_config = SimConfig(data_path("sim_interface.json"))
-        self.dashboard_tab = DashboardTab(self.sim_config)
+        self.dashboard_tab = DashboardTab()
 
         # ---- Birleştirilmiş sekmeler (bkz. app/ui/can_monitor_tab.py,
         # app/ui/tanilama_tab.py, app/ui/kalibrasyon_tab.py). Eski kod
@@ -187,7 +185,6 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self._build_ui_chrome()
 
         self.dashboard_tab.set_config(self.dashboard_config_store.load())
-        self._migrate_control_bindings()
         self._rebuild_dash_can_map()
 
         # İzleme sekmesi, Gönderim sekmesindeki DBC ile AYNI nesneyi kullanır;
@@ -203,18 +200,11 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
 
         # Scope pencerelerinin sinyal beslemesi (Qt'siz): DBC kareleri, gösterge ve giriş değerleri ortak hub'a gider.
         from app.dashboard_config import GAUGE_KEYS
-        from app.sim_interface import INPUT_DEFS
-        self.signal_feed = SignalFeed(self.modas_tab.hub, INPUT_DEFS, GAUGE_KEYS)
+        self.signal_feed = SignalFeed(self.modas_tab.hub, GAUGE_KEYS)
         self.modas_tab.signal_groups = self.signal_feed.groups
         self.transmit_tab.dbc_loaded.connect(lambda *_: self.signal_feed.set_dbc(self.transmit_tab.dbc))
         self.signal_feed.set_dbc(self.transmit_tab.dbc)
         self.dashboard_tab.gauge_sample.connect(lambda k, v: self.signal_feed.push(f"gauge:{k}", v))
-        self.signal_feed.set_input_values(self.dashboard_tab.sim_inputs.values())
-        self.dashboard_tab.sim_inputs.values_changed.connect(self.signal_feed.set_input_values)
-        self._feed_timer = QTimer(self)
-        self._feed_timer.setInterval(100)
-        self._feed_timer.timeout.connect(self.signal_feed.tick)
-        self._feed_timer.start()
 
 
         self.session_tab.event_log = self.event_log
@@ -222,10 +212,9 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         # Oturum boyunca izlenen parametreleri diske (CSV) yazan kayıt.
         self.session_recorder = SessionRecorder()
         # Kayıt KAYNAKTA, verinin kendi geliş zamanında yapılır (bkz. app/session_recorder.py): CAN kareleri alım
-        # iş parçacığından (FrameRecorder), CCP değerleri CCP iş parçacığından. Hub yalnızca kullanıcı girişlerini
-        # (input:) yazar; gösterge/grafik beslemeleri (arayüz zamanlayıcısıyla) KAYDA GİRMEZ.
+        # iş parçacığından (FrameRecorder), CCP değerleri CCP iş parçacığından; kullanıcı girişleri girildikleri anda
+        # (_record_input). Gösterge/grafik beslemeleri (arayüz zamanlayıcısıyla) KAYDA GİRMEZ.
         self.frame_recorder = FrameRecorder(self.session_recorder, lambda: self.transmit_tab.dbc)
-        self.modas_tab.hub.tap = self._on_hub_sample
         self.ccp_session.on_read = self._on_ccp_sample
         self._record_index: dict = {}                # (adres, uzantı, boyut) -> [A2L nesneleri]
         self._ccp_last_bytes: dict = {}
@@ -589,8 +578,6 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self.transmit_tab.dbc_loaded.connect(lambda *_: self.tx_scheduler.refresh_frames())
         self.a2l_tab.a2l_loaded.connect(self._panel_sources_changed)
         self.control_panel_tab.apply_requested.connect(self._on_panel_apply)
-        self.dashboard_tab.sim_inputs.values_changed.connect(self._on_sim_inputs)
-        self.dashboard_tab.sim_inputs.set_allowed(can_override_actuator(self.current_role))
         self.control_panel_tab.poll_requested.connect(self._on_panel_poll)
         self.control_panel_tab.kill_overrides_requested.connect(self._on_panel_kill_overrides)
         self.control_panel_tab.tx_toggle_requested.connect(self._on_panel_tx_toggle)
@@ -633,7 +620,6 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
             self.modas_tab.shutdown()
         except Exception:  # noqa: BLE001
             logging.getLogger(__name__).exception("modas shutdown hatası")
-        self._feed_timer.stop()
         self._on_disconnect()
         if getattr(self, "model_ctl", None) is not None:
             self.model_ctl.close()

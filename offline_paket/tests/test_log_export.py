@@ -191,7 +191,7 @@ def test_ending_a_session_saves_an_excel_file_next_to_the_csv_without_touching_t
     st.operator_edit.setText("Zeynep")
     st._on_start()
     for i in range(30):
-        win.signal_feed.push("input:throttle", 3000 + i)
+        win.session_recorder.record("input:throttle", 3000 + i)
     win._log_event("KALIBRASYON", "elle bir olay")
     csv_path = win.session_recorder.path
     st._on_stop()
@@ -209,7 +209,7 @@ def test_excel_failure_keeps_the_csv_and_reports_an_error(win, monkeypatch):
     import app.ui.mainwin.exports as ex
     st = win.session_tab
     st._on_start()
-    win.signal_feed.push("input:throttle", 1.0)
+    win.session_recorder.record("input:throttle", 1.0)
     csv_path = win.session_recorder.path
     monkeypatch.setattr(ex, "write_session_workbook", lambda *a, **k: (_ for _ in ()).throw(OSError("disk dolu")))
     st._on_stop()
@@ -251,14 +251,12 @@ def can_win(win, monkeypatch):
     monkeypatch.setattr(type(win.connection), "is_connected", property(lambda s: True))
     monkeypatch.setattr(win.connection, "send", lambda i, d, e: sent.append((i, bytes(d))))
     win.transmit_tab.dbc.load(os.path.join(os.path.dirname(__file__), "data", "sample.dbc"))
-    win.sim_config.input_map["altitude"] = "dbc:AIRCRAFT.altitude"
     win._on_dashboard_sources_changed()
     win._panel_sources_changed()
     win.current_role = Role.ENGINEER
     win.current_user = "Zeynep"
     win.dashboard_tab.set_role(Role.ENGINEER)
     win.control_panel_tab.set_allowed(True)
-    win.dashboard_tab.sim_inputs.set_allowed(True)
     return win
 
 
@@ -266,11 +264,10 @@ def test_inputs_from_every_page_are_recorded_and_exported_together(can_win, tmp_
     from PySide6.QtWidgets import QMessageBox
     from app.dashboard_config import SOURCE_CAN, Binding
     win = can_win
-    # Ana Sayfa: eyleyici değeri + switch, motor komutu, uçuş koşulu
+    # Ana Sayfa: eyleyici değeri + switch, motor komutu
     assert win._write_binding(Binding(SOURCE_CAN, "OVERRIDE", "pump_dc"), 45.0, "Yakıt Pompası Start değeri")
     assert win._write_binding(Binding(SOURCE_CAN, "OVERRIDE", "pump_dc_sw"), 1.0, "Yakıt Pompası Start anahtarı")
     assert win._write_binding(Binding(SOURCE_CAN, "CMD", "start_req"), 1.0, "Motor Start", merge=False)
-    win._on_sim_inputs({"altitude": 8.0})
     # Kontrol Paneli
     win._on_panel_apply({"can": {"AIRCRAFT": {"mach": 0.5}}, "cycles": {}, "ccp": []})
     entries = win.input_log.entries
@@ -278,7 +275,6 @@ def test_inputs_from_every_page_are_recorded_and_exported_together(can_win, tmp_
     assert by[("Ana Sayfa", "Değer girişi", "OVERRIDE.pump_dc")].new_value == 45.0
     assert ("Ana Sayfa", "Switch (_sw)", "OVERRIDE.pump_dc_sw") in by
     assert ("Ana Sayfa", "Motor komutu", "CMD.start_req") in by
-    assert by[("Ana Sayfa", "Uçuş koşulu", "AIRCRAFT.altitude")].new_value == 8.0
     assert by[("Kontrol Paneli", "Uçak girişi (CAN)", "AIRCRAFT.mach")].new_value == 0.5
     assert {e.user for e in entries} == {"Zeynep"} and all(e.role == "Mühendis" for e in entries)
     # aynı hedefe ikinci giriş: eski değer önceki girilen değerdir
@@ -298,7 +294,7 @@ def test_inputs_from_every_page_are_recorded_and_exported_together(can_win, tmp_
     assert any(r[4] == "OVERRIDE.pump_dc" and r[6] == 60.0 and r[5] == 45.0 for r in rows[1:])
     summary = {r[0]: r[1] for r in data["Özet"][1:] if len(r) > 1}
     assert summary["Giriş / değişiklik sayısı (tüm sayfalar)"] == len(win.input_log.entries)
-    assert summary["  Ana Sayfa"] >= 5 and summary["  Kontrol Paneli"] >= 1
+    assert summary["  Ana Sayfa"] >= 3 and summary["  Kontrol Paneli"] >= 1
 
 
 def test_failed_attempts_are_recorded_too(win, monkeypatch):

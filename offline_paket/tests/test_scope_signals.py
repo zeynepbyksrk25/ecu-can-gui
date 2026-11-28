@@ -45,20 +45,14 @@ def test_feed_decodes_only_active_dbc_signals_and_updates_map_when_active_set_ch
     assert hub.get(RPM)[1].size == 2
 
 
-def test_feed_pushes_active_inputs_on_tick_and_groups_list_sources():
-    from app.sim_interface import INPUT_DEFS
+def test_feed_groups_list_sources():
     hub = SignalHub()
-    feed = SignalFeed(hub, INPUT_DEFS, ["RPM", "PLA"])
+    feed = SignalFeed(hub, ["RPM", "PLA"])
     feed.set_dbc(_dbc())
-    key = next(d.key for d in INPUT_DEFS if d.enabled)
-    feed.set_input_values({key: 7.5, "yok": None})
-    hub.set_active([f"input:{key}"])
-    feed.tick()
-    assert list(hub.get(f"input:{key}")[1]) == [7.5]
-    hub.define_derived("kare", {"kind": "scale", "src": f"input:{key}", "gain": 2.0, "offset": 0.0})
+    hub.define_derived("kare", {"kind": "scale", "src": RPM, "gain": 2.0, "offset": 0.0})
     titles = dict(feed.groups())
     assert "DBC sinyalleri (CAN)" in titles and RPM in titles["DBC sinyalleri (CAN)"]
-    assert titles["Göstergeler"] == ["gauge:RPM", "gauge:PLA"] and f"input:{key}" in titles["Girişler"]
+    assert titles["Göstergeler"] == ["gauge:RPM", "gauge:PLA"] and "Girişler" not in titles       # giriş kaynağı kalktı
     assert titles["Matematik sinyalleri"] == ["math:kare"] and "İçe aktarılan kayıtlar" not in titles
     assert feed.all_signal_ids(["N_RPM"])[0] == "a2l:N_RPM"
 
@@ -128,7 +122,6 @@ def _fake_math_dialog(monkeypatch, name, spec, accept=True):
 def test_math_signal_define_edit_rename_delete(ws, monkeypatch):
     sc, sc2 = ws.add_scope([]), ws.add_scope([])
     sc.add_signals([RPM])
-    ws.feed.set_input_values({})
     _fake_math_dialog(monkeypatch, "rpm2", {"kind": "scale", "src": RPM, "gain": 2.0, "offset": 1.0})
     assert ws.edit_math(sc) is True
     assert "math:rpm2" in ws.hub.derived and "math:rpm2" in sc.signals()           # yeni sinyal çağıran Scope'a eklenir

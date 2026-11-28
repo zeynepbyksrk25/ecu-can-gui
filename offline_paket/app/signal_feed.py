@@ -1,4 +1,4 @@
-"""Sinyal beslemesi (Qt'siz): CAN'den çözülen DBC sinyallerini, gösterge ve test girişi değerlerini Scope pencerelerinin
+"""Sinyal beslemesi (Qt'siz): CAN'den çözülen DBC sinyallerini ve gösterge değerlerini Scope pencerelerinin
 ortak ``SignalHub``'ına taşır. (Eskiden Çalışma Alanı sayfası yapıyordu; sayfa kalktı, besleme burada kaldı.)
 
 Yalnızca hub'da ETKİN olan (bir Scope'ta çizilen) DBC sinyalleri çözülür; yüzlerce sinyal CPU/bellek tüketmez.
@@ -8,17 +8,15 @@ from __future__ import annotations
 
 from app.signal_hub import SignalHub, kind_of
 
-GROUP_TITLES = [("dbc", "DBC sinyalleri (CAN)"), ("gauge", "Göstergeler"), ("input", "Girişler"),
+GROUP_TITLES = [("dbc", "DBC sinyalleri (CAN)"), ("gauge", "Göstergeler"),
                 ("math", "Matematik sinyalleri"), ("csv", "İçe aktarılan kayıtlar")]
 
 
 class SignalFeed:
-    def __init__(self, hub: SignalHub, input_defs=None, gauge_keys=None):
+    def __init__(self, hub: SignalHub, gauge_keys=None):
         self.hub = hub
         self._dbc = None
         self._dbc_map: dict = {}
-        self._input_values: dict = {}
-        self._input_defs = list(input_defs or [])
         self._gauge_keys = list(gauge_keys or [])
         hub.on_active = self.rebuild_dbc_map
 
@@ -29,9 +27,6 @@ class SignalFeed:
     def set_dbc(self, dbc):
         self._dbc = dbc
         self.rebuild_dbc_map()
-
-    def set_input_values(self, values: dict):
-        self._input_values.update({k: float(v) for k, v in values.items() if v is not None})
 
     def rebuild_dbc_map(self):
         """Etkin ``dbc:`` kimliklerinden kare kimliği -> (mesaj, sinyal adları) tablosu."""
@@ -60,14 +55,6 @@ class SignalFeed:
             if s in decoded:
                 self.hub.push(f"dbc:{msg.name}.{s}", decoded[s])
 
-    def tick(self):
-        """Etkin ``input:`` kimliklerinin son bilinen değerini periyodik olarak hub'a yazar (MainWindow zamanlayıcısı)."""
-        for sid in self.hub.active():
-            if kind_of(sid) == "input":
-                v = self._input_values.get(sid.split(":", 1)[1])
-                if v is not None:
-                    self.hub.push(sid, v)
-
     # ---- seçilebilir kaynaklar -----------------------------------------------------------
     def groups(self) -> list:
         """Scope sinyal seçicisi için ``[(grup başlığı, [sinyal kimliği, ...])]`` (boş gruplar atlanır)."""
@@ -76,7 +63,6 @@ class SignalFeed:
             for mn in self._dbc.message_names():
                 ids["dbc"] += [f"dbc:{mn}.{s.name}" for s in self._dbc.signals_of(mn)]
         ids["gauge"] = [f"gauge:{k}" for k in self._gauge_keys]
-        ids["input"] = [f"input:{d.key}" for d in self._input_defs if d.enabled]
         ids["math"] = list(self.hub.derived)
         ids["csv"] = sorted(self.hub.static)
         return [(title, ids[k]) for k, title in GROUP_TITLES if ids[k]]

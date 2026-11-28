@@ -1,13 +1,12 @@
-"""Motor Kontrol (Start / Gaz Kolu): CAN ya da A2L DEĞER kutusu, direkt komut (kilit yok); switch (_sw) YOK (yalnızca
-Eyleyicilerde var). Ayrıca Ana Sayfa'nın renk/son olaylar bileşenleri."""
+"""Test Bench: yalnızca Eyleyiciler (kilit + _sw) ve Motor Komutları kalır; Motor Kontrol (Start / Gaz Kolu) ve Uçuş
+Koşulları kartları kaldırıldı (giriş yolu Control Panel). Ayrıca Ana Sayfa'nın renk bileşenleri."""
 import os
 
 import pytest
-from PySide6.QtWidgets import QMessageBox
+from PySide6.QtWidgets import QLabel, QMessageBox
 
 from app.dashboard_config import (
-    CONTROL_KEYS, EYLEYICI_KEYS, SOURCE_A2L, SOURCE_CAN, Binding, DashboardConfig, SignalMap,
-    config_from_dict,
+    ACTUATOR_KEYS, EYLEYICI_KEYS, SOURCE_A2L, SOURCE_CAN, Binding, DashboardConfig, SignalMap, config_from_dict,
 )
 from app.user_roles import Role
 
@@ -15,20 +14,18 @@ DATA = os.path.join(os.path.dirname(__file__), "data")
 
 
 # ---------------------------------------------------------------- yapılandırma
-def test_control_keys_are_start_and_throttle_and_switches_are_dropped_except_for_actuators():
+def test_actuators_are_only_eyleyiciler_and_old_motor_control_entries_are_ignored():
     from dataclasses import asdict
     cfg = DashboardConfig()
-    assert CONTROL_KEYS == ["start", "throttle"]                              # Spark ve Birincil Yakıt kaldırıldı
-    assert set(CONTROL_KEYS) <= set(cfg.actuators) and not set(CONTROL_KEYS) & set(EYLEYICI_KEYS)
-    assert "spark" not in cfg.actuators and "primary_fuel" not in cfg.actuators
-    cfg.actuators["start"] = SignalMap(value=Binding(SOURCE_A2L, a2l_name="eng_start"),
-                                       sw=Binding(SOURCE_CAN, "CMD", "start_sw"))
-    cfg.actuators["valf"] = SignalMap(value=Binding(SOURCE_CAN, "OVERRIDE", "valf_cmd"),
-                                      sw=Binding(SOURCE_CAN, "OVERRIDE", "valf_cmd_sw"))
-    cfg.sensors["RPM"] = SignalMap(value=Binding(SOURCE_A2L, a2l_name="N_RPM"), sw=Binding(SOURCE_A2L, a2l_name="rpm_sw"))
-    back = config_from_dict(asdict(cfg))
-    assert back.actuators["start"].value == Binding(SOURCE_A2L, a2l_name="eng_start")
-    assert not back.actuators["start"].sw.is_set                               # Motor Kontrol: switch temizlenir
+    assert list(cfg.actuators) == EYLEYICI_KEYS and ACTUATOR_KEYS == EYLEYICI_KEYS
+    d = asdict(cfg)
+    d["actuators"]["start"] = {"value": {"source": "a2l", "a2l_name": "eng_start"}}        # eski kayıttaki Motor Kontrol
+    d["actuators"]["throttle"] = {"value": {"source": "can", "message": "OVERRIDE", "signal": "pump_dc"}}
+    d["actuators"]["valf"] = {"value": {"source": "can", "message": "OVERRIDE", "signal": "valf_cmd"},
+                              "sw": {"source": "can", "message": "OVERRIDE", "signal": "valf_cmd_sw"}}
+    d["sensors"]["RPM"] = {"value": {"source": "a2l", "a2l_name": "N_RPM"}, "sw": {"source": "a2l", "a2l_name": "rpm_sw"}}
+    back = config_from_dict(d)
+    assert "start" not in back.actuators and "throttle" not in back.actuators          # sessizce atlanır, hata yok
     assert not back.sensors["RPM"].sw.is_set and back.sensors["RPM"].value.is_set      # sensör: switch temizlenir
     assert back.actuators["valf"].sw == Binding(SOURCE_CAN, "OVERRIDE", "valf_cmd_sw")  # Eyleyici: switch KALIR
 
@@ -63,99 +60,44 @@ def _tab(win, role=Role.ENGINEER):
     return dt, calls
 
 
-def test_motor_kontrol_rows_are_actuator_rows_separate_from_eyleyiciler(win):
+def test_test_bench_has_only_actuators_gauges_and_model_panel(win):
     dt = win.dashboard_tab
-    assert set(CONTROL_KEYS) <= set(dt._act_rows) and set(EYLEYICI_KEYS) <= set(dt._act_rows)
-    assert set(CONTROL_KEYS) == {"start", "throttle"} and "spark" not in dt._act_rows
-    assert dt._act_rows["start"]["kind"] == "valve" and dt._act_rows["throttle"]["kind"] == "valve"
-    from app.ui.dash_widgets import ToggleSwitch
-    assert not dt.findChildren(ToggleSwitch), "Ana Sayfa'da ON/OFF anahtarı (switch) kalmamalı"
-    assert not hasattr(dt.sim_inputs, "control_card")                       # eski doğrudan gönderim kalktı
-    from app.sim_interface import FLIGHT_DEFS
-    assert set(dt.sim_inputs._ctrl) == {d.key for d in FLIGHT_DEFS}
+    titles = {w.text() for w in dt.findChildren(QLabel) if w.objectName() == "cardTitle"}
+    assert {"EYLEYİCİLER", "MOTOR PARAMETRELERİ"} <= titles
+    assert not titles & {"UÇUŞ KOŞULLARI", "MOTOR KONTROL", "SON OLAYLAR", "CANLI TRENDLER"}
+    assert set(dt._act_rows) == set(EYLEYICI_KEYS)
+    for gone in ("sim_inputs", "trend", "events_list", "throttle_slider", "submit_control"):
+        assert not hasattr(dt, gone)
+    assert hasattr(dt, "sim_panel")                                           # MIL model kontrolü kalır
 
 
-def test_control_has_no_lock_and_enter_sends_directly(win):
-    dt, calls = _tab(win)
-    cfg = DashboardConfig()
-    cfg.actuators["start"] = SignalMap(value=Binding(SOURCE_CAN, "CMD", "start_req"))
-    dt.set_config(cfg)
-    assert dt._act_rows["start"]["lock"] is None and dt._act_rows["throttle"]["lock"] is None   # kilit yok
-    assert dt._act_rows["start"]["control"].isEnabled()                                          # her zaman etkin
-    dt._act_rows["start"]["control"].setText("1")
-    dt._on_actuator_submit("start")                                                              # Enter: direkt gider
-    assert calls == [("CMD.start_req", 1.0)]
-    dt._act_rows["start"]["control"].setText("0")
-    dt._on_actuator_submit("start")
-    assert calls[-1] == ("CMD.start_req", 0.0)
-
-
-def test_control_direct_command_is_role_gated_and_needs_mapping(win, monkeypatch):
+def test_eyleyici_lock_is_role_gated_and_requires_sw(win):
     dt, calls = _tab(win, Role.OPERATOR)
     cfg = DashboardConfig()
-    cfg.actuators["start"] = SignalMap(value=Binding(SOURCE_CAN, "CMD", "start_req"))
-    dt.set_config(cfg)
-    shown = []
-    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: shown.append(a[1])))
-    monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a, **k: shown.append(a[1])))
-    dt._act_rows["start"]["control"].setText("1")
-    dt._on_actuator_submit("start")
-    assert calls == [] and shown == ["Yetki yok"]                                               # Operatör: gitmez
-    dt.set_role(Role.ENGINEER)
-    dt._act_rows["throttle"]["control"].setText("40")
-    dt._on_actuator_submit("throttle")                                                           # eşleşme yok
-    assert calls == [] and shown[-1] == "Eşleşme yok"
-
-
-def test_control_ignores_any_sw_even_if_present_in_the_config(win):
-    """Switch yalnızca Eyleyicilerde çalışır: Motor Kontrol satırında eski bir _sw eşlemesi olsa bile yazılmaz."""
-    dt, calls = _tab(win)
-    cfg = DashboardConfig()
-    cfg.actuators["throttle"] = SignalMap(value=Binding(SOURCE_A2L, a2l_name="thr_cmd"),
-                                          sw=Binding(SOURCE_CAN, "OVERRIDE", "valf_cmd_sw"))
-    dt.set_config(cfg)
-    dt._act_rows["throttle"]["control"].setText("40")
-    dt._on_actuator_submit("throttle")
-    assert calls == [("thr_cmd", 40.0)]                                                         # yalnızca değer
-
-
-def test_control_lock_requests_are_ignored(win):
-    dt, calls = _tab(win)
-    dt._on_actuator_lock("start", True)
-    assert not dt._act_open["start"] and calls == []
-
-
-def test_eyleyici_still_requires_sw(win):
-    dt, calls = _tab(win)
-    cfg = DashboardConfig()
-    cfg.actuators["valf"] = SignalMap(value=Binding(SOURCE_CAN, "OVERRIDE", "valf_cmd"))   # sw yok
+    cfg.actuators["valf"] = SignalMap(value=Binding(SOURCE_CAN, "OVERRIDE", "valf_cmd"),
+                                      sw=Binding(SOURCE_CAN, "OVERRIDE", "valf_cmd_sw"))
     dt.set_config(cfg)
     dt._on_actuator_lock("valf", True)
-    assert not dt._act_open["valf"]                                                        # Eyleyicide _sw ZORUNLU
-
-
-# ---------------------------------------------------------------- eski ayarların göçü
-def test_legacy_input_map_control_bindings_migrate_to_actuator_model(win):
-    win.sim_config.input_map.update({"start": "dbc:CMD.start_req", "altitude": "dbc:AIRCRAFT.altitude"})
-    win.sim_config.input_values["start"] = 1.0
-    win.dashboard_tab.config.actuators["start"] = SignalMap()
-    win._migrate_control_bindings()
-    assert win.dashboard_tab.config.actuator_map("start").value == Binding(SOURCE_CAN, "CMD", "start_req")
-    assert "start" not in win.sim_config.input_map and "start" not in win.sim_config.input_values
-    assert win.sim_config.input_map["altitude"] == "dbc:AIRCRAFT.altitude"                 # uçuş koşulları dokunulmaz
+    assert not dt._act_open["valf"] and calls == []                           # Operatör: yetki yok
+    dt.set_role(Role.ENGINEER)
+    cfg2 = DashboardConfig()
+    cfg2.actuators["valf"] = SignalMap(value=Binding(SOURCE_CAN, "OVERRIDE", "valf_cmd"))   # sw yok
+    dt.set_config(cfg2)
+    dt._on_actuator_lock("valf", True)
+    assert not dt._act_open["valf"]                                           # Eyleyicide _sw ZORUNLU
 
 
 # ---------------------------------------------------------------- eşleşme penceresi
-def test_dialog_roundtrips_control_and_command_sw_with_a2l_or_can(win):
+def test_dialog_roundtrips_actuator_sw_and_motor_commands(win):
     from app.ui.mapping_dialog import MappingDialog
-    d = MappingDialog(win.dashboard_tab.config, win.dashboard_tab.sim_inputs, win.transmit_tab.dbc, None, win)
-    assert set(d.control_ed["throttle"]) == {"value"}                                      # Motor Kontrol'de switch yok
-    d.control_ed["start"]["value"].set_binding(Binding(SOURCE_A2L, a2l_name="eng_start"))
-    d.control_ed["throttle"]["value"].set_binding(Binding(SOURCE_CAN, "OVERRIDE", "pump_dc"))
+    d = MappingDialog(win.dashboard_tab.config, win.transmit_tab.dbc, None, win)
+    assert not hasattr(d, "control_ed") and not hasattr(d, "input_ed") and not hasattr(d, "tabs")
+    d.actuator_ed["valf"]["value"].set_binding(Binding(SOURCE_A2L, a2l_name="valf_val"))
+    d.actuator_ed["valf"]["sw"].set_binding(Binding(SOURCE_A2L, a2l_name="valf_sw"))
     d.motor_ed["motor_start"].set_binding(Binding(SOURCE_CAN, "OVERRIDE", "valf_cmd"))
     cfg = d.result_config()
-    assert cfg.actuators["start"].value == Binding(SOURCE_A2L, a2l_name="eng_start")
-    assert cfg.actuators["throttle"].value == Binding(SOURCE_CAN, "OVERRIDE", "pump_dc") and not cfg.actuators["throttle"].sw.is_set
+    assert cfg.actuators["valf"].value == Binding(SOURCE_A2L, a2l_name="valf_val")
+    assert cfg.actuators["valf"].sw == Binding(SOURCE_A2L, a2l_name="valf_sw")
     assert cfg.motor_start.binding == Binding(SOURCE_CAN, "OVERRIDE", "valf_cmd")
     assert cfg.motor_start.value == 1.0 and not cfg.motor_start.sw.is_set          # komutta Değer/Switch yok
     d.close()
@@ -164,13 +106,13 @@ def test_dialog_roundtrips_control_and_command_sw_with_a2l_or_can(win):
 # ---------------------------------------------------------------- Ana Sayfa görünümü
 def test_gauges_and_cards_have_accent_colors(win):
     from app.ui.dash_widgets import GAUGE_ACCENT
+    from PySide6.QtWidgets import QFrame
     dt = win.dashboard_tab
     assert len(set(GAUGE_ACCENT.values())) == len(GAUGE_ACCENT)                  # her gösterge ayrı renk
     for key, gc in dt._gauge_cards.items():
         assert gc.gauge._accent == GAUGE_ACCENT[key]
-    accents = {w.property("accent") for w in win.dashboard_tab.findChildren(type(dt.sim_inputs.flight_card))
-               if w.objectName() == "card"}
-    assert {"blue", "green", "orange", "teal"} <= accents
+    accents = {w.property("accent") for w in dt.findChildren(QFrame) if w.objectName() == "card"}
+    assert {"orange", "teal"} <= accents
 
 
 def test_estop_warning_opens_mappings_and_motor_commands_have_only_a_mapping(win, monkeypatch):
@@ -183,7 +125,7 @@ def test_estop_warning_opens_mappings_and_motor_commands_have_only_a_mapping(win
     assert opened == [1]                                              # uyarı tıklanınca Eşleşmeler açılır
 
     from app.ui.mapping_dialog import MappingDialog
-    d = MappingDialog(win.dashboard_tab.config, win.dashboard_tab.sim_inputs, win.transmit_tab.dbc, None, win)
+    d = MappingDialog(win.dashboard_tab.config, win.transmit_tab.dbc, None, win)
     d.motor_ed["estop"].set_binding(Binding(SOURCE_CAN, "OVERRIDE", "pump_dc"))
     d._auto_sw()                                                      # yalnızca Eyleyicilerin _sw'si aranır
     assert not hasattr(d, "motor_sw_ed") and d.result_config().estop.binding.text == "OVERRIDE.pump_dc"

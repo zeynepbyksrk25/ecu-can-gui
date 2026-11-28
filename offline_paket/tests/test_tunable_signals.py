@@ -31,13 +31,6 @@ def test_summary_exposes_tunable_scalars_and_measurements_win_name_clashes(summa
     assert by["clbc_Temp_limit"].byte_order == "MSB_LAST"           # MOD_COMMON'dan
 
 
-def test_signal_sources_include_tunables(qapp, summary):
-    from app.sim_interface import list_sources
-
-    keys = {s.key for s in list_sources(None, summary)}
-    assert "a2l:clbc_Fuel_pump_gain" in keys and "a2l:N_RPM" in keys
-
-
 @pytest.fixture
 def win(qapp):
     from app.ui.main_window import MainWindow

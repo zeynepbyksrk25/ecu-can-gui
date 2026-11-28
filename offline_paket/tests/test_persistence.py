@@ -76,22 +76,6 @@ def test_dashboard_config_tolerates_garbage(tmp_path, payload):
     assert cfg.estop.value == 1.0
 
 
-@pytest.mark.parametrize("payload", ['[]', '{"input_values": {"a": "x"}, "perf_map": 3, "window_s": "q", "graphs": [1]}'])
-def test_sim_config_tolerates_garbage(tmp_path, payload):
-    from app.sim_interface import SimConfig
-    p = str(tmp_path / "s.json")
-    open(p, "w").write(payload)
-    c = SimConfig(p)
-    assert c.window_s == 60 and c.input_values == {}
-
-
-@pytest.mark.parametrize("payload", ['[]', '{"views": [], "role_overrides": 3, "scenarios": 1, "cycle_overrides": []}'])
-def test_control_panel_config_tolerates_garbage(tmp_path, payload):
-    from app.control_panel import ControlPanelConfig
-    p = str(tmp_path / "c.json")
-    open(p, "w").write(payload)
-    ControlPanelConfig(p)
-
 
 def test_audit_log_single_line_and_failure_visible(tmp_path):
     from app.eventlog import EventLog

@@ -1,7 +1,7 @@
 """Ana Sayfa (Dashboard) — sidebar'sız, kaydırmasız, tek ekran (16" laptop) düzeni.
 
-Sol sütun : Uçuş Koşulları + Motor Kontrol (``SimInputsPanel``) + Eyleyiciler
-Sağ sütun : Motor Parametreleri (8 gösterge = 8 sensör) + Canlı Trendler
+Sol sütun : Eyleyiciler (manuel override: kilit + onay)
+Sağ sütun : Motor Parametreleri (göstergeler) + MIL model kontrol paneli (yalnız MIL modunda)
 
 Sensörlerin ve eyleyicilerin her biri için iki değişken vardır: değer ve anahtar
 (``_sw``). Anahtar 0 iken değer arayüzden DEĞİŞTİRİLEMEZ; kilit düğmesiyle anahtar
@@ -15,10 +15,10 @@ Bu widget gerçek CAN/CCP işlemini kendisi yapmaz: ``writer`` geri çağrısı
 
 import time
 
-from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import QRectF, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QFrame, QGridLayout, QHBoxLayout, QLabel, QMessageBox,
-    QPushButton, QSizePolicy, QSlider, QVBoxLayout, QWidget,
+    QPushButton, QSizePolicy, QVBoxLayout, QWidget,
 )
 from PySide6.QtCore import QRegularExpression
 from PySide6.QtGui import QColor, QPainter, QPen, QRegularExpressionValidator
@@ -26,7 +26,7 @@ from PySide6.QtWidgets import QLineEdit
 
 from app import theme
 from app.dashboard_config import (
-    ACTUATOR_KEYS, ACTUATOR_KINDS, CONTROL_KEYS, EYLEYICI_KEYS, GAUGE_KEYS, MODE_KEY, MOTOR_COMMAND_KEYS, SUB_MODE_KEYS,
+    ACTUATOR_KEYS, ACTUATOR_KINDS, EYLEYICI_KEYS, GAUGE_KEYS, MODE_KEY, MOTOR_COMMAND_KEYS, SUB_MODE_KEYS,
     SENSOR_LABELS, SUB_MODE_TITLES, ACTIVE_SUB_MODES, SOURCE_A2L, Binding, DashboardConfig, mode_name, motor_mode_name,
 )
 from app.ui.dash_widgets import (  # noqa: F401  (ToggleSwitch: eski import yolu)
@@ -75,7 +75,6 @@ GAUGE_DISPLAY_LABELS = {key: key for key in GAUGE_KEYS}
 GAUGE_DISPLAY_LABELS["FP_start"] = "Fp Başl."
 GAUGE_DISPLAY_LABELS["FP_main"] = "Fp Ana"
 GAUGE_DISPLAY_LABELS["FT"] = "Ft"
-THROTTLE_SEND_MS = 100      # PLA sürgüsü sürüklenirken en fazla 10 Hz komut
 
 ACTUATOR_SHORT = {
     "pompa_start": "Yakıt Pompası Start",
@@ -119,68 +118,6 @@ class _ModeChip(QFrame):
         p.drawRoundedRect(r, r.height() / 2, r.height() / 2)
 
 
-class _ThrottleSlider(QSlider):
-    """Gaz kolu sürgüsü: oluk + yeşil dolgu + tutamaç elle çizilir (QSS oluk/sayfa çizimi sürgü yüksekliğini
-    doldurduğu için kullanılmaz)."""
-
-    _HW, _HH, _GH = 26.0, 20.0, 8.0
-
-    # Tutamaç elle çizildiği (QSS'teki 14 px tutamaçla uyuşmadığı) için Qt'nin stil tabanlı isabet denetimi
-    # sürüklemeyi başlatmıyordu: fare konumu doğrudan değere çevrilir.
-    def _value_at(self, x: float) -> int:
-        x0, x1 = self._HW / 2, self.width() - self._HW / 2
-        frac = 0.0 if x1 <= x0 else min(1.0, max(0.0, (x - x0) / (x1 - x0)))
-        return int(round(self.minimum() + frac * (self.maximum() - self.minimum())))
-
-    def mousePressEvent(self, event):  # noqa: N802
-        if event.button() != Qt.LeftButton or not self.isEnabled():
-            event.ignore()
-            return
-        self.setSliderDown(True)
-        self.sliderPressed.emit()
-        self.setValue(self._value_at(event.position().x()))
-        event.accept()
-
-    def mouseMoveEvent(self, event):  # noqa: N802
-        if not self.isSliderDown():
-            event.ignore()
-            return
-        self.setValue(self._value_at(event.position().x()))
-        event.accept()
-
-    def mouseReleaseEvent(self, event):  # noqa: N802
-        if event.button() != Qt.LeftButton or not self.isSliderDown():
-            event.ignore()
-            return
-        self.setSliderDown(False)
-        self.sliderReleased.emit()
-        event.accept()
-
-    def paintEvent(self, event):  # noqa: N802
-        p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
-        on = self.isEnabled()
-        span = self.maximum() - self.minimum() or 1
-        frac = (self.value() - self.minimum()) / span
-        x0, x1 = self._HW / 2, self.width() - self._HW / 2
-        cy = self.height() / 2
-        x = x0 + (x1 - x0) * frac
-        groove = QRectF(x0 - 4, cy - self._GH / 2, (x1 - x0) + 8, self._GH)
-        p.setPen(Qt.NoPen)
-        p.setBrush(QColor("#D0DAE3"))
-        p.drawRoundedRect(groove, 4, 4)
-        fill = QRectF(groove.left(), groove.top(), x - groove.left(), self._GH)
-        p.setBrush(QColor(theme.OK if on else theme.LINE_STRONG))
-        p.drawRoundedRect(fill, 4, 4)
-        hr = QRectF(x - self._HW / 2, cy - self._HH / 2, self._HW, self._HH)
-        p.setPen(QPen(QColor(theme.SLATE if on else theme.LINE_STRONG), 1))
-        p.setBrush(QColor(theme.SURFACE if on else theme.SURFACE_ALT))
-        p.drawRoundedRect(hr, 6, 6)
-        p.setPen(QPen(QColor(theme.LINE_MID), 1))                 # tutamaç çizgileri (gaz kolu hissi)
-        for dx in (-3, 0, 3):
-            p.drawLine(QPointF(x + dx, cy - 5), QPointF(x + dx, cy + 5))
-
-
 class DashboardTab(QWidget):
     motor_start_requested = Signal()       # Başlat toggle'ı ON  → sinyale 1
     motor_stop_requested = Signal()        # Durdur toggle'ı ON  → sinyale 1
@@ -193,7 +130,7 @@ class DashboardTab(QWidget):
     gauge_sample = Signal(str, float)    # gösterge anahtarı, değer (Çalışma Alanı için)
     mappings_requested = Signal()        # "Eşleşmeler" penceresini aç
 
-    def __init__(self, sim_config=None):
+    def __init__(self):
         super().__init__()
         self.config = DashboardConfig()
         self._role = Role.OPERATOR
@@ -212,9 +149,6 @@ class DashboardTab(QWidget):
         self._gauge_cards: dict[str, GaugeCard] = {}
 
         self._build_motor_buttons()
-
-        from app.ui.sim_inputs import SimInputsPanel
-        self.sim_inputs = SimInputsPanel(sim_config)
 
         # Koyu stil YALNIZCA bu iç widget'a uygulanır; QMessageBox/QDialog gibi
         # üst düzey pencereler DashboardTab'ın çocuğu olduğundan etkilenmez.
@@ -235,10 +169,8 @@ class DashboardTab(QWidget):
         self.role_banner.setWordWrap(True)
         self.role_banner.setVisible(False)
         left.addWidget(self.role_banner, 0)
-        left.addWidget(self.sim_inputs, 0)
-        # Motor Kontrol: kilitsiz direkt komut (değer + Enter); Eyleyiciler: kilit, rol + onay, değer + _sw
-        left.addWidget(self._build_actuators_card("MOTOR KONTROL", "sliders", CONTROL_KEYS), 0)
-        left.addWidget(self._build_actuators_card("EYLEYİCİLER", "actuator", EYLEYICI_KEYS), 0)
+        # Eyleyiciler: kilit, rol + onay, değer + _sw
+        left.addWidget(self._build_actuators_card(), 0)
         left.addStretch(1)
         left_w = QWidget()
         left_w.setLayout(left)
@@ -673,19 +605,18 @@ class DashboardTab(QWidget):
     # ======================================================================
     # Eyleyiciler
     # ======================================================================
-    def _build_actuators_card(self, title: str = "EYLEYİCİLER", icon: str = "actuator",
-                              keys=EYLEYICI_KEYS) -> QFrame:
+    def _build_actuators_card(self) -> QFrame:
+        keys = EYLEYICI_KEYS
         card = QFrame()
         card.setObjectName("card")
-        accent = "green" if keys is CONTROL_KEYS else "orange"
-        card.setProperty("accent", accent)
+        card.setProperty("accent", "orange")
         lay = QVBoxLayout(card)
         lay.setContentsMargins(14, 10, 14, 8)
         lay.setSpacing(0)
         head = QHBoxLayout()
         head.setSpacing(8)
-        head.addWidget(IconLabel(icon, ACCENTS[accent], 18))
-        t = QLabel(title)
+        head.addWidget(IconLabel("actuator", ACCENTS["orange"], 18))
+        t = QLabel("EYLEYİCİLER")
         t.setObjectName("cardTitle")
         head.addWidget(t)
         head.addStretch(1)
@@ -698,7 +629,7 @@ class DashboardTab(QWidget):
         spacer = QWidget()
         spacer.setFixedWidth(18)                      # simge sütunu
         cols.addWidget(spacer)
-        c0 = QLabel("GİRİŞ" if keys is CONTROL_KEYS else "EYLEYİCİ")
+        c0 = QLabel("EYLEYİCİ")
         c0.setObjectName("colHead")
         cols.addWidget(c0, 1)
         self.act_head_cmd = QLabel("KOMUT")
@@ -706,12 +637,11 @@ class DashboardTab(QWidget):
         self.act_head_cmd.setFixedWidth(ACT_CMD_W)
         self.act_head_cmd.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         cols.addWidget(self.act_head_cmd)
-        if keys is not CONTROL_KEYS:                      # Motor Kontrol'de kilit/manuel sütunu yok: direkt komut
-            c2 = QLabel("MANUEL")
-            c2.setObjectName("colHead")
-            c2.setFixedWidth(ACT_MAN_W)
-            c2.setAlignment(Qt.AlignCenter)
-            cols.addWidget(c2)
+        c2 = QLabel("MANUEL")
+        c2.setObjectName("colHead")
+        c2.setFixedWidth(ACT_MAN_W)
+        c2.setAlignment(Qt.AlignCenter)
+        cols.addWidget(c2)
         lay.addLayout(cols)
 
         for key in keys:
@@ -753,136 +683,23 @@ class DashboardTab(QWidget):
         cl.addWidget(box)
         entry.update(control=box)
         hl.addWidget(cell)
-        if key in CONTROL_KEYS:
-            # Motor Kontrol: kilit YOK. Değer yazılıp Enter'a basılınca komut doğrudan gönderilir.
-            entry["lock"] = None
-            box.setToolTip("Değeri yazıp Enter'a basın: komut doğrudan gönderilir")
-        else:
-            lock = LockButton(ACT_LOCK_W)
-            lock.lock_requested.connect(lambda want, k=key: self._on_actuator_lock(k, want))
-            mcell = QWidget()                            # MANUEL hücresi: kilit ortada
-            mcell.setFixedWidth(ACT_MAN_W)
-            ml = QHBoxLayout(mcell)
-            ml.setContentsMargins(0, 0, 0, 0)
-            ml.addWidget(lock, 0, Qt.AlignCenter)
-            hl.addWidget(mcell)
-            entry["lock"] = lock
-            entry["control"].setEnabled(False)
+        lock = LockButton(ACT_LOCK_W)
+        lock.lock_requested.connect(lambda want, k=key: self._on_actuator_lock(k, want))
+        mcell = QWidget()                                # MANUEL hücresi: kilit ortada
+        mcell.setFixedWidth(ACT_MAN_W)
+        ml = QHBoxLayout(mcell)
+        ml.setContentsMargins(0, 0, 0, 0)
+        ml.addWidget(lock, 0, Qt.AlignCenter)
+        hl.addWidget(mcell)
+        entry["lock"] = lock
+        entry["control"].setEnabled(False)
         self._act_rows[key] = entry
         self._style_actuator_row(key)
-        if key == "throttle":
-            return self._wrap_throttle_slider(row, box)
         return row
-
-    # ---- Gaz kolu (PLA) sürgüsü: değer kutusunun altında, kutuyla çift yönlü --------------------------
-    def _wrap_throttle_slider(self, row: QFrame, box: QLineEdit) -> QFrame:
-        row.setObjectName("")                              # alt çizgiyi kap çizer
-        row.setMaximumHeight(52)
-        wrap = QFrame()
-        wrap.setObjectName("rowFrame")
-        v = QVBoxLayout(wrap)
-        v.setContentsMargins(0, 0, 0, 4)
-        v.setSpacing(0)
-        v.addWidget(row)
-        line = QHBoxLayout()
-        line.setContentsMargins(28, 0, 0, 0)
-        line.setSpacing(10)
-        self.throttle_slider = _ThrottleSlider(Qt.Horizontal)
-        self.throttle_slider.setObjectName("throttleSlider")
-        self.throttle_slider.setRange(0, 100)
-        self.throttle_slider.setSingleStep(1)
-        self.throttle_slider.setPageStep(5)
-        self.throttle_slider.setMinimumHeight(26)
-        self.throttle_slider.setCursor(Qt.PointingHandCursor)
-        self.throttle_pct = QLabel("0 %")
-        self.throttle_pct.setObjectName("rowName")
-        self.throttle_pct.setFixedWidth(46)
-        self.throttle_pct.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        line.addWidget(self.throttle_slider, 1)
-        line.addWidget(self.throttle_pct)
-        v.addLayout(line)
-        self._throttle_dragging = False
-        self._throttle_failed = False
-        self._throttle_timer = QTimer(self)                # sürüklerken en fazla 10 Hz komut
-        self._throttle_timer.setSingleShot(True)
-        self._throttle_timer.setInterval(THROTTLE_SEND_MS)
-        self._throttle_timer.timeout.connect(self._on_throttle_tick)
-        self._throttle_pending = False
-        self.throttle_slider.valueChanged.connect(self._on_throttle_slider)
-        self.throttle_slider.sliderPressed.connect(self._on_throttle_pressed)
-        self.throttle_slider.sliderReleased.connect(self._on_throttle_released)
-        box.textEdited.connect(self._on_throttle_text)
-        self._update_throttle_slider()
-        return wrap
-
-    def _update_throttle_slider(self):
-        """Sürgü yalnız yetkili rolde ve PLA eşleşmesi varken etkindir (sürüklerken diyalog çıkmaması için)."""
-        sl = getattr(self, "throttle_slider", None)
-        if sl is None:
-            return
-        allowed = can_override_actuator(self._role)
-        mapped = self.config.actuator_map("throttle").value.is_set
-        sl.setEnabled(allowed and mapped)
-        sl.setToolTip("" if allowed and mapped else
-                      "Gaz kolu için Mühendis/Yönetici rolü ve ⚙ Eşleşmeler'de PLA değer eşleşmesi gerekir."
-                      if not mapped or not allowed else "")
-
-    def _on_throttle_text(self, _t: str = ""):
-        """Kutuya elle yazılan değer sürgüyü taşır (komut Enter ile gider)."""
-        v = self._actuator_text_value("throttle")
-        if v is None:
-            return
-        self.throttle_slider.blockSignals(True)
-        self.throttle_slider.setValue(int(max(0, min(100, round(v)))))
-        self.throttle_slider.blockSignals(False)
-        self.throttle_pct.setText(f"{int(max(0, min(100, round(v))))} %")
-
-    def _on_throttle_slider(self, value: int):
-        box = self._act_rows["throttle"]["control"]
-        box.setText(str(value))
-        self._mark_actuator_box(box, False)
-        self.throttle_pct.setText(f"{value} %")
-        self._queue_throttle()                             # sürükleme / ok tuşu / tekerlek
-
-    def _on_throttle_pressed(self):
-        self._throttle_dragging = True
-        self._throttle_failed = False
-
-    def _on_throttle_released(self):
-        self._throttle_dragging = False
-        self._throttle_timer.stop()
-        self._throttle_pending = False
-        self._send_throttle(force=True)                    # bırakınca SON değer kesin gider
-
-    def _queue_throttle(self):
-        if self._throttle_timer.isActive():
-            self._throttle_pending = True
-            return
-        self._send_throttle()
-        self._throttle_timer.start()
-
-    def _on_throttle_tick(self):
-        if self._throttle_pending:                         # aralıkta biriken son değer
-            self._throttle_pending = False
-            self._send_throttle()
-            self._throttle_timer.start()
-
-    def _send_throttle(self, force: bool = False):
-        if self._throttle_failed and not force:
-            return                                         # hata: sürükleme boyunca tekrar deneyip diyalog yağdırma
-        if not self.throttle_slider.isEnabled():
-            return
-        box = self._act_rows["throttle"]["control"]
-        v = self._actuator_text_value("throttle")
-        if v is None:
-            return
-        ok = self._write(self.config.actuator_map("throttle").value, v, f"{ACTUATOR_SHORT['throttle']} komutu")
-        self._throttle_failed = not ok
-        self._mark_actuator_box(box, not ok)
 
     def _style_actuator_row(self, key: str):
         e = self._act_rows[key]
-        opened = self._act_open[key] or key in CONTROL_KEYS      # Motor Kontrol her zaman etkin (kilitsiz)
+        opened = self._act_open[key]
         e["name"].setEnabled(opened)
         e["icon"].setEnabled(opened)
         e["control"].setEnabled(opened)
@@ -890,7 +707,6 @@ class DashboardTab(QWidget):
 
     def set_role(self, role: Role):
         self._role = role
-        self._update_throttle_slider()
         locked = not can_override_actuator(role)
         self.role_banner.setVisible(locked)
         if locked:
@@ -940,53 +756,20 @@ class DashboardTab(QWidget):
         box.style().polish(box)
 
     def _on_actuator_submit(self, key: str):
-        """Enter: Eyleyicilerde kilit AÇIKSA, Motor Kontrol'de her zaman (rol yeterliyse) kutudaki sayıyı yazar."""
-        direct = key in CONTROL_KEYS
-        if not direct and not self._act_open[key]:
+        """Enter: kilit AÇIKSA kutudaki sayıyı yazar."""
+        if not self._act_open[key]:
             return
         v = self._actuator_text_value(key)
         if v is None:
             return
         box = self._act_rows[key]["control"]
-        if direct:
-            label = ACTUATOR_SHORT[key]
-            if not can_override_actuator(self._role):
-                QMessageBox.warning(
-                    self, "Yetki yok",
-                    f"{label} komutu için Mühendis veya Yönetici rolü gerekir "
-                    "(sağ üstteki ⚙ Ayarlar penceresinden rol seçin).")
-                return
-            if not self.config.actuator_map(key).value.is_set:
-                QMessageBox.information(
-                    self, "Eşleşme yok",
-                    f"{label} için değer eşleşmesi tanımlı değil.\n⚙ Eşleşmeler penceresinden tanımlayın.")
-                return
         ok = self._write(self.config.actuator_map(key).value, v, f"{ACTUATOR_SHORT[key]} komutu")
         self._mark_actuator_box(box, not ok)
-
-    def submit_control(self, key: str, value: float) -> tuple:
-        """Motor Kontrol komutunu (start / throttle) gönderir ve ``(ok, neden)`` döner; ``Enter`` ile aynı yazma yolu,
-        ama diyalog AÇMAZ (Worksheets test girişi penceresi nedeni kendi içinde gösterir)."""
-        if key not in CONTROL_KEYS:
-            return False, "Bilinmeyen komut."
-        label = ACTUATOR_SHORT[key]
-        if not can_override_actuator(self._role):
-            return False, f"{label} komutu için Mühendis veya Yönetici rolü gerekir."
-        if not self.config.actuator_map(key).value.is_set:
-            return False, f"{label} için değer eşleşmesi tanımlı değil (⚙ Eşleşmeler)."
-        box = self._act_rows[key]["control"]
-        box.setText(f"{float(value):g}")
-        ok = self._write(self.config.actuator_map(key).value, value, f"{label} komutu")
-        self._mark_actuator_box(box, not ok)
-        return ok, "" if ok else "Gönderilemedi (CAN / CCP bağlantısını kontrol edin)."
 
     def _on_actuator_lock(self, key: str, want_open: bool):
         amap = self.config.actuator_map(key)
         label = ACTUATOR_SHORT[key]
         e = self._act_rows[key]
-        # Kilit YALNIZCA Eyleyicilerde vardır (Motor Kontrol direkt komuttur); anahtar (_sw) zorunludur.
-        if key not in EYLEYICI_KEYS:
-            return
         if want_open:
             if not amap.value.is_set or not amap.sw.is_set:
                 QMessageBox.information(
@@ -1059,7 +842,6 @@ class DashboardTab(QWidget):
 
     def set_config(self, cfg: DashboardConfig):
         self.config = cfg
-        self._update_throttle_slider()
         miss = cfg.unbound_gauges()
         self.map_warn_label.setText(f"⚠ {len(miss)} sensör bağlı değil" if miss else "")
         self.map_warn_button.setVisible(bool(miss))
@@ -1092,7 +874,7 @@ class DashboardTab(QWidget):
 
     def open_mappings(self):
         from app.ui.mapping_dialog import MappingDialog
-        dlg = MappingDialog(self.config, self.sim_inputs, self._dbc, self._a2l_summary, self)
+        dlg = MappingDialog(self.config, self._dbc, self._a2l_summary, self)
         if dlg.exec() == MappingDialog.Accepted:
             cfg = dlg.result_config()
             self.set_config(cfg)
