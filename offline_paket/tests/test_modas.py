@@ -1225,9 +1225,9 @@ def test_gauge_window_follows_the_ecu_value_in_the_measurement_round(live):
     w, ecu, obj, pump = live
     assert wait_for(lambda: w.ccp_session.state == ONLINE, pump)
     g = w.modas_tab.add_gauge(obj.name)
-    assert wait_for(lambda: (w._modas_gauge_sample(g) or g.value) == pytest.approx(12.5), pump)
+    assert wait_for(lambda: (w._modas_gauge_sample(g), g.value)[1] == pytest.approx(12.5), pump)
     ecu.write_memory_bytes(obj.address, struct.pack("<f", 20.0))
-    assert wait_for(lambda: (w._modas_gauge_sample(g) or g.value) == pytest.approx(20.0), pump)
+    assert wait_for(lambda: (w._modas_gauge_sample(g), g.value)[1] == pytest.approx(20.0), pump)
     w.modas_ribbon.buttons["measure"].click()                              # ölçüm turu göstergeyi de besler
     ecu.write_memory_bytes(obj.address, struct.pack("<f", 33.0))
     assert wait_for(lambda: g.value == pytest.approx(33.0), pump)

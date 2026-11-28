@@ -79,6 +79,14 @@ class StatusMixin:
         self.statusBar().showMessage("Bekleyen düzenlemeler atıldı (ECU'ya yazılmadı).", 3000)
         self._refresh_status_widgets()
 
+    def _measure_detail(self, measuring: bool) -> str:
+        """Ölçüm açıkken gerçek tur hızı ve atlanan okuma sayısı (geciken tur + okunamayan değer)."""
+        st = self.measure_stats
+        if not measuring or st.rate_hz is None:
+            return ""
+        skipped = f" · <b style='color:{theme.DANGER}'>atlanan {st.skipped}</b>" if st.skipped else " · atlanan 0"
+        return f" · {st.rate_hz:.1f} Hz (hedef {1000 / self.modas_tab.interval_ms:.1f}){skipped}"
+
     def _refresh_status_widgets(self):
         labels = getattr(self, "status_labels", None)
         if not labels:
@@ -88,7 +96,7 @@ class StatusMixin:
         color = {"on": theme.OK, "wait": theme.WARN_INK, "off": theme.DANGER}[led]
         labels["ecu"].setText(f"ECU: <b style='color:{color}'>{text}</b>")
         measuring = self.modas_tab.is_measuring
-        labels["measure"].setText(f"Ölçüm: <b>{'AÇIK' if measuring else 'KAPALI'}</b>")
+        labels["measure"].setText(f"Ölçüm: <b>{'AÇIK' if measuring else 'KAPALI'}</b>" + self._measure_detail(measuring))
         rec = self.session_recorder
         if rec.is_active:
             tag = "DURAKLATILDI" if rec.is_paused else "KAYIT"

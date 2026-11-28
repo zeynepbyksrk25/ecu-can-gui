@@ -12,11 +12,12 @@ from __future__ import annotations
 from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QIcon, QKeySequence, QPainter, QPixmap, QShortcut
 from PySide6.QtWidgets import (
-    QButtonGroup, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QStackedWidget, QTabBar, QToolButton,
+    QButtonGroup, QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QStackedWidget, QTabBar, QToolButton,
     QVBoxLayout, QWidget,
 )
 
 from app import theme
+from app.measure_stats import INTERVAL_CHOICES_MS, MEASURE_INTERVAL_MS
 from app.ui.modas.style import MODAS_QSS
 
 TABS = [("Başlat", "B"), ("Etiket", "E"), ("Çalışma Sayfaları", "S"), ("Araçlar", "A"), ("Pencereler", "P")]
@@ -211,7 +212,13 @@ class ModasRibbon(QFrame):
         ecu.setIcon(led_icon(theme.MODAS_LED_RED))
         lay.addWidget(self._group("ECU", ecu))
         meas = self.big("measure", "Başlat", "▶", "Ölçümü başlat / durdur   F9", checkable=True)
-        lay.addWidget(self._group("Ölçüm", meas))
+        self.interval_combo = QComboBox()
+        self.interval_combo.setToolTip("Ölçüm periyodu: kısa periyot daha sık okur ama ECU / arayüzü daha çok yükler")
+        for ms in INTERVAL_CHOICES_MS:
+            self.interval_combo.addItem(f"{ms} ms", ms)
+        self.interval_combo.setCurrentIndex(INTERVAL_CHOICES_MS.index(MEASURE_INTERVAL_MS))
+        self.interval_combo.setAccessibleName("Ölçüm periyodu")
+        lay.addWidget(self._group("Ölçüm", meas, self._column(QLabel("Periyot:"), self.interval_combo)))
         rec = self.big("record", "Başlat", "●", "Kaydı başlat / durdur   Ctrl+F9 (oturum kaydı)", checkable=True)
         mark = self.small("mark", "◆ İşaret  F4", "Kayda test işareti (zaman damgalı) ekler   F4")
         mark.setEnabled(False)

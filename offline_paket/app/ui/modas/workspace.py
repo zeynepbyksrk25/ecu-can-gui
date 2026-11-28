@@ -24,6 +24,7 @@ from app import theme
 from app.persist import atomic_write_json, load_json
 from app.signal_hub import SignalHub
 from app.ui.modas.pages import RP, WP
+from app.measure_stats import INTERVAL_CHOICES_MS, MEASURE_INTERVAL_MS
 from app.ui.modas.actuator_window import ActuatorWindow
 from app.ui.modas.gauge_window import GaugeWindow
 from app.ui.modas.scope import ScopeWindow
@@ -34,7 +35,6 @@ from app.ui.modas.windows import ModasSub, TableWindow, ValueWindow
 log = logging.getLogger(__name__)
 
 STATE_VERSION = 1
-MEASURE_INTERVAL_MS = 250          # Değerler arka plan CCP önbelleğinden gelir
 SAVE_DELAY_MS = 500
 DEFAULT_SHEET = "Sayfa1"
 
@@ -63,8 +63,10 @@ class ModasSheetStore:
         math_defs = {str(k): dict(v) for k, v in (raw_math.items() if isinstance(raw_math, dict) else [])
                      if isinstance(v, dict) and v.get("kind")}
         favs = data.get("favorites")
+        iv = data.get("interval")
         return {"version": STATE_VERSION, "current": cur if isinstance(cur, int) else 0, "sheets": sheets,
-                "math": math_defs, "favorites": [str(f) for f in favs] if isinstance(favs, list) else []}
+                "math": math_defs, "favorites": [str(f) for f in favs] if isinstance(favs, list) else [],
+                "interval": iv if isinstance(iv, int) and not isinstance(iv, bool) else MEASURE_INTERVAL_MS}
 
     def save(self, state: dict) -> bool:
         return bool(self.path) and atomic_write_json(self.path, state)
@@ -135,6 +137,7 @@ class ModasWorkspace(QWidget):
         self._reference: dict = {}
         self._cascade = 0
         self.hub = SignalHub()                  # osiloskop (scope) pencerelerinin ortak veri deposu
+        self.interval_applied = lambda ms: None  # ribbon periyot kutusunu eşler (MainWindow bağlar)
         self.actuator_state = lambda: {}        # callable() -> {anahtar: kilit açık mı}: Test Tezgâhı (MainWindow bağlar)
         self.signal_groups = None               # callable() -> [(başlık, [sid])]: DBC / gösterge / giriş kaynakları (MainWindow)
 
@@ -752,6 +755,19 @@ class ModasWorkspace(QWidget):
     def is_measuring(self) -> bool:
         return self._timer.isActive()
 
+    @property
+    def interval_ms(self) -> int:
+        return self._timer.interval()
+
+    def set_interval_ms(self, ms: int) -> int:
+        """Ölçüm periyodu (ms); yalnızca ``INTERVAL_CHOICES_MS`` değerleri kabul edilir, aksi halde en yakını seçilir."""
+        ms = min(INTERVAL_CHOICES_MS, key=lambda c: abs(c - int(ms)))
+        if ms != self._timer.interval():
+            self._timer.setInterval(ms)
+            self._changed()
+        self.interval_applied(ms)
+        return ms
+
     def start_measurement(self):
         if not self._timer.isActive():
             self._timer.start()
@@ -846,7 +862,7 @@ class ModasWorkspace(QWidget):
         return {"version": STATE_VERSION, "current": max(0, self.tabs.currentIndex()),
                 "sheets": [{"name": s.name, "windows": self._sheet_specs(s)} for s in self._sheets],
                 "math": {sid: dict(spec) for sid, spec in self.hub.derived.items()},
-                "favorites": self.var_panel.favorites()}
+                "favorites": self.var_panel.favorites(), "interval": self._timer.interval()}
 
     def save(self) -> bool:
         self._save_timer.stop()
@@ -858,6 +874,7 @@ class ModasWorkspace(QWidget):
             self._make_sheet(DEFAULT_SHEET)
             return
         self.var_panel.set_favorites(state.get("favorites"))
+        self.set_interval_ms(state.get("interval", MEASURE_INTERVAL_MS))
         for sid, spec in (state.get("math") or {}).items():       # matematik sinyalleri osiloskoplardan ÖNCE yüklenir
             self.hub.derived[sid] = dict(spec)
         for s in state["sheets"]:

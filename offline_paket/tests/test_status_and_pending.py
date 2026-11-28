@@ -346,3 +346,48 @@ def test_corrupt_layout_file_never_crashes_the_workspace(qapp, tmp_path, raw):
     w = ModasWorkspace(ModasSheetStore(str(p)))
     assert len(w.sheets) >= 1 and isinstance(w.var_panel.favorites(), list)
     w.close()
+
+
+def test_measure_stats_rate_late_and_failed_reads():
+    from app.measure_stats import MeasureStats
+    s = MeasureStats()
+    assert s.rate_hz is None
+    for i in range(5):
+        s.tick(i * 0.25, 0.25)
+    assert s.rate_hz == pytest.approx(4.0) and s.late == 0
+    s.tick(1.0 + 0.5, 0.25)                                    # 0,5 sn boşluk > 1,5×0,25: gecikmiş tur
+    s.read(True)
+    s.read(False)
+    assert s.late == 1 and s.failed == 1 and s.skipped == 2 and s.reads == 2
+    s.reset()
+    assert s.skipped == 0 and s.rate_hz is None
+
+
+def test_measure_interval_is_selectable_persisted_and_clamped(qapp, tmp_path):
+    from app.ui.modas.workspace import ModasSheetStore, ModasWorkspace
+    w = ModasWorkspace(ModasSheetStore(str(tmp_path / "s.json")))
+    assert w.interval_ms == 250
+    assert w.set_interval_ms(500) == 500 and w.interval_ms == 500
+    assert w.set_interval_ms(9) == 50 and w.set_interval_ms(99999) == 2000        # geçersiz değer en yakın seçeneğe
+    w.set_interval_ms(100)
+    w.save()
+    w2 = ModasWorkspace(ModasSheetStore(str(tmp_path / "s.json")))
+    assert w2.interval_ms == 100
+    (tmp_path / "b.json").write_text('{"sheets":[{"name":"A","windows":[]}],"interval":"x"}', encoding="utf-8")
+    assert ModasWorkspace(ModasSheetStore(str(tmp_path / "b.json"))).interval_ms == 250
+
+
+def test_ribbon_interval_combo_and_status_rate(win):
+    rb = win.modas_ribbon
+    rb.interval_combo.setCurrentIndex(rb.interval_combo.findData(1000))
+    rb.interval_combo.activated.emit(rb.interval_combo.currentIndex())
+    assert win.modas_tab.interval_ms == 1000
+    win.modas_tab.set_interval_ms(100)                         # koddan değişince combo eşlenir
+    assert rb.interval_combo.currentData() == 100
+    win.modas_tab.start_measurement()
+    for i in range(4):
+        win.measure_stats.tick(i * 0.1, 0.1)
+    win._refresh_status_widgets()
+    text = win.status_labels["measure"].text()
+    assert "AÇIK" in text and "10.0 Hz" in text and "atlanan 0" in text
+    win.modas_tab.stop_measurement()

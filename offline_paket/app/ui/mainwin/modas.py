@@ -88,6 +88,8 @@ class ModasMixin:
         b["add_label"].clicked.connect(self._modas_add_selected)
         b["remove_label"].clicked.connect(tab.remove_selected)
         b["add_scope"].clicked.connect(lambda: tab.add_scope(self._selected_var_labels()))
+        rb.interval_combo.activated.connect(lambda _i: tab.set_interval_ms(rb.interval_combo.currentData()))
+        tab.interval_applied = lambda ms: rb.interval_combo.setCurrentIndex(max(0, rb.interval_combo.findData(ms)))
         b["add_actuators"].clicked.connect(tab.add_actuators)
         tab.actuator_state = lambda: dict(self.dashboard_tab._act_open)
         tab.actuator_lock_requested.connect(self._modas_actuator_lock)
@@ -241,42 +243,46 @@ class ModasMixin:
         """Ölçüm turu (250 ms): tüm değer pencereleri arka plan CCP önbelleğinden okunur (arayüz beklemez)."""
         if self.ccp_client is None:
             return
+        self.measure_stats.tick(time.monotonic(), self.modas_tab.interval_ms / 1000.0)
         open_labels = set()
         for win in self.modas_tab.value_windows():
-            self._modas_read_window(win)
+            self.measure_stats.read(self._modas_read_window(win))
             open_labels.add(win.label)
             v = win.wp_value()
             if v is not None:
                 self.modas_tab.push_sample(win.label, v)       # açık değer penceresi aynı zamanda osiloskop kaynağı
         for name in self.modas_tab.scope_labels():
             if name not in open_labels:
-                self._modas_scope_sample(name)
+                self.measure_stats.read(self._modas_scope_sample(name))
         for g in self.modas_tab.gauge_windows():
-            self._modas_gauge_sample(g)
+            self.measure_stats.read(self._modas_gauge_sample(g))
         self.page_model.adopt_missing(self._modas_value_snapshot())
         self._modas_update_diff()
 
-    def _modas_scope_sample(self, name: str):
+    def _modas_scope_sample(self, name: str) -> bool:
         """Yalnızca osiloskopta izlenen etiket: arka plan CCP önbelleğinden okunur; okunamazsa örnek eklenmez (boşluk)."""
         obj = self.modas_tab.object_by_name(name)
         if obj is None or getattr(obj, "address", None) is None or not getattr(obj, "datatype", ""):
-            return
+            return False
         try:
             reading = ccp_codec.read_value(self.ccp_reader, obj)
         except Exception:  # noqa: BLE001 - tek sinyal hatası ölçüm turunu bozmasın
-            return
+            return False
         self.modas_tab.push_sample(name, reading.phys)
+        return True
 
-    def _modas_gauge_sample(self, gauge):
+    def _modas_gauge_sample(self, gauge) -> bool:
         """Gösterge penceresinin ölçümünü arka plan CCP önbelleğinden okur; okunamazsa gösterge boşalır (eski değer kalmaz)."""
         obj = gauge.obj
         if getattr(obj, "address", None) is None or not getattr(obj, "datatype", ""):
             gauge.set_value(None)
-            return
+            return False
         try:
             gauge.set_value(ccp_codec.read_value(self.ccp_reader, obj).phys)
+            return True
         except Exception:  # noqa: BLE001 - tek gösterge hatası ölçüm turunu bozmasın
             gauge.set_value(None)
+            return False
 
     def _modas_value_snapshot(self) -> dict:
         return {w.label: w.wp_value() for w in self.modas_tab.value_windows() if w.is_calibration and w.wp_value() is not None}
@@ -315,6 +321,8 @@ class ModasMixin:
             self._modas_read_all()
 
     def _modas_measuring_changed(self, on: bool):
+        if on:
+            self.measure_stats.reset()
         b = self.modas_ribbon.buttons["measure"]
         b.blockSignals(True)
         b.setChecked(on)
