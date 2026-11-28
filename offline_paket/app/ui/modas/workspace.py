@@ -61,8 +61,9 @@ class ModasSheetStore:
         raw_math = data.get("math")
         math_defs = {str(k): dict(v) for k, v in (raw_math.items() if isinstance(raw_math, dict) else [])
                      if isinstance(v, dict) and v.get("kind")}
+        favs = data.get("favorites")
         return {"version": STATE_VERSION, "current": cur if isinstance(cur, int) else 0, "sheets": sheets,
-                "math": math_defs}
+                "math": math_defs, "favorites": [str(f) for f in favs] if isinstance(favs, list) else []}
 
     def save(self, state: dict) -> bool:
         return bool(self.path) and atomic_write_json(self.path, state)
@@ -140,6 +141,7 @@ class ModasWorkspace(QWidget):
         self.var_panel = VariableListPanel()
         self.var_panel.add_requested.connect(self.add_label)
         self.var_panel.info_requested.connect(self.show_info)
+        self.var_panel.favorites_changed.connect(self._changed)
         self.splitter = QSplitter(Qt.Horizontal)
         self.splitter.setChildrenCollapsible(False)
         self.splitter.addWidget(self.stack_host)
@@ -808,7 +810,8 @@ class ModasWorkspace(QWidget):
     def to_state(self) -> dict:
         return {"version": STATE_VERSION, "current": max(0, self.tabs.currentIndex()),
                 "sheets": [{"name": s.name, "windows": self._sheet_specs(s)} for s in self._sheets],
-                "math": {sid: dict(spec) for sid, spec in self.hub.derived.items()}}
+                "math": {sid: dict(spec) for sid, spec in self.hub.derived.items()},
+                "favorites": self.var_panel.favorites()}
 
     def save(self) -> bool:
         self._save_timer.stop()
@@ -819,6 +822,7 @@ class ModasWorkspace(QWidget):
         if state is None:
             self._make_sheet(DEFAULT_SHEET)
             return
+        self.var_panel.set_favorites(state.get("favorites"))
         for sid, spec in (state.get("math") or {}).items():       # matematik sinyalleri osiloskoplardan ÖNCE yüklenir
             self.hub.derived[sid] = dict(spec)
         for s in state["sheets"]:

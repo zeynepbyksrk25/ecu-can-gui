@@ -267,3 +267,20 @@ def test_opening_a_workbase_switches_to_its_own_layout_file(qapp, tmp_path):
         assert len(w.modas_tab.scope_windows()) == 1
     finally:
         w.close()
+
+
+def test_variable_list_favorites_filter_star_and_persist(qapp, tmp_path):
+    from app.ui.modas.workspace import ModasSheetStore, ModasWorkspace
+    w, db = _ws_with_a2l(tmp_path)
+    vp = w.var_panel
+    name = vp._objects[0].name
+    assert vp.toggle_favorite(name) is True and vp.table.item(0, 0).text() == "★ " + name
+    from app.ui.modas.variable_list import _VarTable
+    assert _VarTable.mimeData(vp.table, [vp.table.item(0, 0)]).text() == name          # sürüklemede yıldız yok
+    vp.filter_combo.setCurrentIndex(vp.filter_combo.findData("fav"))
+    assert vp.visible_names() == [name]
+    w.save()
+    w2 = ModasWorkspace(ModasSheetStore(str(tmp_path / "s.json")))
+    w2.set_summary(db.summary)
+    assert w2.var_panel.favorites() == [name] and w2.var_panel.table.item(0, 0).text().startswith("★ ")
+    assert vp.toggle_favorite(name) is False and vp.visible_names() == []
