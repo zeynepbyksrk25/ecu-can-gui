@@ -1333,3 +1333,10 @@ def test_macro_dialog_edits_saved_steps_on_disk(live, monkeypatch):
     dlg.btn_step_edit.click()
     assert store.load("E")[0]["value"] == 5.5 and "sayı" in dlg.status.text()           # geçersiz giriş dosyayı değiştirmez
     dlg.close()
+
+
+def test_undo_history_is_dropped_when_a2l_or_workbase_changes(live):
+    w, ecu, obj, pump = live
+    w.undo_stack.push("value", "x", 1.0, 2.0)
+    w._modas_on_a2l_loaded()
+    assert not w.undo_stack.can_undo()

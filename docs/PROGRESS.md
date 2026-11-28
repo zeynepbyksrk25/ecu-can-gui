@@ -79,3 +79,5 @@ Her madde bitince `[x]` yapılır; yanına test sonucu ve bilinen eksikler yazı
 - Tam paket: 627 geçti (offscreen, `-n 4`). Gerçek ECU/ekranda doğrulanmadı.
 - Yapılmayanlar (önceki liste) tamamlandı: bkz. DECISIONS ARAYÜZ-2b. Yeni: `app/undo_stack.py`, `ui/modas/surface3d.py`, `ui/modas/actuator_window.py`; makro düzenleme `modas_macros.py` + `MacroDialog`.
 - Bilinen eksik: Eyleyiciler penceresi ve geri al gerçek ECU/CAN donanımında doğrulanmadı (sahte/simülatörle test edildi); 3B görünümde eksen adı/birimi/uçları A2L'de biliniyorsa yazılır, bilinmiyorsa "(indeks)" (Tur 4).
+
+- **Tur 5 (hata yolları):** geri al yığını A2L yüklenince / çalışma tabanı değişince temizlenir (eski adreslere yazım geri alınmaz); durum çubuğu sıradaki geri alınacak etiketi söyler. Tam paket: 641 geçti.

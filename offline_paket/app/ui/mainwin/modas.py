@@ -193,6 +193,7 @@ class ModasMixin:
     def _modas_on_a2l_loaded(self):
         self.modas_tab.set_summary(self.a2l_tab.db.summary)
         self.page_model.clear()
+        self.undo_stack.clear()                           # yeni A2L: eski adres/etiketlere ait geri alma kayıtları geçersiz
         self.modas_tab.set_reference({})
         self._modas_sync_status(force=True)
 
@@ -496,7 +497,9 @@ class ModasMixin:
         if ok:
             (st.commit_redo if redo else st.commit_undo)()
             self._log_event("KALIBRASYON", f"{entry.name}: {'yinele' if redo else 'geri al'} uygulandı")
-            self.statusBar().showMessage(f"{entry.name}: {'yinelendi' if redo else 'geri alındı'}.", 4000)
+            nxt = st.peek_redo() if redo else st.peek_undo()
+            tail = f" Sıradaki: {nxt.name}." if nxt else ""
+            self.statusBar().showMessage(f"{entry.name}: {'yinelendi' if redo else 'geri alındı'}.{tail}", 4000)
         else:
             self.statusBar().showMessage(f"{entry.name}: yazılamadı; ECU değeri değişmedi.", 5000)
 
@@ -841,6 +844,7 @@ class ModasMixin:
         """Workbase açma (kılavuz §2): A2L yüklenir, iletişim ayarları uygulanır, ECU'ya bağlanmayı dener.
         Hata olursa workbase yine açık sayılır; neden Log'a ve durum çubuğuna yazılır (sessiz hata yok)."""
         self._modas_workbase = (project, wb)
+        self.undo_stack.clear()                           # başka çalışma tabanının yazımları geri alınmaz
         self._log_event("KULLANICI", f"Workbase açıldı: {project.name} / {wb.name}")
         self._modas_switch_layout(wb)
         if wb.a2l:
