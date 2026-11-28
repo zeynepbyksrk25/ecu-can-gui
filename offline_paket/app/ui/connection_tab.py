@@ -71,6 +71,7 @@ class ConnectionTab(QWidget):
     disconnect_requested = Signal()
     settings_changed = Signal()
     manifest_requested = Signal()               # MIL: A2L<->Simulink parametre eşleme dosyası seç
+    mfile_requested = Signal()                  # MIL: Simulink.Parameter .m dosyası seç (MATLAB Engine ile)
     mode_changed = Signal(str)                  # "REAL" | "MIL" | "VIRTUAL" (kullanıcı değiştirdi)
 
     def __init__(self):
@@ -102,6 +103,11 @@ class ConnectionTab(QWidget):
         self.manifest_button.clicked.connect(self.manifest_requested.emit)
         self.manifest_label = QLabel("")
         self.manifest_label.setObjectName("mutedSmall")
+        self.mfile_button = QPushButton("Parametre dosyası (.m)…")
+        self.mfile_button.setToolTip("Simulink.Parameter / LookupTable tanımlarını içeren .m dosyası. MATLAB Engine ile "
+                                     "çalıştırılır; modelde değişiklik gerekmez. Önce Ana Sayfa'dan MATLAB Engine ile "
+                                     "modele bağlanın.")
+        self.mfile_button.clicked.connect(self.mfile_requested.emit)
 
         self.baudrate_combo = QComboBox()
         for rate in BAUDRATES:
@@ -133,6 +139,7 @@ class ConnectionTab(QWidget):
         lay.addWidget(QLabel("Mod"))
         lay.addWidget(self.mode_combo)
         lay.addWidget(self.mil_channel_edit)
+        lay.addWidget(self.mfile_button)
         lay.addWidget(self.manifest_button)
         lay.addWidget(self.manifest_label)
         self.baudrate_label = QLabel("Baudrate")
@@ -158,6 +165,7 @@ class ConnectionTab(QWidget):
         mil = self.mode == "MIL"
         self.mil_channel_edit.setVisible(mil)
         self.manifest_button.setVisible(mil)
+        self.mfile_button.setVisible(mil)
         self.manifest_label.setVisible(mil)
         self.baudrate_combo.setVisible(not mil)             # MIL'de gerçek bitrate yok
         self.baudrate_label.setVisible(not mil)
