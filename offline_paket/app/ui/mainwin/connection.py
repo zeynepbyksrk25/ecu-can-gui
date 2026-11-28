@@ -46,7 +46,6 @@ class ConnectionMixin:
         self.connection_tab.set_connected(True)
         self.backend_mode = {"pcan": "REAL", "sim_udp": "MIL"}.get(interface, "VIRTUAL")
         self.monitor_tab.set_bitrate(bitrate if interface not in ("virtual", "sim_udp") else None)
-        self.dashboard_tab.set_signal_source({"REAL": "PCAN", "MIL": "Simulink MIL"}.get(self.backend_mode, "Sanal"))
         self.rx_timer.start()
         self._panel_conn_state()
         self._log_event(

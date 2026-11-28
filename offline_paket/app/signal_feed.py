@@ -87,3 +87,12 @@ class SignalFeed:
         for _t, sids in self.groups():
             out += sids
         return out
+
+    def snapshot(self):
+        """PDF raporu için ``(veri, olaylar)``: Scope'larda çizilen sinyaller (etiket -> (zaman[unix], değer, birim)). Sonradan değişmez."""
+        data = {}
+        for sid in sorted(self.hub.active()):
+            t, v = self.hub.get(sid)
+            if t.size:
+                data[sid.split(":", 1)[1]] = (t + self.hub.t0, v.copy(), "")
+        return data, []

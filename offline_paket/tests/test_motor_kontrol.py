@@ -170,19 +170,7 @@ def test_gauges_and_cards_have_accent_colors(win):
         assert gc.gauge._accent == GAUGE_ACCENT[key]
     accents = {w.property("accent") for w in win.dashboard_tab.findChildren(type(dt.sim_inputs.flight_card))
                if w.objectName() == "card"}
-    assert {"blue", "green", "orange", "teal", "slate"} <= accents
-
-
-def test_recent_events_card_is_newest_first_capped_and_colored(win):
-    dt = win.dashboard_tab
-    win._log_event("MOTOR", "birinci")
-    win._log_event("HATA", "ikinci")
-    assert dt.events_list.item(0).text().endswith("HATA  ·  ikinci")             # en yeni üstte
-    assert dt.events_list.item(0).foreground().color().name() == "#c22a1d"
-    assert not dt.events_empty.isVisibleTo(dt)
-    for i in range(dt.EVENT_MAX + 20):
-        win._log_event("AYAR", f"olay {i}")
-    assert dt.events_list.count() == dt.EVENT_MAX
+    assert {"blue", "green", "orange", "teal"} <= accents
 
 
 def test_estop_warning_opens_mappings_and_motor_commands_have_only_a_mapping(win, monkeypatch):

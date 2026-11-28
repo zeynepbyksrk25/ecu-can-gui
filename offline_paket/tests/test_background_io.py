@@ -516,28 +516,7 @@ def test_modas_table_headers_are_readable():
 
 
 # ---------------------------------------------------------------- yerleşim: içerik büyüyünce metin kırpılmaz
-def test_trend_range_buttons_are_not_clipped_after_loading_a_dbc(qapp, monkeypatch, tmp_path):
-    """DBC yüklenince sol kart genişler; pencere asgari boyutu güncellenmezse Canlı Trendler düğmeleri kırpılırdı."""
-    from PySide6.QtTest import QTest
-    import app.paths as paths
-    monkeypatch.setenv("OPENECU_VERI_KLASORU", str(tmp_path))
-    monkeypatch.setattr(paths, "_cached", None)
-    from app.ui.main_window import MainWindow
-    w = MainWindow()
-    try:
-        w.show()
-        w.setCurrentWidget(w.dashboard_tab)          # Modas düzeninde açılış sayfası Worksheets; trend Ana Sayfa'dadır
-        QTest.qWait(50)
-        w.transmit_tab.dbc.load(os.path.join(DATA, "sample.dbc"))
-        w.transmit_tab.dbc_loaded.emit()
-        QTest.qWait(150)
-        assert w.width() >= w.minimumWidth() >= w.centralWidget().minimumSizeHint().width()
-        trend = w.dashboard_tab.trend
-        assert trend.width() >= trend.minimumSizeHint().width(), "trend paneli asgari genişliğinin altına sıkışmış"
-        for _secs, b in trend._win_buttons:
-            assert b.width() >= b.sizeHint().width(), f"{b.text()!r} düğmesi kırpılıyor"
-    finally:
-        w.close()
+
 
 
 def test_trend_toolbar_is_two_rows_and_narrow(qapp):

@@ -1,7 +1,6 @@
 """Ayarlanabilir (CHARACTERISTIC/VALUE) clbc_* parametreleri grafik, trend, çalışma alanı, performansta."""
 import itertools
 import os
-import struct
 import time
 
 import can
@@ -32,16 +31,6 @@ def test_summary_exposes_tunable_scalars_and_measurements_win_name_clashes(summa
     assert by["clbc_Temp_limit"].byte_order == "MSB_LAST"           # MOD_COMMON'dan
 
 
-def test_graph_signal_dialog_lists_tunables_in_their_own_group(qapp):
-    from app.ui.graph_signal_dialog import GraphSignalDialog
-    d = GraphSignalDialog(["RPM"], ["N_RPM"], ["m:clbc_Fuel_pump_gain"], tunable_names=["clbc_Fuel_pump_gain", "clbc_Temp_limit"])
-    assert "Ayarlanabilir" in d._tun_root.text(0) and d._tun_root.childCount() == 2
-    assert d.selected_ids() == ["m:clbc_Fuel_pump_gain"]
-    d.search.setText("temp")
-    hidden = [d._tun_root.child(i).isHidden() for i in range(2)]
-    assert hidden == [True, False]
-
-
 def test_signal_sources_include_tunables(qapp, summary):
     from app.sim_interface import list_sources
 
@@ -55,7 +44,6 @@ def win(qapp):
     w = MainWindow()
     w.a2l_tab.db.load(os.path.join(DATA, "sample.a2l"))
     w._on_dashboard_sources_changed()
-    w._sync_dashboard_measurements()
     channel = f"tun-{next(_ch)}"
     a = can.Bus(interface="virtual", channel=channel)
     b = can.Bus(interface="virtual", channel=channel)
@@ -72,31 +60,6 @@ def win(qapp):
     a.shutdown()
     b.shutdown()
     w.close()
-
-
-def test_trend_plots_a_tunable_parameter_and_shows_the_step_when_it_changes(win):
-    w, ecu = win
-    dt = w.dashboard_tab
-    addr = w.a2l_tab.db.summary.readable_by_name()["clbc_Fuel_pump_gain"].address
-    assert "clbc_Fuel_pump_gain" in dt._tunable_names
-    dt.set_graph_signals(["g:RPM", "m:clbc_Fuel_pump_gain"])
-    ecu.write_memory_bytes(addr, struct.pack("<f", 2.0))
-    series = dt.trend._series["m:clbc_Fuel_pump_gain"]
-
-    def tick_until(cond, timeout=5.0):
-        end = time.time() + timeout
-        while time.time() < end:
-            w._on_dashboard_tick(["clbc_Fuel_pump_gain"])
-            if cond():
-                return True
-            time.sleep(0.05)
-        return False
-
-    assert tick_until(lambda: 2.0 in series.v)
-    ecu.write_memory_bytes(addr, struct.pack("<f", 3.5))        # Kalibrasyon sayfasından değiştirilmiş gibi
-    assert tick_until(lambda: 3.5 in series.v)
-    assert series.unit == "bar"                                 # birim A2L COMPU_METHOD'dan
-    assert dt.graph_measurement_names() == ["clbc_Fuel_pump_gain"]
 
 
 def test_scope_measurement_round_reads_tunable_parameters(win):

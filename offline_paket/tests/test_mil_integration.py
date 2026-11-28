@@ -46,15 +46,13 @@ def _pump(w, cond, t=3.0):
     return False
 
 
-def test_model_output_reaches_dashboard_monitor_and_trend(mil):
+def test_model_output_reaches_dashboard_and_monitor(mil):
     w, model = mil
     dbc = w.transmit_tab.dbc
     cid, data, ext = dbc.encode("ENG_STATUS", {"rpm": 4321.0, "tt2_c": 100.0, "tt2_fault": 0})
     model.send_frame(cid, data, ext, sim_time=5.0)
     assert _pump(w, lambda: "RPM" in w.dashboard_tab._values)
     assert w.dashboard_tab._values["RPM"][0] == pytest.approx(4321.0)
-    ser = w.dashboard_tab.trend._series.get("g:RPM")
-    assert ser is None or ser.source == "Simulink MIL"
     assert w.connection_tab.status_label.text().startswith("Bağlı · MIL")
 
 

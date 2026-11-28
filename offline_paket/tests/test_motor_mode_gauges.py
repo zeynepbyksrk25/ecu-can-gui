@@ -188,7 +188,7 @@ def test_old_single_fp_config_loads_and_both_new_gauges_start_empty():
     assert cfg.sensors["RPM"].value.is_set
     assert "FP" not in cfg.sensors
     assert not cfg.sensors["FP_start"].value.is_set and not cfg.sensors["FP_main"].value.is_set
-    assert cfg.graph_signals == ["g:RPM", "m:SomeVar"]
+    assert not hasattr(cfg, "graph_signals")
     legacy = config_from_dict({"measurement_rpm": "N_RPM", "measurement_fp": "FP_bar"})
     assert legacy.sensors["RPM"].value.a2l_name == "N_RPM"
     assert not legacy.sensors["FP_start"].value.is_set and not legacy.sensors["FP_main"].value.is_set

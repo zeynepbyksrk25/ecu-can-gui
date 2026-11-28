@@ -432,7 +432,6 @@ class MappingDialog(QDialog):
     # ------------------------------------------------------------ sonuç
     def result_config(self) -> DashboardConfig:
         cfg = DashboardConfig()
-        cfg.graph_signals = list(self._cfg.graph_signals)
         for key, ed in self.sensor_ed.items():
             cfg.sensors[key] = SignalMap(value=ed["value"].binding(), fault=ed["fault"].binding())
         for key, ed in self.actuator_ed.items():

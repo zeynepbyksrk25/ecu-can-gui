@@ -187,7 +187,6 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self._build_ui_chrome()
 
         self.dashboard_tab.set_config(self.dashboard_config_store.load())
-        self._load_trend_layout()
         self._migrate_control_bindings()
         self._rebuild_dash_can_map()
 
@@ -217,11 +216,9 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self._feed_timer.timeout.connect(self.signal_feed.tick)
         self._feed_timer.start()
 
-        # Ana Sayfa > Canlı Grafik'in 'Sinyalleri seç' penceresi A2L ölçümlerini listeler.
-        self.a2l_tab.a2l_loaded.connect(self._sync_dashboard_measurements)
 
         self.session_tab.event_log = self.event_log
-        self.session_tab.trend_provider = self.dashboard_tab.trend.snapshot
+        self.session_tab.trend_provider = self.signal_feed.snapshot       # PDF rapor grafikleri: Scope'larda çizilen sinyaller
         # Oturum boyunca izlenen parametreleri diske (CSV) yazan kayıt.
         self.session_recorder = SessionRecorder()
         # Kayıt KAYNAKTA, verinin kendi geliş zamanında yapılır (bkz. app/session_recorder.py): CAN kareleri alım
@@ -619,7 +616,6 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         rec = getattr(self, "session_recorder", None)
         if rec is not None:
             rec.record_event(category, message)       # kayıt açıkken olay dosyasına (bağlantı, hata, kalibrasyon…)
-        self.dashboard_tab.add_event(self.event_log.entries[-1])
         self.modas_tab.log_panel.add_entry(self.event_log.entries[-1])
         self.session_tab.refresh_log()
 
@@ -633,14 +629,6 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
             self._modas_save_dataset()                   # workbase açıkken PC veri seti (son WP değerleri) kaydedilir
         except Exception:  # noqa: BLE001 - kapanışı engellemesin
             logging.getLogger(__name__).exception("Veri seti kapanışta kaydedilemedi")
-        # Ayrı penceredeki Trend geri yerleşsin; aksi halde uygulama
-        # son pencere kapanana kadar çıkmaz.
-        for det in (getattr(self.dashboard_tab.trend, "detacher", None),):
-            try:
-                if det is not None:
-                    det.dock()
-            except Exception:  # noqa: BLE001
-                logging.getLogger(__name__).exception("ayrı pencere kapatma hatası")
         try:
             self.modas_tab.shutdown()
         except Exception:  # noqa: BLE001

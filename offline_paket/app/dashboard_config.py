@@ -108,7 +108,6 @@ MOTOR_COMMAND_LABELS = {
     "estop": "Acil Durdurma",
 }
 
-DEFAULT_GRAPH_SIGNALS = ["g:RPM", "g:Tt5", "g:FP_main"]
 
 SOURCE_CAN = "can"
 SOURCE_A2L = "a2l"
@@ -189,7 +188,6 @@ class DashboardConfig:
 
     # Canlı Trendler'de çizilen sinyaller (kalıcı). Kimlikler:
     # "g:<gösterge anahtarı>" (ör. "g:RPM") veya "m:<A2L ölçüm adı>".
-    graph_signals: list = field(default_factory=lambda: list(DEFAULT_GRAPH_SIGNALS))
 
     # ---- sorgular ---------------------------------------------------------
     def sensor_map(self, key: str) -> SignalMap:
@@ -301,11 +299,6 @@ def config_from_dict(raw: dict) -> DashboardConfig:
                 value=_float(sub.get("value")))
         setattr(cfg, key, cfg_cmd)
 
-    sigs = raw.get("graph_signals")
-    if isinstance(sigs, list):
-        # Artık var olmayan gösterge anahtarları (eski "g:FP") süzülür; yoksa grafikte verisiz hayalet seri kalır.
-        cfg.graph_signals = [s for s in sigs if isinstance(s, str) and s
-                             and (not s.startswith("g:") or s[2:] in GAUGE_KEYS)]
     return strip_unused_switches(cfg)
 
 

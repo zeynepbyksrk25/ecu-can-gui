@@ -17,7 +17,7 @@ import time
 
 from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
-    QFrame, QGridLayout, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMessageBox,
+    QFrame, QGridLayout, QHBoxLayout, QLabel, QMessageBox,
     QPushButton, QSizePolicy, QSlider, QVBoxLayout, QWidget,
 )
 from PySide6.QtCore import QRegularExpression
@@ -34,7 +34,6 @@ from app.ui.dash_widgets import (  # noqa: F401  (ToggleSwitch: eski import yolu
     format_value,
 )
 from app.ui.dark_theme import dark_qss
-from app.ui.trend_panel import TrendPanel
 from app.user_roles import Role, can_override_actuator
 
 TICK_INTERVAL_MS = 500
@@ -211,10 +210,6 @@ class DashboardTab(QWidget):
         self._act_open: dict[str, bool] = {k: False for k in ACTUATOR_KEYS}
         self._act_rows: dict[str, dict] = {}
         self._gauge_cards: dict[str, GaugeCard] = {}
-        self._measurement_names: list[str] = []
-        self._tunable_names: list[str] = []
-        self._measurement_units: dict[str, str] = {}
-        self._measurement_limits: dict[str, tuple] = {}
 
         self._build_motor_buttons()
 
@@ -244,8 +239,7 @@ class DashboardTab(QWidget):
         # Motor Kontrol: kilitsiz direkt komut (değer + Enter); Eyleyiciler: kilit, rol + onay, değer + _sw
         left.addWidget(self._build_actuators_card("MOTOR KONTROL", "sliders", CONTROL_KEYS), 0)
         left.addWidget(self._build_actuators_card("EYLEYİCİLER", "actuator", EYLEYICI_KEYS), 0)
-        # Kalan yükseklik boş bırakılmaz: son olaylar (komut gönderildi / hata) burada görünür
-        left.addWidget(self._build_events_card(), 1)
+        left.addStretch(1)
         left_w = QWidget()
         left_w.setLayout(left)
         # Genişlik sabit DEĞİL: alt sınırı içeriğin (yazı tipine göre) asgari genişliği belirler
@@ -257,18 +251,12 @@ class DashboardTab(QWidget):
         from app.ui.sim_model_panel import SimModelPanel
         self.sim_panel = SimModelPanel()          # yalnızca MIL modunda görünür
         right.addWidget(self.sim_panel, 0)
-        right.addWidget(self._build_gauges_card(), 11)
-        self.signal_source = "CAN"   # g: sinyallerinin kaynağı (MIL modunda "Simulink MIL"); trend tablosunda gösterilir
-        self.trend = TrendPanel()
-        self.trend.pick_requested.connect(self._on_pick_graph_signals)
-        right.addWidget(self.trend, 10)
+        right.addWidget(self._build_gauges_card(), 1)
         right_w = QWidget()
         right_w.setLayout(right)
 
         body.addWidget(left_w, 3)             # sol sütun ≈ %30: sensörler (göstergeler) geniş kalır
         body.addWidget(right_w, 7)
-
-        self._rebuild_trend_series()
 
         self.timer = QTimer(self)
         self.timer.setInterval(TICK_INTERVAL_MS)
@@ -382,57 +370,6 @@ class DashboardTab(QWidget):
             if b.is_set and b.source == SOURCE_A2L and b.a2l_name.strip():
                 out.append(b.a2l_name.strip())
         return out
-
-    # ======================================================================
-    # Son olaylar (komut gönderildi, hata, bağlantı...): sol sütunun kalan yüksekliğini doldurur
-    # ======================================================================
-    EVENT_COLORS = {"HATA": theme.DANGER, "MOTOR": theme.OK, "EYLEYICI": theme.ORANGE, "BAGLANTI": theme.ACCENT,
-                    "KULLANICI": theme.PURPLE, "SİMÜLASYON": theme.BLUE, "SIMÜLASYON": theme.BLUE, "AYAR": theme.MUTED}
-    EVENT_MAX = 60
-
-    def _build_events_card(self) -> QFrame:
-        card = QFrame()
-        card.setObjectName("card")
-        card.setProperty("accent", "slate")
-        lay = QVBoxLayout(card)
-        lay.setContentsMargins(14, 8, 14, 8)
-        lay.setSpacing(4)
-        head = QHBoxLayout()
-        head.setSpacing(8)
-        head.addWidget(IconLabel("trend", ACCENTS["slate"], 18))
-        t = QLabel("SON OLAYLAR")
-        t.setObjectName("cardTitle")
-        head.addWidget(t)
-        head.addStretch(1)
-        lay.addLayout(head)
-        self.events_list = QListWidget()
-        self.events_list.setObjectName("eventsList")
-        self.events_list.setSelectionMode(QListWidget.NoSelection)
-        self.events_list.setFocusPolicy(Qt.NoFocus)
-        self.events_list.setFrameShape(QFrame.NoFrame)
-        self.events_list.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.events_list.setWordWrap(True)
-        self.events_list.setMinimumHeight(60)
-        lay.addWidget(self.events_list, 1)
-        self.events_empty = QLabel("Henüz olay yok.\nKomutlar (Başlat/Durdur/Acil Durdurma), kilit açma, "
-                                   "hatalar ve bağlantı olayları burada görünür.")
-        self.events_empty.setObjectName("mutedSmall")
-        self.events_empty.setWordWrap(True)
-        lay.addWidget(self.events_empty)
-        return card
-
-    def add_event(self, entry):
-        """Olay günlüğünün yeni bir girişini listenin başına ekler (kategoriye göre renkli)."""
-        import time as _t
-        text = (f"{_t.strftime('%H:%M:%S', _t.localtime(entry.timestamp))}  "
-                f"{entry.category}  ·  {entry.message}")
-        item = QListWidgetItem(text)
-        item.setForeground(QColor(self.EVENT_COLORS.get(entry.category, theme.MUTED)))
-        item.setToolTip(f"{entry.user} / {entry.role}\n{entry.message}")
-        self.events_empty.setVisible(False)
-        self.events_list.insertItem(0, item)
-        while self.events_list.count() > self.EVENT_MAX:
-            self.events_list.takeItem(self.events_list.count() - 1)
 
     # ======================================================================
     # Motor Parametreleri (9 gösterge) + sensör sağlığı
@@ -686,7 +623,6 @@ class DashboardTab(QWidget):
             if gc is not None:
                 gc.set_value(value)
                 gc.set_status("")
-            self.trend.append(f"g:{key}", value)
             self.gauge_sample.emit(key, float(value))
             self._check_limits(key, float(value))
         else:
@@ -1115,65 +1051,6 @@ class DashboardTab(QWidget):
             e["name"].setToolTip(text)
 
     # ======================================================================
-    # Canlı Trendler: sinyal seçimi ve besleme
-    # ======================================================================
-    def set_measurements(self, measurements):
-        """Yüklü A2L'deki ölçümleri (MeasurementInfo listesi) bildirir."""
-        self._measurement_names = [m.name for m in measurements if not hasattr(m, "char_type")]
-        self._tunable_names = [m.name for m in measurements if hasattr(m, "char_type")]
-        self._measurement_units = {m.name: (m.unit or "") for m in measurements}
-        self._measurement_limits = {
-            m.name: (m.minimum, m.maximum) for m in measurements
-            if m.minimum is not None and m.maximum is not None and m.maximum > m.minimum
-        }
-        self._rebuild_trend_series()
-
-    def graph_measurement_names(self) -> list:
-        return [sid[2:] for sid in self.config.graph_signals if sid.startswith("m:")]
-
-    def _on_pick_graph_signals(self):
-        from app.ui.graph_signal_dialog import GraphSignalDialog
-        dlg = GraphSignalDialog(GAUGE_KEYS, self._measurement_names, self.config.graph_signals, self,
-                                tunable_names=self._tunable_names)
-        if dlg.exec() != GraphSignalDialog.Accepted:
-            return
-        self.set_graph_signals(dlg.selected_ids(), persist=True)
-
-    def set_graph_signals(self, ids: list, persist: bool = False):
-        self.config.graph_signals = list(ids)
-        self._rebuild_trend_series()
-        if persist:
-            self.config_saved.emit(self.config)
-
-    def set_signal_source(self, source: str):
-        """Gösterge/trend sinyallerinin kaynak etiketi (PCAN, Simulink MIL, Sanal...)."""
-        if source != self.signal_source:
-            self.signal_source = source
-            self._trend_sig = None
-            self._rebuild_trend_series()
-
-    def _rebuild_trend_series(self):
-        from app.ui.graph_signal_dialog import signal_label
-        specs = []
-        for sid in self.config.graph_signals:
-            if sid.startswith("g:"):
-                k = sid[2:]
-                unit = GAUGE_RANGES[k][2] if k in GAUGE_RANGES else ""
-                specs.append({"key": sid, "label": GAUGE_DISPLAY_LABELS.get(k, k), "unit": unit,
-                              "source": self.signal_source})
-            elif sid.startswith("m:"):
-                specs.append({"key": sid, "label": signal_label(sid), "unit": self._measurement_units.get(sid[2:], ""),
-                              "source": "CCP (A2L)"})
-        sig = [(s["key"], s["label"], s["unit"], s["source"]) for s in specs]
-        if sig == getattr(self, "_trend_sig", None):
-            return          # değişmediyse eksenleri/ViewBox'ları yeniden kurma (Kaydet sonrası sağ taraf bozuluyordu)
-        self._trend_sig = sig
-        self.trend.set_series(specs)
-
-    def add_measurement_sample(self, name: str, value: float):
-        self.trend.append(f"m:{name}", value)
-
-    # ======================================================================
     # Kaynaklar, yapılandırma, periyodik tetikleme
     # ======================================================================
     def set_sources(self, dbc, a2l_summary):
@@ -1183,7 +1060,6 @@ class DashboardTab(QWidget):
     def set_config(self, cfg: DashboardConfig):
         self.config = cfg
         self._update_throttle_slider()
-        self._rebuild_trend_series()
         miss = cfg.unbound_gauges()
         self.map_warn_label.setText(f"⚠ {len(miss)} sensör bağlı değil" if miss else "")
         self.map_warn_button.setVisible(bool(miss))
@@ -1229,7 +1105,6 @@ class DashboardTab(QWidget):
                                       for k in GAUGE_KEYS
                                       if self.config.sensor_map(k).fault.source == "a2l"
                                       and self.config.sensor_map(k).fault.a2l_name.strip()]
-                                   + self.graph_measurement_names()
                                    + self.motor_a2l_names()))
         self._refresh_gauge_states()
         self._refresh_motor_readout()

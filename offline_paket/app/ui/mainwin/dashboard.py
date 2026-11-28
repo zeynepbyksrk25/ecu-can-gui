@@ -441,17 +441,13 @@ class DashboardMixin:
         self._update_rec_state()
 
     def _on_record_marker(self, label: str):
-        """Elle işaret: kayıt dosyasına (events + ASC), olay günlüğüne ve trend grafiğine."""
+        """Elle işaret: kayıt dosyasına (events + ASC) ve olay günlüğüne."""
         label = (label or "").strip()
         if not label:
             return
         now = time.time()
         self.session_recorder.add_marker(label, now)
         self._log_event("ISARET", label)
-        try:
-            self.dashboard_tab.trend.add_event(label, now, "#B58900")
-        except Exception:  # noqa: BLE001 - grafik hatası işareti kaybettirmesin
-            log.debug("trend işareti eklenemedi", exc_info=True)
 
     def _update_rec_state(self):
         """REC göstergesi (üst şerit + oturum sayfası) ve canlı kayıt istatistiği. Düşen veri = yazıcı kuyruğu + CAN
@@ -518,10 +514,6 @@ class DashboardMixin:
                                     "acquisition_wall_clock")
             rec.record_change(sid, phys, t)
 
-    def _sync_dashboard_measurements(self):
-        summary = self.a2l_tab.db.summary
-        self.dashboard_tab.set_measurements(summary.readable() if summary is not None else [])
-
     # ---- Ana Sayfa: A2L'den (CCP) okuma --------------------------------------
     def _on_dashboard_tick(self, names: list):
         dt = self.dashboard_tab
@@ -553,12 +545,10 @@ class DashboardMixin:
             b = getattr(cfg, key).binding
             if b.source == SOURCE_A2L and b.a2l_name.strip():
                 roles.setdefault(b.a2l_name.strip(), []).append(("motor", key))
-        graph_names = set(dt.graph_measurement_names())
 
         for name in names:
             targets = roles.get(name, [])
-            graph_wanted = name in graph_names
-            if not targets and not graph_wanted:
+            if not targets:
                 continue
             m = by_name.get(name)
 
@@ -588,8 +578,6 @@ class DashboardMixin:
             except ValueError as exc:
                 fail(str(exc))
                 continue
-            if graph_wanted and isinstance(phys_value, (int, float)):
-                dt.add_measurement_sample(name, float(phys_value))
             for role, key in targets:
                 if role == "value":
                     dt.set_gauge_value(key, float(phys_value))
