@@ -80,13 +80,13 @@ açılır; diğer sayfalar **Tools** sekmesinden (ya da `Ctrl+1…6`) bağımsı
 
 | Sayfa | Ne işe yarar |
 |---|---|
-| **Worksheets** (ana pencere) | Etiket pencereleri (değer / harita), **Scope** (osiloskop), WP/RP sayfaları, Diff, Variable list, Log-Windows. A2L etiketleri burada okunur/yazılır; değişiklikler kırmızı ok ve fark ile görünür. **Scope**: A2L etiketleri Variable list'ten sürüklenir; DBC sinyali, gösterge, matematik sinyali (ölçekle / A ○ B / hareketli ortalama) ve CSV kaydı **Sinyaller… / ƒ Matematik / CSV** düğmeleriyle eklenir. |
+| **Worksheets** (ana pencere) | Etiket pencereleri (değer / harita), **Scope** (osiloskop), WP/RP sayfaları, Diff, Variable list, Log-Windows. A2L etiketleri burada okunur/yazılır; değişiklikler kırmızı ok ve fark ile görünür. **Osiloskop**: A2L etiketleri Değişken listesinden sürüklenir; DBC sinyali, gösterge, matematik sinyali (ölçekle / A ○ B / hareketli ortalama) ve CSV kaydı **Sinyaller… / ƒ Matematik / CSV** düğmeleriyle eklenir. |
 | **Test Bench** (`Ctrl+2`) | **Motor Parametreleri** (RPM/İtki/PLA/Tt5/Fp Başl./Fp Ana/Ft/Ps2/Ps3 göstergeleri, sensör sağlığı, alt modlar), **Eyleyiciler** (manuel override: kilit + onay) ve MIL modunda Simulink model kontrol paneli. Motoru Başlat / Durdur / Acil Durdurma anahtarları ana şeritte. Çalışması için ⚙ Eşleşmeler'de DBC/A2L eşlemelerini bir kere girin. |
 | **CAN Trace** (`Ctrl+3`) | Bağlantı (PCAN, baudrate), İzleme (gelen/giden CAN, DBC çözümü), Gönderim (manuel/periyodik, DBC yükleme), Kayıt. |
 | **Calibration Tools** (`Ctrl+4`) | **CCP** (bağlantı, canlı değer okuma, RAM'e geçici yazma, **Yönetici rolüyle flaşa kalıcı yazma**) ve **Geçmiş** (RAM/FLAŞ yazımlarının eski/yeni değerleri, geri alma). A2L'nin ayrı sekmesi yok: Project Manager'daki workbase'den yüklenir. |
 | **Control Panel** (`Ctrl+5`) | Genel ECU test girdisi: uçak girişleri, sensör/eyleyici override'ları, çıkış izleme (aşağıdaki bölüm). PLA / uçuş koşulları gibi girişler buradan gönderilir. |
 | **Diagnostics** (`Ctrl+6`) | CCP bağlantı testi + DIAG_SERVICE, CAN sağlığı, test oturumu (kayıt, PDF/HTML rapor, Excel), kayıtlı oturumlar, tetikleyici ile otomatik kayıt, test senaryoları. |
-| **⚙ Ayarlar** (komut şeridi) | Rol seçimi (Operatör/Mühendis/Yönetici), profiller ve Eşleşmeler. |
+| **⚙ Ayarlar** (komut şeridi) | Kullanıcı ismi (denetim kayıtları için; tek rol: Mühendis) ve profiller; ⚙ Eşleşmeler ayrı düğme. |
 
 > Kaldırılan eski sayfalar: Analiz (Çalışma Alanı, Performans), Test Bench'teki Uçuş Koşulları / Motor Kontrol / Son Olaylar /
 > Canlı Trendler kartları, Worksheets'teki Input pencereleri, Calibration Tools'taki A2L sekmesi. Karşılıkları: Scope, Control Panel,
@@ -366,3 +366,11 @@ Notlar:
 - **Statik denetim:** `ruff check .` (ayar: `ruff.toml`; yalnızca gerçek hata kuralları).
 - **CI:** `.github/workflows/testler.yml` her push ve pull request'te ruff + tüm testleri çalıştırır
   (Ubuntu, Python 3.11, ekransız Qt).
+
+
+## Arayüz notları (2026-11-28)
+- **Dil ve rol:** Arayüz tamamen Türkçedir. Tek rol vardır: **Mühendis** (Operatör/Yönetici yok; kimlik doğrulama yoktur). Riskli işlemler rol yerine açık onayla korunur (override kilidi + onay, flaş yazma için "Deneysel flaş yazmayı etkinleştir" kutusu + güçlü onay).
+- **Durum çubuğu:** ECU durumu, ölçüm (F9), kayıt süresi, bus yükü, çalışma tabanı ve **bekleyen** (ECU'ya yazılmamış) değişiklik sayısı her zaman görünür. Bekleyen değişiklik varken ribbon altında sarı şerit çıkar: **ECU'ya yaz** / **Geri al** (geri al ECU'ya hiçbir şey göndermez).
+- **Yeni pencereler** çalışma alanında çakışmayan ilk boş yere açılır (yer yoksa kademeli).
+- **Harita penceresi:** sağ tık › **Isı haritası** hücreleri değerine göre renklendirir (yalnızca görünüm; bekleyen hücreler sarı kalır).
+- **Gösterge penceresi:** Etiket › **Gösterge**, seçili ölçümler için ibreli gösterge açar; aralık A2L sınırından gelir, sınır yoksa görülen değerlere göre genişler.

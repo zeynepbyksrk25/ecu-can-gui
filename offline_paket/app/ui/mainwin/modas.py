@@ -87,6 +87,7 @@ class ModasMixin:
         b["add_label"].clicked.connect(self._modas_add_selected)
         b["remove_label"].clicked.connect(tab.remove_selected)
         b["add_scope"].clicked.connect(lambda: tab.add_scope(self._selected_var_labels()))
+        b["add_gauge"].clicked.connect(lambda: [tab.add_gauge(n) for n in self._selected_var_labels()])
         self.template_store = TemplateStore(data_path("modas_templates.json"))
         tmenu = QMenu(b["sheet_template"])
         tmenu.aboutToShow.connect(lambda: self._modas_fill_template_menu(tmenu))
@@ -242,6 +243,8 @@ class ModasMixin:
         for name in self.modas_tab.scope_labels():
             if name not in open_labels:
                 self._modas_scope_sample(name)
+        for g in self.modas_tab.gauge_windows():
+            self._modas_gauge_sample(g)
         self.page_model.adopt_missing(self._modas_value_snapshot())
         self._modas_update_diff()
 
@@ -255,6 +258,17 @@ class ModasMixin:
         except Exception:  # noqa: BLE001 - tek sinyal hatası ölçüm turunu bozmasın
             return
         self.modas_tab.push_sample(name, reading.phys)
+
+    def _modas_gauge_sample(self, gauge):
+        """Gösterge penceresinin ölçümünü arka plan CCP önbelleğinden okur; okunamazsa gösterge boşalır (eski değer kalmaz)."""
+        obj = gauge.obj
+        if getattr(obj, "address", None) is None or not getattr(obj, "datatype", ""):
+            gauge.set_value(None)
+            return
+        try:
+            gauge.set_value(ccp_codec.read_value(self.ccp_reader, obj).phys)
+        except Exception:  # noqa: BLE001 - tek gösterge hatası ölçüm turunu bozmasın
+            gauge.set_value(None)
 
     def _modas_value_snapshot(self) -> dict:
         return {w.label: w.wp_value() for w in self.modas_tab.value_windows() if w.is_calibration and w.wp_value() is not None}

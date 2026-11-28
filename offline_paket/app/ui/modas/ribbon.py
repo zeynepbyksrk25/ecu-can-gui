@@ -271,6 +271,7 @@ class ModasRibbon(QFrame):
             self.big("add_label", "Etiket ekle", "＋", "Değişken listesinden seçili etiketi çalışma sayfasına ekle   Enter"),
             self.big("remove_label", "Kaldır", "✕", "Etiketi görünümden kaldır   Delete"),
             self.big("var_info", "Bilgi", "ⓘ", "Değişken bilgisi   Ctrl+I"),
+            self.big("add_gauge", "Gösterge", "◔", "Seçili ölçümler için ibreli gösterge penceresi (Değişken listesinde seçin)"),
             self.big("add_scope", "Osiloskop", "∿", "Yeni osiloskop penceresi (Değişken listesinde seçili etiketlerle açılır)"),
         ))
         fmts = [("fmt_phys", "Fiziksel", "Ctrl+P"), ("fmt_dec", "Ondalık", "Ctrl+D"),

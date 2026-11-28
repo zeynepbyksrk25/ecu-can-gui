@@ -24,6 +24,7 @@ from app import theme
 from app.persist import atomic_write_json, load_json
 from app.signal_hub import SignalHub
 from app.ui.modas.pages import RP, WP
+from app.ui.modas.gauge_window import GaugeWindow
 from app.ui.modas.scope import ScopeWindow
 from app.ui.modas.style import MODAS_QSS
 from app.ui.modas.variable_list import MIME, LogPanel, VariableListPanel, classify
@@ -342,11 +343,18 @@ class ModasWorkspace(QWidget):
                 continue
             if spec.get("kind") == "input":              # kaldırılmış "Input" penceresi (eski kayıt): sessizce atlanır
                 continue
+            if spec.get("kind") == "gauge":              # gösterge: A2L nesnesi gelince kurulur
+                obj = self._by_name.get(spec.get("name", ""))
+                if obj is None or getattr(obj, "datatype", None) is None or classify(obj) in ("curve", "map", "text"):
+                    left.append(spec)
+                else:
+                    self._open_gauge(sheet, obj, geom=spec.get("geom"))
+                continue
             obj = self._by_name.get(spec.get("name", ""))
             if obj is None:
                 left.append(spec)
                 continue
-            if self._open_window(sheet, obj, geom=spec.get("geom"), fmt=spec.get("fmt")) is None:
+            if self._open_window(sheet, obj, geom=spec.get("geom"), fmt=spec.get("fmt"), heat=spec.get("heat")) is None:
                 left.append(spec)
         sheet.pending = left
 
@@ -386,7 +394,7 @@ class ModasWorkspace(QWidget):
             self.add_label(n, p)
             p += QPoint(24, 24)
 
-    def _open_window(self, sheet: _Sheet, obj, pos: QPoint | None = None, geom=None, fmt=None):
+    def _open_window(self, sheet: _Sheet, obj, pos: QPoint | None = None, geom=None, fmt=None, heat=None):
         kind = classify(obj)
         if kind == "text":
             self.log_panel.add_text(f"{obj.name}: metin (ASCII) alanları bu sürümde desteklenmiyor.")
@@ -398,6 +406,8 @@ class ModasWorkspace(QWidget):
             win.read_requested.connect(lambda w: self.table_read_requested.emit([w]))
             if fmt:
                 win.set_format(fmt)
+            if heat:
+                win.set_heatmap(True)
         else:
             win = ValueWindow(obj, "cal" if kind == "value" else "meas")
             win.write_requested.connect(self.value_write_requested.emit)
@@ -548,6 +558,38 @@ class ModasWorkspace(QWidget):
             return 0
         QMessageBox.information(self, "CSV'ye aktar", f"{n} sinyal yazıldı:\n{path}")
         return n
+
+    def gauge_windows(self, all_sheets: bool = True) -> list:
+        return [w for w in self.windows(all_sheets) if isinstance(w, GaugeWindow)]
+
+    def add_gauge(self, obj_or_name, pos: QPoint | None = None):
+        """Aktif çalışma sayfasına bir A2L ölçümü için gösterge penceresi ekler (zaten açıksa öne getirir)."""
+        obj = self._by_name.get(obj_or_name) if isinstance(obj_or_name, str) else obj_or_name
+        if obj is None or classify(obj) in ("curve", "map", "text"):
+            self.log_panel.add_text(f"Gösterge için uygun etiket değil: {getattr(obj_or_name, 'name', obj_or_name)}")
+            return None
+        sheet = self.current_sheet()
+        for w in sheet.windows:
+            if isinstance(w, GaugeWindow) and w.obj.name == obj.name:
+                sheet.mdi.setActiveSubWindow(w)
+                return w
+        win = self._open_gauge(sheet, obj, pos=pos)
+        self._changed()
+        return win
+
+    def _open_gauge(self, sheet: _Sheet, obj, geom=None, pos=None) -> GaugeWindow:
+        win = GaugeWindow(obj)
+        win.closed.connect(lambda w, s=sheet: self._on_closed(s, w))
+        sheet.mdi.addSubWindow(win)
+        win.show()
+        if isinstance(geom, (list, tuple)) and len(geom) == 4 and all(isinstance(v, (int, float)) for v in geom):
+            win.setGeometry(*(int(v) for v in geom))
+        else:
+            win.move(pos if pos is not None else self._free_pos(sheet, win))
+        sheet.windows.append(win)
+        if self._online:
+            self._warmup()
+        return win
 
     def scope_windows(self, all_sheets: bool = True) -> list:
         return [w for w in self.windows(all_sheets) if isinstance(w, ScopeWindow)]
