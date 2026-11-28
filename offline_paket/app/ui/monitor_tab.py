@@ -23,7 +23,7 @@ from app.can_stats import CanStats
 
 log = logging.getLogger(__name__)
 
-COLUMNS = ["Yön", "CAN ID", "Mesaj", "DLC", "Data", "Periyot ms", "Sinyaller", "Sayaç"]
+COLUMNS = ["Yön", "CAN ID", "Mesaj", "DLC", "Veri", "Periyot ms", "Sinyaller", "Sayaç"]
 C_DIR, C_ID, C_NAME, C_DLC, C_DATA, C_PERIOD, C_SIGS, C_COUNT = range(8)
 DIRECTION_ALL = "Tümü"
 REFRESH_MS = 100

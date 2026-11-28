@@ -271,7 +271,7 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         scroll.setObjectName("pageScroll")
         if page in self._dark_pages:
             from app.ui.dark_theme import dark_scroll_page
-            scroll.setStyleSheet(theme.paint("QScrollArea#pageScroll { background: @@BG@@; border: none; }"))
+            scroll.setStyleSheet(theme.paint("QScrollArea#pageScroll { background: @@MODAS_RIBBON_BG@@; border: none; }"))
             scroll.setWidget(dark_scroll_page(page))
             scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
             scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)

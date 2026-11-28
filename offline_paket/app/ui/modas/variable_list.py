@@ -21,13 +21,13 @@ MIME = "application/x-openecu-label"
 
 # (görünen ad, süzgeç anahtarı)
 FILTERS = [
-    ("<No variable filter>", ""),
-    ("- ALL MEASUREMENTS", "meas"),
-    ("- ALL CHARACTERISTICS", "char"),
-    ("   - values", "value"),
-    ("   - curves", "curve"),
-    ("   - maps", "map"),
-    ("   - text", "text"),
+    ("<Süzgeç yok>", ""),
+    ("- TÜM ÖLÇÜMLER", "meas"),
+    ("- TÜM KALİBRASYON NESNELERİ", "char"),
+    ("   - değerler", "value"),
+    ("   - eğriler", "curve"),
+    ("   - haritalar", "map"),
+    ("   - metin", "text"),
 ]
 
 

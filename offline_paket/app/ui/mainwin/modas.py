@@ -268,7 +268,7 @@ class ModasMixin:
         self.modas_tab.set_reference(self.page_model.reference)
         self._modas_update_diff()
         if ok:
-            self._log_event("KALIBRASYON", f"Worksheets: {ok}/{len(wins)} tablo ECU'dan okundu")
+            self._log_event("KALIBRASYON", f"Çalışma sayfası: {ok}/{len(wins)} tablo ECU'dan okundu")
 
     def _modas_read_all(self):
         """Read data from ECU: çalışma alanındaki tüm etiketler (değerler + tablolar) ECU'dan okunur."""
@@ -283,7 +283,7 @@ class ModasMixin:
         self.page_model.adopt_missing(self._modas_value_snapshot())
         self.modas_tab.set_reference(self.page_model.reference)
         self._modas_update_diff()
-        self._log_event("KALIBRASYON", f"Worksheets: ECU'dan okundu ({len(values)} değer, {len(tables)} tablo)")
+        self._log_event("KALIBRASYON", f"Çalışma sayfası: ECU'dan okundu ({len(values)} değer, {len(tables)} tablo)")
         self.statusBar().showMessage(f"ECU'dan okundu: {len(values)} değer, {len(tables)} tablo", 4000)
 
     def _modas_refresh(self):
@@ -488,7 +488,7 @@ class ModasMixin:
         self._modas_save_dataset()
         self.modas_tab.set_reference(self.page_model.reference)
         self._modas_update_diff()
-        self._log_event("KALIBRASYON", f"Worksheets: WP → RP kopyalandı ({n} etiket, yerel referans)")
+        self._log_event("KALIBRASYON", f"Çalışma sayfası: WP → RP kopyalandı ({n} etiket, yerel referans)")
         self.statusBar().showMessage(f"WP → RP: {n} etiket referans olarak saklandı (ECU Flaş'ına yazılmadı).", 5000)
 
     def _modas_copy_rp_to_wp(self):
@@ -525,7 +525,7 @@ class ModasMixin:
                 win.load_grid_as_edit(ref)
                 self._modas_write_table(win)
                 done += 1
-        self._log_event("KALIBRASYON", f"Worksheets: {title} yazıldı ({done}/{len(plan)} etiket)")
+        self._log_event("KALIBRASYON", f"Çalışma sayfası: {title} yazıldı ({done}/{len(plan)} etiket)")
         self._modas_update_diff()
 
     def _modas_show_diff_list(self):

@@ -73,16 +73,9 @@ DashboardTab QLabel#gaugeStatus { color: @@WARN_INK@@; font-size: 12px; }
 """)
 
 def _accent_qss() -> str:
-    """QFrame#card / #trendCard için ``accent`` özelliğine göre üst çizgi + başlık rengi."""
-    colors = {"blue": theme.paint("@@BLUE@@"), "green": theme.paint("@@OK@@"), "orange": theme.paint("@@ORANGE@@"), "teal": theme.paint("@@ACCENT@@"),
-              "purple": theme.paint("@@PURPLE@@"), "slate": theme.paint("@@MUTED@@")}
-    out = []
-    for name, col in colors.items():
-        out.append(f'DashboardTab QFrame#card[accent="{name}"], DashboardTab QFrame#trendCard[accent="{name}"] '
-                   f'{{ border-top: 3px solid {col}; }}\n'
-                   f'DashboardTab QFrame#card[accent="{name}"] QLabel#cardTitle, '
-                   f'DashboardTab QFrame#trendCard[accent="{name}"] QLabel#cardTitle {{ color: {col}; }}\n')
-    return "".join(out)
+    """Kart vurgusu: Modas görünümünde kartlar renk şeridi taşımaz; tek tip mavi başlık çizgisi (``accent`` özelliği yalnızca
+    anlam taşır, renk vermez)."""
+    return ('DashboardTab QFrame#card, DashboardTab QFrame#trendCard { border-top: 2px solid ' + theme.paint("@@MODAS_WIN_LINE@@") + '; }\n')
 
 
 _EXTRA = theme.paint("""
@@ -172,8 +165,55 @@ DashboardTab QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 
 """)
 
 
+# ---- Modas görünümü: ribbon ile aynı palet (mavi-gri zemin, ince mavi kenarlık, turuncu vurgu, düz/az yuvarlak, küçük yazı) ----
+_MODAS = theme.paint("""
+DashboardTab { background: @@MODAS_RIBBON_BG@@; }
+DashboardTab QFrame#card, DashboardTab QFrame#trendCard { background: @@SURFACE@@; border: 1px solid @@MODAS_WIN_LINE@@; border-radius: 2px; }
+DashboardTab QLabel#cardTitle { color: @@MODAS_GROUP_LABEL@@; font-size: 12px; font-weight: 700; letter-spacing: 0px; }
+DashboardTab QLabel#colHead { color: @@MODAS_GROUP_LABEL@@; font-size: 11px; font-weight: 700; letter-spacing: 0px; }
+DashboardTab QLabel#rowName { font-size: 12px; font-weight: 600; }
+DashboardTab QLabel#gaugeTitle { color: @@MODAS_GROUP_LABEL@@; font-size: 12px; }
+DashboardTab QFrame#gaugeCard { background: @@SURFACE@@; border: 1px solid @@MODAS_WIN_LINE@@; border-radius: 2px; }
+DashboardTab QFrame#stripBar { background: @@MODAS_RIBBON_TABBAR@@; border: 1px solid @@MODAS_RIBBON_LINE@@; border-radius: 2px; }
+DashboardTab QPushButton { background: @@MODAS_RIBBON_BG@@; border: 1px solid @@MODAS_RIBBON_LINE@@; border-radius: 3px; color: @@INK@@;
+    padding: 4px 12px; font-size: 12px; font-weight: 600; }
+DashboardTab QPushButton:hover { background: @@MODAS_RIBBON_HOVER@@; border-color: @@MODAS_ORANGE_LINE@@; }
+DashboardTab QPushButton:checked, DashboardTab QPushButton:pressed { background: @@MODAS_ORANGE@@; border-color: @@MODAS_ORANGE_LINE@@; }
+DashboardTab QPushButton[compact="true"] { padding: 2px 8px; min-height: 18px; border-radius: 3px; font-size: 12px; }
+DashboardTab QPushButton[tone="go"] { background: @@MODAS_RIBBON_BG@@; border-color: @@MODAS_LED_GREEN@@; color: @@INK@@; }
+DashboardTab QPushButton[tone="rec"] { background: @@MODAS_RIBBON_BG@@; border-color: @@MODAS_LED_RED@@; color: @@MODAS_LED_RED@@; }
+DashboardTab QPushButton[tone="rec"]:checked { background: @@MODAS_LED_RED@@; color: @@SURFACE@@; }
+DashboardTab QPushButton[seg="true"]:checked { background: @@MODAS_ORANGE@@; color: @@INK@@; }
+DashboardTab QComboBox, DashboardTab QLineEdit, DashboardTab QSpinBox, DashboardTab QDoubleSpinBox {
+    border: 1px solid @@MODAS_WIN_LINE@@; border-radius: 2px; font-size: 12px; }
+DashboardTab QLineEdit:focus, DashboardTab QDoubleSpinBox:focus, DashboardTab QSpinBox:focus, DashboardTab QComboBox:focus { border-color: @@MODAS_ORANGE_LINE@@; }
+DashboardTab QTableView, DashboardTab QTableWidget { background: @@SURFACE@@; alternate-background-color: @@MODAS_TABLE_ALT@@;
+    border: 1px solid @@MODAS_WIN_LINE@@; border-radius: 0px; selection-background-color: @@MODAS_LIST_SEL@@; selection-color: @@INK@@; }
+DashboardTab QHeaderView::section { background: @@MODAS_TABLE_HEAD@@; color: @@INK@@; border: none; border-right: 1px solid @@MODAS_RIBBON_LINE@@;
+    border-bottom: 1px solid @@MODAS_RIBBON_LINE@@; font-size: 11px; font-weight: 600; }
+DashboardTab QTreeView, DashboardTab QTreeWidget, DashboardTab QListWidget { background: @@SURFACE@@; alternate-background-color: @@MODAS_TABLE_ALT@@;
+    border: 1px solid @@MODAS_WIN_LINE@@; border-radius: 0px; }
+DashboardTab QTreeView::item:selected, DashboardTab QListWidget::item:selected { background: @@MODAS_LIST_SEL@@; color: @@INK@@; }
+DashboardTab QTreeView::item:hover { background: @@MODAS_RIBBON_HOVER@@; }
+DashboardTab QAbstractItemView { selection-background-color: @@MODAS_LIST_SEL@@; selection-color: @@INK@@; border: 1px solid @@MODAS_WIN_LINE@@; }
+DashboardTab QTabBar::tab { color: @@INK@@; font-size: 12px; padding: 4px 14px; }
+DashboardTab QTabBar::tab:selected { border-bottom: 2px solid @@MODAS_ORANGE@@; font-weight: 700; }
+DashboardTab QTabBar::tab:hover:!selected { background: @@MODAS_RIBBON_HOVER@@; }
+DashboardTab QCheckBox::indicator:checked, DashboardTab QRadioButton::indicator:checked { background: @@MODAS_ORANGE@@; border-color: @@MODAS_ORANGE_LINE@@; }
+DashboardTab QCheckBox::indicator, DashboardTab QRadioButton::indicator { border-color: @@MODAS_WIN_LINE@@; }
+DashboardTab QMenu::item:selected { background: @@MODAS_LIST_SEL@@; color: @@INK@@; }
+DashboardTab QProgressBar::chunk { background: @@MODAS_ORANGE@@; }
+DashboardTab QLabel#statChip, DashboardTab QLabel#chipDim, DashboardTab QLabel#chipBlue { background: @@MODAS_RIBBON_BG@@;
+    border: 1px solid @@MODAS_RIBBON_LINE@@; border-radius: 2px; color: @@MODAS_GROUP_LABEL@@; font-size: 12px; padding: 1px 8px; }
+DashboardTab QLabel#chipGreen { border-radius: 2px; font-size: 12px; }
+DashboardTab QLabel#pageTitle { color: @@MODAS_GROUP_LABEL@@; }
+DashboardTab QGroupBox { border: 1px solid @@MODAS_WIN_LINE@@; border-radius: 2px; }
+DashboardTab QGroupBox::title { color: @@MODAS_GROUP_LABEL@@; }
+""")
+
+
 def dark_qss(root_id: str = "dashBody") -> str:
-    q = _BASE + _EXTRA + _accent_qss()
+    q = _BASE + _EXTRA + _accent_qss() + _MODAS
     return q.replace("DashboardTab {", f"QWidget#{root_id} {{").replace("DashboardTab ", f"QWidget#{root_id} ")
 
 

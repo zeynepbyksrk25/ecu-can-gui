@@ -5,7 +5,7 @@ from PySide6.QtWidgets import QAbstractButton, QLabel, QTabBar
 
 ENGLISH = {"Start", "Stop", "Label", "Scope", "Tools", "Windows", "Worksheets", "Variable list", "Log-Windows", "Save", "Delete",
            "Open", "Close", "Remove", "Rename", "Template", "Tile", "Cascade", "Close all", "Information", "Measurement",
-           "Recording", "Data", "Show", "Arrange", "Files", "Macro", "Format", "Physical", "Decimal", "Hexadecimal", "Binary",
+           "Recording", "Data", "Show", "Standard", "Extended", "<No variable filter>", "Arrange", "Files", "Macro", "Format", "Physical", "Decimal", "Hexadecimal", "Binary",
            "Test Bench", "CAN Trace", "Calibration Tools", "Control Panel", "Diagnostics", "Project Manager", "OFFLINE", "ONLINE",
            "Workbase:", "Project:", "Add label", "New", "Hold", "Clear", "Span:", "Read data from ECU", "Write data to ECU"}
 
