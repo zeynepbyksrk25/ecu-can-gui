@@ -1,4 +1,4 @@
-"""Modas araç pencereleri: Parameter file manager ve Macro manager.
+"""Modas araç pencereleri: Parameter file manager ve Makro yöneticisi.
 
 Pencereler yalnızca düzenleme / seçim arayüzüdür; dosya yazma, ECU'ya yazma ve macro oynatma MainWindow'daki
 (``mainwin/modas_tools.py``) güvenli yollardan yapılır; pencere bunlara geri çağrı (callback) ile bağlanır.
@@ -40,12 +40,12 @@ class ParameterFilesDialog(QDialog):
         self.status.setWordWrap(True)
         v.addWidget(self.status)
         row = QHBoxLayout()
-        self.btn_save = QPushButton("Save WP as…")
+        self.btn_save = QPushButton("WP'yi farklı kaydet…")
         self.btn_save.setToolTip("Worksheet'teki ayar değerlerini (WP) yeni bir parametre dosyası olarak kaydet")
-        self.btn_apply = QPushButton("Compare / Apply…")
+        self.btn_apply = QPushButton("Karşılaştır / Uygula…")
         self.btn_apply.setToolTip("Seçili dosyayı WP ile karşılaştır; seçtiğin farkları ECU RAM'ine yaz")
-        self.btn_delete = QPushButton("Delete")
-        self.btn_close = QPushButton("Close")
+        self.btn_delete = QPushButton("Sil")
+        self.btn_close = QPushButton("Kapat")
         self.btn_save.clicked.connect(self._save)
         self.btn_apply.clicked.connect(self._apply)
         self.btn_delete.clicked.connect(self._delete)
@@ -105,13 +105,13 @@ class ParameterFilesDialog(QDialog):
 
 
 class MacroDialog(QDialog):
-    """Macro manager (kalıcı, kalıcı-olmayan pencere): kayıtlı macro'ları listeler, kaydı başlatıp bitirir, oynatır, siler.
+    """Makro yöneticisi (kalıcı, kalıcı-olmayan pencere): kayıtlı macro'ları listeler, kaydı başlatıp bitirir, oynatır, siler.
 
     Kayıt sürerken pencere açık kalır (worksheet'te çalışabilmen için); ``Stop`` macro'yu adlandırıp kaydeder."""
 
     def __init__(self, store, recorder, on_record_toggle, on_play, on_delete, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Macro manager")
+        self.setWindowTitle("Makro yöneticisi")
         self.setMinimumSize(520, 420)
         self.setWindowFlag(Qt.Tool, True)
         self.store, self.recorder = store, recorder
@@ -132,10 +132,10 @@ class MacroDialog(QDialog):
         self.status.setWordWrap(True)
         v.addWidget(self.status)
         row = QHBoxLayout()
-        self.btn_record = QPushButton("● Record")
-        self.btn_play = QPushButton("▶ Play")
-        self.btn_delete = QPushButton("Delete")
-        self.btn_close = QPushButton("Close")
+        self.btn_record = QPushButton("● Kaydet")
+        self.btn_play = QPushButton("▶ Oynat")
+        self.btn_delete = QPushButton("Sil")
+        self.btn_close = QPushButton("Kapat")
         self.btn_record.clicked.connect(self._record)
         self.btn_play.clicked.connect(self._play)
         self.btn_delete.clicked.connect(self._delete)
@@ -171,7 +171,7 @@ class MacroDialog(QDialog):
     def _sync(self):
         rec = self.recorder.active
         has = self.selected() is not None
-        self.btn_record.setText("■ Stop && save" if rec else "● Record")
+        self.btn_record.setText("■ Durdur && kaydet" if rec else "● Kaydet")
         self.btn_play.setEnabled(has and not rec)
         self.btn_delete.setEnabled(has and not rec)
         self.list.setEnabled(not rec)

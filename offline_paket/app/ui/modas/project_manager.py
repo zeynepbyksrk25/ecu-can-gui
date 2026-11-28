@@ -22,11 +22,11 @@ BAUDRATES = [100_000, 125_000, 250_000, 500_000, 800_000, 1_000_000]
 
 
 class WorkbaseDialog(QDialog):
-    """"Workbase information" penceresi: ad, A2L, HEX, ECU, Seed&Key, protokol, baudrate, donanım, açıklama."""
+    """"Çalışma tabanı bilgisi" penceresi: ad, A2L, HEX, ECU, Seed&Key, protokol, baudrate, donanım, açıklama."""
 
     def __init__(self, wb: Workbase | None = None, parent=None, editing: bool = False):
         super().__init__(parent)
-        self.setWindowTitle("Workbase information")
+        self.setWindowTitle("Çalışma tabanı bilgisi")
         self.setMinimumWidth(520)
         wb = wb or Workbase(name="")
         form = QFormLayout()
@@ -49,7 +49,7 @@ class WorkbaseDialog(QDialog):
         self.hardware.setCurrentText(wb.hardware)
         self.comment = QPlainTextEdit(wb.comment)
         self.comment.setFixedHeight(70)
-        for label, w in (("Name:", self.name), ("A2L file:", self.a2l[0]), ("HEX file:", self.hex[0]), ("ECU:", self.ecu),
+        for label, w in (("Ad:", self.name), ("A2L file:", self.a2l[0]), ("HEX dosyası:", self.hex[0]), ("ECU:", self.ecu),
                          ("Seed&&Key library:", self.seedkey[0]), ("Communication protocol:", self.protocol),
                          ("Baudrate:", self.baud), ("Communication hardware:", self.hardware), ("Comment:", self.comment)):
             form.addRow(label, w)
@@ -98,7 +98,7 @@ class ProjectManagerDialog(QDialog):
     def __init__(self, store: ProjectStore, parent=None):
         super().__init__(parent)
         self.store = store
-        self.setWindowTitle("Project Manager")
+        self.setWindowTitle("Proje Yöneticisi")
         self.resize(940, 640)
 
         def tb(text, tip, fn):
@@ -111,14 +111,14 @@ class ProjectManagerDialog(QDialog):
         self.btn_add_existing = tb("Add existing", "Başka bir yerdeki Modas proje klasörünü listeye ekle", self._add_existing)
         self.btn_remove = tb("Remove project", "Projeyi listeden çıkar (dosyaları silmez)", self._remove_project)
         self.btn_new = tb("New", "Seçili projede yeni workbase oluştur", self._new_workbase)
-        self.btn_open = tb("Open", "Workbase'i aç: A2L yüklenir, ECU'ya bağlanılır   (çift tık)", self._open_workbase)
+        self.btn_open = tb("Aç", "Workbase'i aç: A2L yüklenir, ECU'ya bağlanılır   (çift tık)", self._open_workbase)
         self.btn_edit = tb("Edit", "Seçili workbase'in ayarlarını düzenle", self._edit_workbase)
-        self.btn_delete = tb("Delete", "Seçili workbase'i sil", self._delete_workbase)
-        self.btn_settings = tb("Settings / Users…", "Kullanıcı ve profiller", self.settings_requested.emit)
+        self.btn_delete = tb("Sil", "Seçili workbase'i sil", self._delete_workbase)
+        self.btn_settings = tb("Ayarlar / Kullanıcı…", "Kullanıcı ve profiller", self.settings_requested.emit)
 
         bar = QHBoxLayout()
-        for lab, btns in (("Project", (self.btn_add_new, self.btn_add_existing, self.btn_remove)),
-                          ("Workbase", (self.btn_new, self.btn_open, self.btn_edit, self.btn_delete))):
+        for lab, btns in (("Proje", (self.btn_add_new, self.btn_add_existing, self.btn_remove)),
+                          ("Çalışma tabanı", (self.btn_new, self.btn_open, self.btn_edit, self.btn_delete))):
             box = QGroupBox(lab)
             h = QHBoxLayout(box)
             for b in btns:
@@ -135,10 +135,10 @@ class ProjectManagerDialog(QDialog):
         self.workbases.itemSelectionChanged.connect(self._on_workbase_selected)
         self.workbases.itemDoubleClicked.connect(lambda *_: self._open_workbase())
 
-        self.project_info = self._info_panel("Selected project information", ("Path", "Name", "Created", "Comment"))
+        self.project_info = self._info_panel("Selected project information", ("Path", "Ad", "Created", "Comment"))
         self.workbase_info = self._info_panel(
             "Selected workbase information",
-            ("Name", "Created", "A2L file", "HEX file", "ECU", "Seed&Key library", "Communication protocol",
+            ("Ad", "Created", "A2L file", "HEX dosyası", "ECU", "Seed&Key library", "Communication protocol",
              "Baudrate", "Communication hardware", "Comment"))
         self.status = QLabel("")
         self.status.setWordWrap(True)
@@ -208,7 +208,7 @@ class ProjectManagerDialog(QDialog):
         if pr is None:
             self._fill(self.project_info, {})
         else:
-            self._fill(self.project_info, {"Path": pr.path, "Name": pr.name, "Created": pr.created, "Comment": pr.comment})
+            self._fill(self.project_info, {"Path": pr.path, "Ad": pr.name, "Created": pr.created, "Comment": pr.comment})
             try:
                 wbs = self.store.list_workbases(pr.name)
             except ProjectError as exc:
@@ -232,19 +232,19 @@ class ProjectManagerDialog(QDialog):
             self._fill(self.workbase_info, {})
             return
         self._fill(self.workbase_info, {
-            "Name": wb.name, "Created": wb.created, "A2L file": wb.a2l, "HEX file": wb.hex, "ECU": wb.ecu,
+            "Ad": wb.name, "Created": wb.created, "A2L file": wb.a2l, "HEX dosyası": wb.hex, "ECU": wb.ecu,
             "Seed&Key library": wb.seedkey, "Communication protocol": wb.protocol,
             "Baudrate": f"{wb.baudrate / 1000:g} kbit/s", "Communication hardware": wb.hardware, "Comment": wb.comment})
 
     # ---- projeler -------------------------------------------------------------------
     def _add_project(self):
-        name, ok = QInputDialog.getText(self, "New project", "Project name:")
+        name, ok = QInputDialog.getText(self, "Yeni proje", "Proje adı:")
         if not ok:
             return
         try:
             pr = self.store.create_project(name)
         except (ProjectError, OSError) as exc:
-            QMessageBox.warning(self, "Project", str(exc))
+            QMessageBox.warning(self, "Proje", str(exc))
             return
         self._msg(f"Proje oluşturuldu: {pr.path}")
         self.refresh(select_project=pr.name)
@@ -256,7 +256,7 @@ class ProjectManagerDialog(QDialog):
         try:
             pr = self.store.add_existing(path)
         except (ProjectError, OSError) as exc:
-            QMessageBox.warning(self, "Project", str(exc))
+            QMessageBox.warning(self, "Proje", str(exc))
             return
         self.refresh(select_project=pr.name)
 
@@ -289,7 +289,7 @@ class ProjectManagerDialog(QDialog):
             except (ProjectError, OSError, ValueError) as exc:
                 dlg.error.setText(str(exc))                  # pencere açık kalır, kullanıcı düzeltir
                 continue
-            self._msg(f"Workbase kaydedildi: {saved.path}")
+            self._msg(f"Çalışma tabanı kaydedildi: {saved.path}")
             self.refresh(select_project=pr.name, select_workbase=saved.name)
             return
 
@@ -297,7 +297,7 @@ class ProjectManagerDialog(QDialog):
         pr, wb = self.selected_project(), self.selected_workbase()
         if pr is None or wb is None:
             return
-        if QMessageBox.question(self, "Delete workbase", f"'{wb.name}' ve klasörü silinsin mi?") != QMessageBox.Yes:
+        if QMessageBox.question(self, "Çalışma tabanını sil", f"'{wb.name}' ve klasörü silinsin mi?") != QMessageBox.Yes:
             return
         self.store.delete_workbase(pr.name, wb.name)
         self.refresh(select_project=pr.name)

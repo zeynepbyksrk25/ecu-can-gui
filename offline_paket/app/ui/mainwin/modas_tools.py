@@ -32,8 +32,8 @@ class ModasToolsMixin:
         self.macro_recorder = MacroRecorder()
         self._macro_dialog = None
         menu = QMenu(b["data_file"])
-        menu.addAction("Save WP to file…").triggered.connect(lambda: self._modas_save_wp_file())
-        menu.addAction("Compare file with WP…").triggered.connect(lambda: self._modas_compare_file())
+        menu.addAction("WP'yi dosyaya kaydet…").triggered.connect(lambda: self._modas_save_wp_file())
+        menu.addAction("Dosyayı WP ile karşılaştır…").triggered.connect(lambda: self._modas_compare_file())
         b["data_file"].setMenu(menu)
         b["data_file"].setPopupMode(QToolButton.InstantPopup)
         b["param_files"].clicked.connect(self._modas_parameter_files)
@@ -63,13 +63,13 @@ class ModasToolsMixin:
         if path is None:
             proj, wbn = self._modas_project_label()
             default = f"{proj + '_' if proj else ''}{wbn + '_' if wbn else ''}{time.strftime('%Y%m%d-%H%M%S')}.json"
-            path, _ = QFileDialog.getSaveFileName(self, "Save WP to file", default, "Parametre dosyası (*.json)")
+            path, _ = QFileDialog.getSaveFileName(self, "WP'yi dosyaya kaydet", default, "Parametre dosyası (*.json)")
             if not path:
                 return False
         try:
             n = export_values(path, snap, *self._modas_project_label())
         except DataFileError as exc:
-            QMessageBox.warning(self, "Data file", str(exc))
+            QMessageBox.warning(self, "Veri dosyası", str(exc))
             return False
         self._log_event("KALIBRASYON", f"WP dosyaya kaydedildi: {path} ({n} etiket)")
         self.statusBar().showMessage(f"WP dosyaya kaydedildi ({n} etiket): {path}", 6000)
@@ -78,13 +78,13 @@ class ModasToolsMixin:
     def _modas_compare_file(self, path: str | None = None) -> tuple:
         """Dosyayı WP ile karşılaştırır; seçilen farklar onaydan sonra ECU RAM'ine yazılır. ``(ok, mesaj)`` döner."""
         if path is None:
-            path, _ = QFileDialog.getOpenFileName(self, "Compare file with WP", "", "Parametre dosyası (*.json)")
+            path, _ = QFileDialog.getOpenFileName(self, "Dosyayı WP ile karşılaştır", "", "Parametre dosyası (*.json)")
             if not path:
                 return False, ""
         try:
             fvals = load_values(path)
         except DataFileError as exc:
-            QMessageBox.warning(self, "Data file", str(exc))
+            QMessageBox.warning(self, "Veri dosyası", str(exc))
             return False, str(exc)
         snap = self._modas_snapshot()
         diffs, only_file, _only_wp = compare_with_file(snap, fvals)
@@ -96,8 +96,8 @@ class ModasToolsMixin:
         can = self.ccp_client is not None
         reason = "" if can else "ECU çevrimdışı."
         dlg = DiffListDialog([(d.name, d.pc, d.ecu) for d in diffs], can, reason, self,
-                             headers=("Label", "WP", "File"), title="Compare file with WP",
-                             action_text="Write selected (File → WP)",
+                             headers=("Etiket", "WP", "Dosya"), title="Dosyayı WP ile karşılaştır",
+                             action_text="Seçilenleri yaz (Dosya → WP)",
                              intro=f"{len(diffs)} etiketin WP değeri dosyadakinden farklı.{note}")
         if dlg.exec() == DiffListDialog.Accepted and dlg.selected_names():
             plan = {d.name: d.ecu for d in diffs if d.name in set(dlg.selected_names())}
@@ -118,7 +118,7 @@ class ModasToolsMixin:
         snap = self._modas_snapshot()
         if not snap:
             return False, "Kaydedilecek değer yok: worksheet'e ayar değeri ekleyip ECU'dan okuyun."
-        name, ok = QInputDialog.getText(self, "Save WP as", "Dosya adı:", text=time.strftime("%Y%m%d-%H%M%S"))
+        name, ok = QInputDialog.getText(self, "WP'yi farklı kaydet", "Dosya adı:", text=time.strftime("%Y%m%d-%H%M%S"))
         if not ok:
             return None
         try:
@@ -126,7 +126,7 @@ class ModasToolsMixin:
             folder = self._modas_params_folder()
             overwrite = False
             if os.path.exists(folder.path_for(name)):
-                if QMessageBox.question(self, "Save WP as", f"'{name}' zaten var; üzerine yazılsın mı?") != QMessageBox.Yes:
+                if QMessageBox.question(self, "WP'yi farklı kaydet", f"'{name}' zaten var; üzerine yazılsın mı?") != QMessageBox.Yes:
                     return False, "Kaydedilmedi."
                 overwrite = True
             path = folder.save(name, snap, *self._modas_project_label(), overwrite=overwrite)
@@ -139,7 +139,7 @@ class ModasToolsMixin:
         return self._modas_compare_file(path)
 
     def _modas_param_delete(self, name: str):
-        if QMessageBox.question(self, "Delete", f"'{name}' parametre dosyası silinsin mi?") != QMessageBox.Yes:
+        if QMessageBox.question(self, "Sil", f"'{name}' parametre dosyası silinsin mi?") != QMessageBox.Yes:
             return False, "Silinmedi."
         try:
             ok = self._modas_params_folder().delete(name)
@@ -170,21 +170,21 @@ class ModasToolsMixin:
         self._log_event("KALIBRASYON", f"Macro kaydı bitti ({len(steps)} adım)")
         if not steps:
             return False, "Hiç yazım yapılmadı; macro kaydedilmedi."
-        name, ok = QInputDialog.getText(self, "Save macro", "Macro adı:")
+        name, ok = QInputDialog.getText(self, "Makroyu kaydet", "Macro adı:")
         if not ok or not name.strip():
-            return False, "Macro kaydedilmedi."
+            return False, "Makro kaydedilmedi."
         store = self._modas_macro_store()
         try:
             overwrite = name.strip() in store.names()
-            if overwrite and QMessageBox.question(self, "Save macro", f"'{name.strip()}' zaten var; üzerine yazılsın mı?") != QMessageBox.Yes:
-                return False, "Macro kaydedilmedi."
+            if overwrite and QMessageBox.question(self, "Makroyu kaydet", f"'{name.strip()}' zaten var; üzerine yazılsın mı?") != QMessageBox.Yes:
+                return False, "Makro kaydedilmedi."
             store.save(name, steps, overwrite=overwrite)
         except (MacroError, OSError) as exc:
             return False, str(exc)
         return True, f"Macro kaydedildi: {name.strip()} ({len(steps)} adım)"
 
     def _modas_macro_delete(self, name: str):
-        if QMessageBox.question(self, "Delete macro", f"'{name}' macro'su silinsin mi?") != QMessageBox.Yes:
+        if QMessageBox.question(self, "Makroyu sil", f"'{name}' macro'su silinsin mi?") != QMessageBox.Yes:
             return False, "Silinmedi."
         try:
             ok = self._modas_macro_store().delete(name)
@@ -211,7 +211,7 @@ class ModasToolsMixin:
         if wrong:
             return False, "Etiket türü macro adımıyla uyuşmuyor: " + ", ".join(sorted(set(wrong))[:6])
         listing = "\n".join(f"{i}. {describe(s)}" for i, s in enumerate(steps[:12], 1)) + ("\n…" if len(steps) > 12 else "")
-        if QMessageBox.question(self, "Play macro", f"'{name}' macro'su {len(steps)} adımı ECU RAM'ine yazacak:\n\n{listing}\n\n"
+        if QMessageBox.question(self, "Makroyu oynat", f"'{name}' macro'su {len(steps)} adımı ECU RAM'ine yazacak:\n\n{listing}\n\n"
                                 "Devam edilsin mi?", QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
             return False, "Oynatılmadı."
         for i, s in enumerate(steps, 1):

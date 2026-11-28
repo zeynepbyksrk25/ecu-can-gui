@@ -23,8 +23,8 @@ DEFAULT_CHANNELS = {"pcan": "PCAN_USBBUS1", "virtual": "test", "udp_multicast": 
                     "sim_udp": "25001:127.0.0.1:25000"}
 # Çalışma modları (docs/GOREV.md 11.2): arayüz adı -> mod
 MODE_BY_INTERFACE = {"pcan": "REAL", "sim_udp": "MIL", "virtual": "VIRTUAL", "udp_multicast": "VIRTUAL"}
-MODES = [("REAL", "REAL ECU (PCAN-USB)", "pcan"), ("MIL", "MIL / Simulink (UDP)", "sim_udp"),
-         ("VIRTUAL", "VIRTUAL / TEST (donanımsız)", "virtual")]
+MODES = [("REAL", "GERÇEK ECU (PCAN-USB)", "pcan"), ("MIL", "MIL / Simulink (UDP)", "sim_udp"),
+         ("VIRTUAL", "SANAL / TEST (donanımsız)", "virtual")]
 MODE_HINTS = {
     "REAL": "Gerçek ECU: PCAN-USB üzerinden fiziksel CAN hattı.",
     "MIL": "Model-in-the-Loop: Simulink ile UDP üzerinden CAN çerçeveleri. Fiziksel CAN hattı DEĞİL; bitrate/bus durumu yok.",

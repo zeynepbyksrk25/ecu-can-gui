@@ -34,7 +34,7 @@ log = logging.getLogger(__name__)
 STATE_VERSION = 1
 MEASURE_INTERVAL_MS = 250          # Değerler arka plan CCP önbelleğinden gelir
 SAVE_DELAY_MS = 500
-DEFAULT_SHEET = "Sheet1"
+DEFAULT_SHEET = "Sayfa1"
 
 
 class ModasSheetStore:
@@ -209,7 +209,7 @@ class ModasWorkspace(QWidget):
     def current_sheet(self) -> _Sheet:
         return self._sheets[max(0, self.tabs.currentIndex())]
 
-    def _unique_name(self, base: str = "Sheet") -> str:
+    def _unique_name(self, base: str = "Sayfa") -> str:
         names = set(self.sheet_names())
         i = 1
         while f"{base}{i}" in names:
@@ -294,9 +294,9 @@ class ModasWorkspace(QWidget):
     def _on_tab_menu(self, pos):
         idx = self.tabs.tabAt(pos)
         menu = QMenu(self)
-        act_new = menu.addAction("New worksheet")
-        act_ren = menu.addAction("Rename…")
-        act_del = menu.addAction("Delete")
+        act_new = menu.addAction("Yeni çalışma sayfası")
+        act_ren = menu.addAction("Yeniden adlandır…")
+        act_del = menu.addAction("Sil")
         act_ren.setEnabled(idx >= 0)
         act_del.setEnabled(idx >= 0 and len(self._sheets) > 1)
         chosen = menu.exec(self.tabs.mapToGlobal(pos))
@@ -430,9 +430,9 @@ class ModasWorkspace(QWidget):
     def _unique_scope_name(self) -> str:
         used = {w.label for s in self._sheets for w in s.windows} | {s.get("name") for sh in self._sheets for s in sh.pending}
         n = 1
-        while f"Scope {n}" in used:
+        while f"Osiloskop {n}" in used:
             n += 1
-        return f"Scope {n}"
+        return f"Osiloskop {n}"
 
     def _open_scope(self, sheet: _Sheet, name: str | None, state: dict | None = None, geom=None, pos=None) -> ScopeWindow:
         win = ScopeWindow(name or self._unique_scope_name(), self.hub, state=state)
@@ -640,8 +640,8 @@ class ModasWorkspace(QWidget):
         return len(targets)
 
     def show_info(self, obj):
-        """Variable Information (Ctrl+I): etiketin A2L özeti."""
-        lines = [f"Name: {obj.name}", f"Type: {classify(obj)}", f"Description: {getattr(obj, 'description', '') or '-'}",
+        """Değişken Bilgisi (Ctrl+I): etiketin A2L özeti."""
+        lines = [f"Ad: {obj.name}", f"Type: {classify(obj)}", f"Açıklama: {getattr(obj, 'description', '') or '-'}",
                  f"Datatype: {getattr(obj, 'datatype', '') or '-'}", f"Unit: {getattr(obj, 'unit', '') or '-'}"]
         addr = getattr(obj, "address", None)
         lines.append(f"Address: {'0x%X' % addr if addr else '-'}  (ext {getattr(obj, 'address_extension', 0) or 0})")
@@ -649,8 +649,8 @@ class ModasWorkspace(QWidget):
         if lo is not None or hi is not None:
             lines.append(f"Limits: {lo} … {hi}")
         if hasattr(obj, "read_only"):
-            lines.append(f"Read only: {'yes' if obj.read_only else 'no'}")
-        QMessageBox.information(self, "Variable Information", "\n".join(lines))
+            lines.append(f"Salt okunur: {'evet' if obj.read_only else 'hayır'}")
+        QMessageBox.information(self, "Değişken Bilgisi", "\n".join(lines))
 
     # ======================================================================
     # Ölçüm / bağlantı / yetki

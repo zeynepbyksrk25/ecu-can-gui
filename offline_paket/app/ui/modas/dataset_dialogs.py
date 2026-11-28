@@ -1,8 +1,7 @@
 """Modas veri seti pencereleri.
 
-* :class:`DatasetChoiceDialog` — "Choose the dataset" (kılavuz §4 NOTICE): bağlanınca PC ve ECU veri setleri farklıysa
-  kullanıcı hangisiyle devam edeceğini seçer. Hiçbir seçim kendiliğinden uygulanmaz; yazma yetkisi yoksa "Write PC data to
-  ECU" pasiftir.
+* :class:`DatasetChoiceDialog` — "Veri setini seç" (kılavuz §4 NOTICE): bağlanınca PC ve ECU veri setleri farklıysa
+  kullanıcı hangisiyle devam edeceğini seçer. Hiçbir seçim kendiliğinden uygulanmaz; yazma yetkisi yoksa "PC verisini ECU'ya yaz" pasiftir.
 * :class:`DiffListDialog` — WP ↔ RP fark listesi; seçilen etiketler RP değerine geri alınabilir.
 
 Pencereler yalnızca seçimi bildirir; ECU'ya yazma / okuma MainWindow'daki mevcut güvenli yollarla yapılır.
@@ -47,7 +46,7 @@ def _table(headers: list, rows: list, multi: bool = False) -> QTableWidget:
 class DatasetChoiceDialog(QDialog):
     def __init__(self, diffs: list, can_write: bool, deny_reason: str = "", parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Choose the dataset")
+        self.setWindowTitle("Veri setini seç")
         self.setMinimumSize(560, 380)
         self.choice = LATER
         self.diffs = diffs
@@ -56,14 +55,14 @@ class DatasetChoiceDialog(QDialog):
                       f"<span style='color:{theme.MUTED}'>Yalnızca çalışma alanındaki (worksheet) etiketler karşılaştırıldı.</span>")
         head.setWordWrap(True)
         v.addWidget(head)
-        self.table = _table(["Label", "PC (kayıtlı)", "ECU"], [[d.name, value_text(d.pc), value_text(d.ecu)] for d in diffs])
+        self.table = _table(["Etiket", "PC (kayıtlı)", "ECU"], [[d.name, value_text(d.pc), value_text(d.ecu)] for d in diffs])
         v.addWidget(self.table, 1)
         row = QHBoxLayout()
-        self.btn_write = QPushButton("Write PC data to ECU")
+        self.btn_write = QPushButton("PC verisini ECU'ya yaz")
         self.btn_write.setToolTip("PC'deki değerleri ECU RAM'ine yazar (yedek + geri okuma doğrulamasıyla)")
-        self.btn_read = QPushButton("Read data from ECU")
+        self.btn_read = QPushButton("ECU'dan veri oku")
         self.btn_read.setToolTip("ECU'daki değerlerle devam et; PC veri seti ECU ile güncellenir")
-        self.btn_later = QPushButton("Decide later")
+        self.btn_later = QPushButton("Sonra karar ver")
         self.btn_later.setToolTip("Hiçbir şey yazılmaz / değişmez; fark Diff sayacında görünür kalır")
         if not can_write:
             self.btn_write.setEnabled(False)
@@ -91,7 +90,7 @@ class DatasetChoiceDialog(QDialog):
 
 class DiffListDialog(QDialog):
     def __init__(self, rows: list, can_write: bool, deny_reason: str = "", parent=None,
-                 headers: tuple = ("Label", "WP", "RP"), title: str = "Diff — WP ≠ RP",
+                 headers: tuple = ("Etiket", "WP", "RP"), title: str = "Fark — WP ≠ RP",
                  action_text: str = "Revert selected (RP → WP)", intro: str | None = None):
         """``rows``: ``[(etiket, WP değeri, karşı değer), ...]`` (karşı değer: RP ya da dosya)."""
         super().__init__(parent)
@@ -107,7 +106,7 @@ class DiffListDialog(QDialog):
         self.btn_revert = QPushButton(action_text)
         self.btn_revert.setToolTip("Seçili etiketleri karşı değere yazar (ECU RAM)")
         self.btn_revert.setEnabled(False)
-        self.btn_close = QPushButton("Close")
+        self.btn_close = QPushButton("Kapat")
         self.btn_close.clicked.connect(self.reject)
         self.btn_revert.clicked.connect(self.accept)
         self._can_write = can_write

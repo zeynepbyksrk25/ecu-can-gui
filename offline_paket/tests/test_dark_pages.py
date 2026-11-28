@@ -83,7 +83,7 @@ def test_small_pages_dark_and_accessors(tmp_path):
     assert "Profil" not in w._tool_pages
     assert w.settings_dialog.user_tab is w.user_tab
     assert w.session_tab is w.tanilama_tab.session
-    assert "Diagnostics" in w._tool_pages and "Test Oturumu" not in w._tool_pages
+    assert "Tanılama" in w._tool_pages and "Test Oturumu" not in w._tool_pages
     s = w.session_tab
     assert s.stop_button.isEnabled() is False and s.state_chip.text() == "Oturum yok"
     assert hasattr(w.tanilama_tab, "diagnostics") and hasattr(w.tanilama_tab, "errors")
@@ -103,8 +103,8 @@ def test_kalibrasyon_dark_and_aliases():
 def test_analysis_page_removed_scope_replaces_workspace():
     from app.ui.main_window import MainWindow
     w = MainWindow()
-    assert "Analysis" not in w._tool_pages and list(w._tool_pages) == [
-        "Test Bench", "CAN Trace", "Calibration Tools", "Control Panel", "Diagnostics"]
+    assert "Analiz" not in w._tool_pages and "Analysis" not in w._tool_pages and list(w._tool_pages) == [
+        "Test Tezgâhı", "CAN İzleme", "Kalibrasyon Araçları", "Kontrol Paneli", "Tanılama"]
     for gone in ("analiz_tab", "workspace_tab", "performance_tab", "graph_tab"):
         assert not hasattr(w, gone)
     assert w.signal_feed.hub is w.modas_tab.hub                    # Scope'ların ortak deposu

@@ -2,7 +2,7 @@
 
 Modas'ta WP = ECU'nun RAM veri seti, RP = Flaş (referans) veri seti ve ikisi arasında ``COPY`` vardır. Bu projenin CCP
 istemcisinde ``SELECT_CAL_PAGE`` / ``COPY_CAL_PAGE`` komutları YOKTUR ve Flaş yazma gerçek M220'de doğrulanmamıştır;
-bu yüzden RP burada **uygulama düzeyinde** modellenir: "Read data from ECU" / ``COPY WP→RP`` ile alınmış, çalışma
+bu yüzden RP burada **uygulama düzeyinde** modellenir: "ECU'dan veri oku" / ``COPY WP→RP`` ile alınmış, çalışma
 alanındaki etiketlerin değerlerinin yerel referans görüntüsüdür. ``Diff`` = WP ile RP arasında farklı etiket sayısı.
 
 Değer türleri: tek değer → ``float``; tablo → ``list[list[float | None]]``.

@@ -14,6 +14,8 @@ from app.sim_bridge import matlab_ctl as mc
 
 STATE_CHIP = {mc.NOT_CONNECTED: "chipDim", mc.CONNECTING: "chipDim", mc.READY: "chipDim", mc.RUNNING: "chipGreen",
               mc.PAUSED: "chipDim", mc.STOPPED: "chipDim", mc.ERROR: "chipDim"}
+STATE_TR = {mc.NOT_CONNECTED: "BAĞLI DEĞİL", mc.CONNECTING: "BAĞLANIYOR", mc.READY: "HAZIR", mc.RUNNING: "ÇALIŞIYOR",
+            mc.PAUSED: "DURAKLATILDI", mc.STOPPED: "DURDURULDU", mc.ERROR: "HATA"}
 
 
 class SimModelPanel(QFrame):
@@ -29,7 +31,7 @@ class SimModelPanel(QFrame):
         head = QHBoxLayout()
         title = QLabel("SİMULİNK MODEL (MIL)")
         title.setObjectName("cardTitle")
-        self.state_chip = QLabel(mc.NOT_CONNECTED)
+        self.state_chip = QLabel(STATE_TR.get(mc.NOT_CONNECTED, mc.NOT_CONNECTED))
         self.state_chip.setObjectName("chipDim")
         self.udp_chip = QLabel("UDP: —")
         self.udp_chip.setObjectName("chipDim")
@@ -58,8 +60,8 @@ class SimModelPanel(QFrame):
         row.addWidget(self.connect_button)
         row.addSpacing(10)
         self.buttons = {}
-        for cmd, text in (("start", "Start"), ("pause", "Pause"), ("resume", "Resume"), ("stop", "Stop"),
-                          ("reset", "Reset")):
+        for cmd, text in (("start", "Başlat"), ("pause", "Duraklat"), ("resume", "Sürdür"), ("stop", "Durdur"),
+                          ("reset", "Sıfırla")):
             b = QPushButton(text)
             b.setEnabled(False)
             b.clicked.connect(lambda _c=False, c=cmd: self.command_requested.emit(c, 0.0))
@@ -90,7 +92,7 @@ class SimModelPanel(QFrame):
     def update_from(self, snap: dict, allowed):
         """``snap``: ModelController.snapshot(); ``allowed(cmd)``: komut geçerli mi."""
         st = snap["state"]
-        self.state_chip.setText(st)
+        self.state_chip.setText(STATE_TR.get(st, st))      # model durum kodları (READY …) ekranda Türkçe
         self.state_chip.setObjectName(STATE_CHIP.get(st, "chipDim"))
         self.state_chip.style().unpolish(self.state_chip)
         self.state_chip.style().polish(self.state_chip)

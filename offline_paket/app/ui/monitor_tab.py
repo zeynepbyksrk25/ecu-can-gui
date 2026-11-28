@@ -247,7 +247,7 @@ class MonitorTab(QWidget):
 
         self.errors_only_check = QCheckBox("Sadece hatalar")
         self.errors_only_check.toggled.connect(self._apply_filters)
-        self.hex_check = QCheckBox("Hex")
+        self.hex_check = QCheckBox("Onaltılık")
         self.hex_check.setChecked(True)
         self.hex_check.toggled.connect(self._on_hex_toggled)
 

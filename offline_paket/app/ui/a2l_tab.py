@@ -204,12 +204,12 @@ class A2LTab(QWidget):
         if kind == "measurement":
             self.detail_type.setText(f"MEASUREMENT ({obj.datatype})")
             self.detail_readonly.setText("Hayır (ölçüm, ECU'dan okunur)")
-            self.detail_use.setText("Worksheets Scope / Test Bench / Çalışma Alanı'nda sürekli çizilebilir")
+            self.detail_use.setText("Çalışma sayfası osiloskobunda ve Test Tezgâhı'nda sürekli çizilebilir")
         else:
             self.detail_type.setText(f"{obj.kind} ({obj.datatype})")
             self.detail_readonly.setText("Hayır (salt okunur)" if obj.read_only else "Evet (kalibrasyon)")
             tunable = obj.kind == "SCALAR" and not obj.read_only
             self.detail_use.setText(
-                "Worksheets'te değer penceresinde değiştirilir; grafik/trend'de 'Ayarlanabilir parametreler' "
+                "Çalışma sayfasında değer penceresinde değiştirilir; grafik/trend'de 'Ayarlanabilir parametreler' "
                 "grubundan çizilebilir" if tunable else
-                "Worksheets'te tablo penceresinde düzenlenir" if obj.kind in ("CURVE", "MAP", "ARRAY") else "-")
+                "Çalışma sayfasında tablo penceresinde düzenlenir" if obj.kind in ("CURVE", "MAP", "ARRAY") else "-")

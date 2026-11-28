@@ -541,7 +541,7 @@ class CalibrationMixin:
             if isinstance(old_grid, Exception):
                 doc.set_write_result(False, f"Yazma hatası: {old_grid}")
                 self._log_event("HATA", f"{characteristic.name} tablo yazma hatası: {old_grid}")
-                self._record_input("Worksheets > Tablo", "Tablo yazımı (RAM)", "A2L", characteristic.name,
+                self._record_input("Çalışma Sayfaları > Tablo", "Tablo yazımı (RAM)", "A2L", characteristic.name,
                                    f"{len(grid)}×{len(grid[0]) if grid else 0} tablo", ok=False, detail=str(old_grid),
                                    unit=characteristic.unit or "")
                 failed += 1
@@ -549,7 +549,7 @@ class CalibrationMixin:
             backup = self._save_table_backup(characteristic, old_grid)
             rows, cols = len(grid), len(grid[0]) if grid else 0
             changed = self._count_changed_cells(old_grid, grid)
-            self._record_input("Worksheets > Tablo", "Tablo yazımı (RAM)", "A2L", characteristic.name,
+            self._record_input("Çalışma Sayfaları > Tablo", "Tablo yazımı (RAM)", "A2L", characteristic.name,
                                f"{rows}×{cols} tablo", old_value=f"{rows}×{cols} tablo",
                                detail=f"{changed} hücre değişti" + (f"; önceki içerik yedeği: {backup}" if backup else ""),
                                unit=characteristic.unit or "")

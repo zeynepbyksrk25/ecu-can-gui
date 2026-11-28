@@ -55,8 +55,8 @@ class TemplateInfo:
 
 
 BUILTINS = [
-    TemplateInfo("Monitoring", "Motor performans çıkışları (devir, sıcaklık, basınç, yakıt) ve osiloskop"),
-    TemplateInfo("Calibration", "Ayarlanabilir değerler ve ilk eğri / haritalar"),
+    TemplateInfo("İzleme", "Motor performans çıkışları (devir, sıcaklık, basınç, yakıt) ve osiloskop"),
+    TemplateInfo("Kalibrasyon", "Ayarlanabilir değerler ve ilk eğri / haritalar"),
 ]
 
 
@@ -106,11 +106,11 @@ def _monitor_names(summary) -> list:
 def build_builtin(name: str, summary) -> list:
     """Hazır şablonun pencere tanımları (A2L eşleşmeleri ``summary``'den)."""
     specs: list = []
-    if name == "Monitoring":
+    if name == "İzleme":
         meas = _monitor_names(summary)
         specs += [_value(n, x, y) for n, x, y in _column(meas, COL_X[0])]
         specs.append(_scope(meas[:4], 290, 10))
-    elif name == "Calibration":
+    elif name == "Kalibrasyon":
         chars = list(getattr(summary, "characteristics", []) or []) if summary is not None else []
         scalars = [c for c in chars if c.kind == "SCALAR" and not c.read_only and getattr(c, "address", None)][:12]
         tables = [c for c in chars if c.kind in ("CURVE", "MAP") and not c.read_only and getattr(c, "address", None)][:3]

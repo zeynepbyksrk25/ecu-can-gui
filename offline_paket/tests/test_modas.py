@@ -230,7 +230,7 @@ def test_table_window_blocks_unverified_layouts_and_rp_view(qapp):
 def test_workspace_sheets_add_close_persist_and_late_a2l(summary, qapp, tmp_path):
     path = str(tmp_path / "ws.json")
     ws = ModasWorkspace(ModasSheetStore(path))
-    assert ws.sheet_names() == ["Sheet1"]
+    assert ws.sheet_names() == ["Sayfa1"]
     ws.set_summary(summary)
     cal = ws.add_label("clbc_Temp_limit")
     meas = ws.add_label("N_RPM")
@@ -238,15 +238,15 @@ def test_workspace_sheets_add_close_persist_and_late_a2l(summary, qapp, tmp_path
     assert ws.add_label("N_RPM") is meas and len(ws.windows()) == 2     # çift eklenmez, öne gelir
     assert ws.add_label("yok_boyle_bir_label") is None
     ws.new_sheet("Engine Setup")
-    assert ws.sheet_names() == ["Sheet1", "Engine Setup"] and ws.current_sheet().name == "Engine Setup"
+    assert ws.sheet_names() == ["Sayfa1", "Engine Setup"] and ws.current_sheet().name == "Engine Setup"
     ws.add_label("FP_bar")
-    assert ws.rename_sheet(1, "Calib") and not ws.rename_sheet(1, "Sheet1")   # ad çakışması reddedilir
+    assert ws.rename_sheet(1, "Calib") and not ws.rename_sheet(1, "Sayfa1")   # ad çakışması reddedilir
     cal.edit.setText("x")
     ws.save()
 
     # A2L'siz yeniden açılış: pencereler kaybolmaz, bekler; A2L gelince kurulur
     ws2 = ModasWorkspace(ModasSheetStore(path))
-    assert ws2.sheet_names() == ["Sheet1", "Calib"] and ws2.windows() == []
+    assert ws2.sheet_names() == ["Sayfa1", "Calib"] and ws2.windows() == []
     ws2.set_summary(summary)
     assert sorted(w.label for w in ws2.windows()) == ["FP_bar", "N_RPM", "clbc_Temp_limit"]
     assert ws2.current_sheet().name == "Calib"
@@ -254,7 +254,7 @@ def test_workspace_sheets_add_close_persist_and_late_a2l(summary, qapp, tmp_path
     ws2.set_summary(None)                                           # A2L boşalınca etiketler korunur (bekleyen)
     assert ws2.windows() == [] and len(ws2.to_state()["sheets"][0]["windows"]) == 2
     assert not ws2.delete_sheet(5)
-    assert ws2.delete_sheet(1) and ws2.sheet_names() == ["Sheet1"] and not ws2.delete_sheet(0)
+    assert ws2.delete_sheet(1) and ws2.sheet_names() == ["Sayfa1"] and not ws2.delete_sheet(0)
 
 
 def test_workspace_drop_adds_labels_and_format_applies_to_selection(summary, qapp, tmp_path):
@@ -342,7 +342,7 @@ def test_chrome_is_a_ribbon_with_modas_tabs_and_estop_always_visible(qapp):
     w.show()
     qapp.processEvents()
     rb = w.modas_ribbon
-    assert [rb.tabs.tabText(i) for i in range(rb.tabs.count())] == ["Start", "Label", "Worksheets", "Tools", "Windows"]
+    assert [rb.tabs.tabText(i) for i in range(rb.tabs.count())] == ["Başlat", "Etiket", "Çalışma Sayfaları", "Araçlar", "Pencereler"]
     assert w.centralWidget().layout().itemAt(1).widget() is w.modas_tab    # tek ana pencere: sayfa yığını yok
     dt = w.dashboard_tab
     for tg in (dt.start_toggle, dt.stop_toggle, dt.estop_toggle):
@@ -351,7 +351,7 @@ def test_chrome_is_a_ribbon_with_modas_tabs_and_estop_always_visible(qapp):
         rb.select_tab(i)
         qapp.processEvents()
         assert dt.estop_toggle.isVisible()
-    assert rb.buttons["ecu"].text() == "OFFLINE"
+    assert rb.buttons["ecu"].text() == "ÇEVRİMDIŞI"
     for key in ("measure", "read_ecu", "write_ecu", "copy_rp_wp"):
         assert not rb.buttons[key].isEnabled()                         # çevrimdışıyken Modas gibi pasif
     w.close()
@@ -360,8 +360,8 @@ def test_chrome_is_a_ribbon_with_modas_tabs_and_estop_always_visible(qapp):
 def test_tools_tab_opens_tool_windows_and_keeps_old_pages_reachable(qapp):
     from app.ui.main_window import MainWindow
     w = MainWindow()
-    assert [l for _i, l, _p in w._nav_pages] == ["Worksheets", "Test Bench", "CAN Trace", "Calibration Tools",
-                                                  "Control Panel", "Diagnostics"]
+    assert [l for _i, l, _p in w._nav_pages] == ["Çalışma Sayfaları", "Test Tezgâhı", "CAN İzleme", "Kalibrasyon Araçları",
+                                                  "Kontrol Paneli", "Tanılama"]
     rb = w.modas_ribbon
     rb.buttons["page_3"].click()
     win = w._tool_windows[w.kalibrasyon_tab]
@@ -380,9 +380,9 @@ def test_function_key_shortcuts_exist(qapp):
     assert {"F2", "F3", "F5", "F7", "F8", "F9", "Ctrl+F9", "F10", "F12", "Ctrl+P", "Ctrl+D", "Ctrl+H", "Ctrl+B",
             "Ctrl+F", "Ctrl+I"} <= keys
     w.modas_ribbon.toggle_key_tips()
-    assert "[S]" in w.modas_ribbon.tabs.tabText(0) and w.modas_ribbon.key_tips_visible
+    assert "[B]" in w.modas_ribbon.tabs.tabText(0) and w.modas_ribbon.key_tips_visible
     w.modas_ribbon.toggle_key_tips()
-    assert w.modas_ribbon.tabs.tabText(0) == "Start"
+    assert w.modas_ribbon.tabs.tabText(0) == "Başlat"
     w._modas_toggle_vars()
     assert w.modas_tab.var_panel.isHidden() and not w.modas_ribbon.buttons["toggle_vars"].isChecked()
     w._modas_toggle_vars()
@@ -395,7 +395,7 @@ def test_a2l_fills_variable_list_and_project_fields(live):
     assert wait_for(lambda: w.ccp_session.state == ONLINE, pump)
     assert w.modas_tab.var_panel.visible_names()
     rb = w.modas_ribbon
-    assert wait_for(lambda: rb.buttons["ecu"].text() == "ONLINE", pump)
+    assert wait_for(lambda: rb.buttons["ecu"].text() == "ÇEVRİMİÇİ", pump)
     assert rb.fields["a2l"].text() == "sample.a2l" and rb.fields["project"].text() not in ("", "—")
     assert rb.buttons["measure"].isEnabled() and rb.buttons["read_ecu"].isEnabled()
 
@@ -408,9 +408,9 @@ def test_end_to_end_values_write_wp_rp_diff_and_copy(live):
     assert isinstance(win, ValueWindow) and win.is_calibration
     # ölçüm kapalıyken de ilk okuma gelir; Start ile değer akar
     rb.buttons["measure"].click()
-    assert tab.is_measuring and rb.buttons["measure"].text() == "Stop"
+    assert tab.is_measuring and rb.buttons["measure"].text() == "Durdur"
     assert wait_for(lambda: win.edit.text() == "12.5", pump)
-    assert rb.diff_label.text() == "Diff: 0"
+    assert rb.diff_label.text() == "Fark: 0"
     # ECU tarafında değişen değer ekrana kendiliğinden yansır
     ecu.write_memory_bytes(obj.address, struct.pack("<f", 20.0))
     assert wait_for(lambda: win.edit.text() == "20", pump)
@@ -421,7 +421,7 @@ def test_end_to_end_values_write_wp_rp_diff_and_copy(live):
     assert struct.unpack("<f", ecu.read_memory_bytes(obj.address, 4))[0] == pytest.approx(33.5)
     assert wait_for(lambda: win.edit.text() == "33.5" and not win.has_pending, pump)
     # RP, ilk okunan değerdi (12.5): Diff 1 ve WP/RP düğmeleri uyarı rengi
-    assert wait_for(lambda: rb.diff_label.text() == "Diff: 1", pump)
+    assert wait_for(lambda: rb.diff_label.text() == "Fark: 1", pump)
     assert rb.buttons["wp"].property("alert") is True
     # F8: RP görünümü referansı gösterir ve salt okunurdur
     w._modas_toggle_page()
@@ -431,18 +431,18 @@ def test_end_to_end_values_write_wp_rp_diff_and_copy(live):
     assert win.edit.text() == "33.5" and not win.edit.isReadOnly()
     # COPY WP → RP: referans güncellenir, fark kalmaz
     rb.buttons["copy_wp_rp"].click()
-    assert rb.diff_label.text() == "Diff: 0" and w.page_model.reference[obj.name] == pytest.approx(33.5)
+    assert rb.diff_label.text() == "Fark: 0" and w.page_model.reference[obj.name] == pytest.approx(33.5)
     # değeri tekrar değiştir, sonra RP → WP ile geri al (onay kutusu otomatik "Evet")
     win.edit.selectAll()
     QTest.keyClicks(win.edit, "5")
     QTest.keyClick(win.edit, Qt.Key_Return)
-    assert wait_for(lambda: rb.diff_label.text() == "Diff: 1", pump)
+    assert wait_for(lambda: rb.diff_label.text() == "Fark: 1", pump)
     from PySide6.QtWidgets import QMessageBox
     import app.ui.mainwin.modas as mm
     mm.QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.Yes)
     rb.buttons["copy_rp_wp"].click()
     assert struct.unpack("<f", ecu.read_memory_bytes(obj.address, 4))[0] == pytest.approx(33.5)
-    assert wait_for(lambda: rb.diff_label.text() == "Diff: 0", pump)
+    assert wait_for(lambda: rb.diff_label.text() == "Fark: 0", pump)
     rb.buttons["measure"].click()
     assert not tab.is_measuring
     log_text = "\n".join(tab.log_panel.texts())
@@ -461,7 +461,7 @@ def test_table_label_reads_and_writes_through_the_safe_map_path(live):
     assert wait_for(lambda: struct.unpack(">H", ecu.read_memory_bytes(ch.address + 2, 2))[0] == 99, pump)
     assert not tw.is_modified()
     assert w.page_model.reference[ch.name] == [[1, 2, 3], [4, 5, 6]]    # RP, ilk okunan tablo
-    assert w.modas_ribbon.diff_label.text() == "Diff: 1"
+    assert w.modas_ribbon.diff_label.text() == "Fark: 1"
     assert any("Tablo yazıldı" in t for t in w.modas_tab.log_panel.texts())
 
 
@@ -469,9 +469,9 @@ def test_record_button_follows_the_session_and_project_manager_lists_info(live):
     w, ecu, obj, pump = live
     rb = w.modas_ribbon
     rb.buttons["record"].click()
-    assert not w.session_tab.start_button.isEnabled() and rb.buttons["record"].text() == "Stop"
+    assert not w.session_tab.start_button.isEnabled() and rb.buttons["record"].text() == "Durdur"
     rb.buttons["record"].click()
-    assert w.session_tab.start_button.isEnabled() and rb.buttons["record"].text() == "Start"
+    assert w.session_tab.start_button.isEnabled() and rb.buttons["record"].text() == "Başlat"
     assert w.project_manager.store is w.project_store
 
 
@@ -632,12 +632,12 @@ def test_diff_list_reverts_only_the_selected_labels(live, monkeypatch):
     win.edit.selectAll()
     QTest.keyClicks(win.edit, "40")
     QTest.keyClick(win.edit, Qt.Key_Return)
-    assert wait_for(lambda: w.modas_ribbon.diff_label.text() == "Diff: 1", pump)
+    assert wait_for(lambda: w.modas_ribbon.diff_label.text() == "Fark: 1", pump)
     monkeypatch.setattr(mm.QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.Yes))
     monkeypatch.setattr(DiffListDialog, "exec", lambda self: (self.table.selectAll(), DiffListDialog.Accepted)[1])
     w.modas_ribbon.diff_label.clicked.emit()                          # Diff etiketi tıklanınca liste açılır
     assert struct.unpack("<f", ecu.read_memory_bytes(obj.address, 4))[0] == pytest.approx(12.5)
-    assert wait_for(lambda: w.modas_ribbon.diff_label.text() == "Diff: 0", pump)
+    assert wait_for(lambda: w.modas_ribbon.diff_label.text() == "Fark: 0", pump)
 
 
 class _Dataset:
@@ -774,7 +774,7 @@ def test_scope_window_collects_labels_by_drop_and_feeds_the_hub(qapp):
     from app.ui.modas.scope import ScopeWindow
     from app.ui.modas.variable_list import MIME
     hub = SignalHub()
-    sw = ScopeWindow("Scope 1", hub)
+    sw = ScopeWindow("Osiloskop 1", hub)
     assert sw.signals() == [] and not sw.hint.isHidden() or sw.hint.isVisibleTo(sw.widget())
     mime = QMimeData()
     mime.setData(MIME, "N_RPM\nT_OIL\nN_RPM".encode("utf-8"))          # tekrar eden etiket bir kez eklenir
@@ -787,7 +787,7 @@ def test_scope_window_collects_labels_by_drop_and_feeds_the_hub(qapp):
     assert hub.has_data("a2l:N_RPM") and not hub.has_data("a2l:T_OIL")
     st = sw.state()
     assert st["kind"] == "scope" and st["panel"]["signals"] == ["a2l:N_RPM", "a2l:T_OIL"]
-    sw2 = ScopeWindow("Scope 1", hub, state={**st, "span": 60.0})
+    sw2 = ScopeWindow("Osiloskop 1", hub, state={**st, "span": 60.0})
     assert sw2.signals() == ["a2l:N_RPM", "a2l:T_OIL"] and sw2.span_combo.currentText() == "1 min"
     sw.clear_signals()
     assert sw.signals() == []
@@ -799,7 +799,7 @@ def test_workspace_scopes_persist_without_an_a2l_and_limit_the_hub_to_used_signa
     path = str(tmp_path / "ws.json")
     ws = ModasWorkspace(ModasSheetStore(path))
     sc = ws.add_scope(["N_RPM"])
-    assert sc.label == "Scope 1" and ws.add_scope().label == "Scope 2"
+    assert sc.label == "Osiloskop 1" and ws.add_scope().label == "Osiloskop 2"
     assert ws.scope_labels() == ["N_RPM"] and ws.hub.active() == {"a2l:N_RPM"}
     ws.push_sample("N_RPM", 3000)
     ws.push_sample("OTHER", 1)                                         # kullanılmayan etiket depolanmaz
@@ -807,7 +807,7 @@ def test_workspace_scopes_persist_without_an_a2l_and_limit_the_hub_to_used_signa
     assert ws.save()
     ws.close_all()
     ws2 = ModasWorkspace(ModasSheetStore(path))                       # A2L yok: osiloskoplar yine de geri gelir
-    assert sorted(w.label for w in ws2.scope_windows()) == ["Scope 1", "Scope 2"]
+    assert sorted(w.label for w in ws2.scope_windows()) == ["Osiloskop 1", "Osiloskop 2"]
     assert ws2.scope_labels() == ["N_RPM"] and ws2.hub.active() == {"a2l:N_RPM"}
     ws2.scope_windows()[0].close()
     ws2.scope_windows()[0].close()
@@ -842,17 +842,17 @@ def test_template_menu_builds_a_new_worksheet_without_writing_or_measuring(live,
     menu = w.modas_ribbon.buttons["sheet_template"].menu()
     menu.aboutToShow.emit()
     texts = [a.text() for a in menu.actions() if a.text()]
-    assert texts[:2] == ["Monitoring", "Calibration"]
+    assert texts[:2] == ["İzleme", "Kalibrasyon"]
     before = ecu.read_memory_bytes(obj.address, 4)
-    next(a for a in menu.actions() if a.text() == "Calibration").trigger()
-    assert len(tab.sheets) == n_sheets + 1 and tab.current_sheet().name == "Calibration"
+    next(a for a in menu.actions() if a.text() == "Kalibrasyon").trigger()
+    assert len(tab.sheets) == n_sheets + 1 and tab.current_sheet().name == "Kalibrasyon"
     labels = [x.label for x in tab.value_windows()]
     assert obj.name in labels                                             # A2L'deki ayarlanabilir değer pencereye geldi
     assert not tab.is_measuring and ecu.read_memory_bytes(obj.address, 4) == before   # yazma / ölçüm yok
-    next(a for a in menu.actions() if a.text() == "Monitoring").trigger()
-    assert tab.current_sheet().name == "Monitoring" and len(tab.scope_windows(all_sheets=False)) == 1
-    next(a for a in menu.actions() if a.text() == "Monitoring").trigger()   # tekrar: ad çakışmaz
-    assert tab.current_sheet().name == "Monitoring 2"
+    next(a for a in menu.actions() if a.text() == "İzleme").trigger()
+    assert tab.current_sheet().name == "İzleme" and len(tab.scope_windows(all_sheets=False)) == 1
+    next(a for a in menu.actions() if a.text() == "İzleme").trigger()   # tekrar: ad çakışmaz
+    assert tab.current_sheet().name == "İzleme 2"
 
 
 def test_user_template_saves_current_worksheet_and_reapplies_it(live, monkeypatch):
@@ -869,7 +869,7 @@ def test_user_template_saves_current_worksheet_and_reapplies_it(live, monkeypatc
     cur = tab.current_sheet()
     assert cur.name == "Benim Test"
     assert tab.scope_windows(all_sheets=False)[0].labels() == [obj.name]
-    monkeypatch.setattr(QInputDialog, "getText", staticmethod(lambda *a, **k: ("Calibration", True)))
+    monkeypatch.setattr(QInputDialog, "getText", staticmethod(lambda *a, **k: ("Kalibrasyon", True)))
     monkeypatch.setattr("app.ui.mainwin.modas.QMessageBox.warning", staticmethod(lambda *a, **k: None))
     w._modas_save_template()                                              # hazır şablon adı ezilemez
     assert w.template_store.names() == ["Benim Test"]
@@ -1051,7 +1051,7 @@ def test_macro_dialog_lists_steps_and_toggles_record_button(live, monkeypatch):
     dlg = MacroDialog(store, w.macro_recorder, w._modas_macro_toggle, w._modas_macro_play, w._modas_macro_delete)
     dlg.list.setCurrentRow(0)
     assert [dlg.steps.item(i).text() for i in range(dlg.steps.count())] == ["1. A = 1", "2. T = 1×2 tablo"]
-    assert dlg.btn_play.isEnabled() and dlg.btn_record.text() == "● Record"
+    assert dlg.btn_play.isEnabled() and dlg.btn_record.text() == "● Kaydet"
     dlg._record()
     assert w.macro_recorder.active and dlg.btn_record.text().startswith("■") and not dlg.btn_play.isEnabled()
     w.macro_recorder.stop()
@@ -1064,7 +1064,7 @@ def test_tools_tab_has_file_and_macro_buttons(qapp):
     b = w.modas_ribbon.buttons
     assert {"data_file", "param_files", "macros"} <= set(b)
     texts = [a.text() for a in b["data_file"].menu().actions()]
-    assert texts == ["Save WP to file…", "Compare file with WP…"]
+    assert texts == ["WP'yi dosyaya kaydet…", "Dosyayı WP ile karşılaştır…"]
     w.close()
 
 

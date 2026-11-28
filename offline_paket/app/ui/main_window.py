@@ -165,12 +165,12 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         # Tek ana pencere = Modas (ribbon + worksheet'ler). Diğer eski sayfalar ARAÇ PENCERELERİ olarak (Tools sekmesi)
         # ayrı, bağımsız pencerelerde açılır; sayfa yığını / üst sayfa sekmeleri yoktur.
         self._nav_pages = [
-            ("📑", "Worksheets", self.modas_tab),
-            ("🧪", "Test Bench", self.dashboard_tab),
-            ("📶", "CAN Trace", self.can_monitor_tab),
-            ("⚙", "Calibration Tools", self.kalibrasyon_tab),
-            ("🎛", "Control Panel", self.control_panel_tab),
-            ("🛡", "Diagnostics", self.tanilama_tab),
+            ("📑", "Çalışma Sayfaları", self.modas_tab),
+            ("🧪", "Test Tezgâhı", self.dashboard_tab),
+            ("📶", "CAN İzleme", self.can_monitor_tab),
+            ("⚙", "Kalibrasyon Araçları", self.kalibrasyon_tab),
+            ("🎛", "Kontrol Paneli", self.control_panel_tab),
+            ("🛡", "Tanılama", self.tanilama_tab),
         ]
         self._tool_pages = {label: page for _i, label, page in self._nav_pages[1:]}
         self._tool_windows: dict = {}
@@ -481,8 +481,8 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         dt.estop_hint = f"Kısayol: {self.ESTOP_SHORTCUT}"
         dt.update_estop_tooltip()
         names = {
-            dt.start_button: ("Motoru başlat", "Motor Start sinyaline ON=1, OFF=0 yazar"),
-            dt.stop_button: ("Motoru durdur", "Motor Stop sinyaline ON=1, OFF=0 yazar"),
+            dt.start_button: ("Motoru başlat", "Motor Başlat sinyaline AÇIK=1, KAPALI=0 yazar"),
+            dt.stop_button: ("Motoru durdur", "Motor Durdur sinyaline AÇIK=1, KAPALI=0 yazar"),
             dt.estop_button: ("Acil durdurma", f"Acil Durdurma komutunu hemen gönderir. Kısayol {self.ESTOP_SHORTCUT}"),
             dt.estop_warn: ("Acil durdurma eşlenmemiş uyarısı", "Eşleşmeler penceresini açar"),
             self.header_conn_pill: ("CAN bağlantı durumu", "CAN Trace penceresini açar"),
@@ -497,7 +497,7 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
 
     def _open_connection_page(self):
         """Bağlantı hapına / ECU düğmesine tıklanınca CAN Trace (bağlantı şeridi) araç penceresini aç."""
-        self.open_tool("CAN Trace")
+        self.open_tool("CAN İzleme")
 
     def open_settings(self):
         """Ayarlar penceresi (kullanıcı + profiller)."""

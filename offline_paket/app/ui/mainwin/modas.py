@@ -35,9 +35,9 @@ from app.user_roles import ROL_ADI
 
 log = logging.getLogger(__name__)
 
-PAGE = "Worksheets"
-ECU_STATES = {IDLE: ("off", "OFFLINE"), CONNECTING: ("wait", "CONNECTING"), ONLINE: ("on", "ONLINE"),
-              LOST: ("off", "ECU LOST")}
+PAGE = "Çalışma Sayfaları"
+ECU_STATES = {IDLE: ("off", "ÇEVRİMDIŞI"), CONNECTING: ("wait", "BAĞLANIYOR"), ONLINE: ("on", "ÇEVRİMİÇİ"),
+              LOST: ("off", "ECU KAYIP")}
 
 
 class ModasMixin:
@@ -164,7 +164,7 @@ class ModasMixin:
         if not force and status == getattr(self, "_modas_last_status", None):
             return
         self._modas_last_status = status
-        led, text = ECU_STATES.get(state, ("off", "OFFLINE"))
+        led, text = ECU_STATES.get(state, ("off", "ÇEVRİMDIŞI"))
         rb = self.modas_ribbon
         rb.set_ecu_state(led, text)
         online = state == ONLINE
@@ -217,7 +217,7 @@ class ModasMixin:
     def _modas_show_history(self, name: str):
         """Değişiklik okuna tıklanınca: Calibration Tools > Geçmiş sekmesini açar, parametreyi süzüp son kaydı seçer."""
         found = self.history_tab.show_object(name)
-        self.open_tool("Calibration Tools")
+        self.open_tool("Kalibrasyon Araçları")
         self.kalibrasyon_tab.inner_tabs.setCurrentWidget(self.history_tab)
         if not found:
             self.statusBar().showMessage(f"{name}: Değişiklik Geçmişi'nde kayıt yok.", 5000)
@@ -297,7 +297,7 @@ class ModasMixin:
         b.blockSignals(True)
         b.setChecked(on)
         b.blockSignals(False)
-        b.setText("Stop" if on else "Start")
+        b.setText("Durdur" if on else "Başlat")
         b.setIcon(glyph_icon("■" if on else "▶"))
         self.statusBar().showMessage("Ölçüm başladı" if on else "Ölçüm durdu", 2500)
 
@@ -325,7 +325,7 @@ class ModasMixin:
         b.blockSignals(True)
         b.setChecked(on)
         b.blockSignals(False)
-        b.setText("Stop" if on else "Start")
+        b.setText("Durdur" if on else "Başlat")
         b.setIcon(glyph_icon("■" if on else "●", theme.DANGER))
         if on:
             self._modas_marker_count = 0                       # işaretler her kayıtta #1'den başlar
@@ -351,7 +351,7 @@ class ModasMixin:
         """Kayıt adı: ``Proje_Workbase_20260101-120000`` (workbase açık değilse yalnızca zaman damgası)."""
         stamp = time.strftime("%Y%m%d-%H%M%S")
         wbk = self._modas_workbase
-        return f"{wbk[0].name}_{wbk[1].name}_{stamp}" if wbk is not None else f"Worksheets_{stamp}"
+        return f"{wbk[0].name}_{wbk[1].name}_{stamp}" if wbk is not None else f"Oturum_{stamp}"
 
     def _modas_prefill_session(self):
         """Tek tuşla kayıt: boş bırakılan oturum adı ve operatör otomatik doldurulur (kullanıcının yazdığı değer korunur)."""
@@ -677,9 +677,9 @@ class ModasMixin:
             for n in user:
                 menu.addAction(n).triggered.connect(lambda _c=False, n=n: self._modas_apply_template(n))
         menu.addSeparator()
-        menu.addAction("Save worksheet as template…").triggered.connect(self._modas_save_template)
+        menu.addAction("Çalışma sayfasını şablon olarak kaydet…").triggered.connect(self._modas_save_template)
         if user:
-            sub = menu.addMenu("Delete template")
+            sub = menu.addMenu("Şablonu sil")
             for n in user:
                 sub.addAction(n).triggered.connect(lambda _c=False, n=n: self._modas_delete_template(n))
 
@@ -699,7 +699,7 @@ class ModasMixin:
         self._modas_update_diff()
 
     def _modas_save_template(self):
-        name, ok = QInputDialog.getText(self, "Save as template", "Şablon adı:")
+        name, ok = QInputDialog.getText(self, "Şablon olarak kaydet", "Şablon adı:")
         if not ok or not name.strip():
             return
         if not self.template_store.save(name, self.modas_tab.sheet_specs()):
@@ -708,7 +708,7 @@ class ModasMixin:
         self.statusBar().showMessage(f"Şablon kaydedildi: {name.strip()}", 4000)
 
     def _modas_delete_template(self, name: str):
-        if QMessageBox.question(self, "Delete template", f"'{name}' şablonu silinsin mi?") == QMessageBox.Yes:
+        if QMessageBox.question(self, "Şablonu sil", f"'{name}' şablonu silinsin mi?") == QMessageBox.Yes:
             self.template_store.delete(name)
 
     def _selected_var_labels(self) -> list:

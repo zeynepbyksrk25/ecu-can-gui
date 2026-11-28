@@ -114,7 +114,7 @@ def test_home_tab_cannot_be_closed_or_moved(qapp):
     # Tek pencere: ana pencere yalnızca Worksheets (Modas); Test Bench (eski Ana Sayfa) araç penceresi olarak açılır
     assert not hasattr(w, "nav_bar") and not hasattr(w, "stack")
     assert w.centralWidget().layout().itemAt(1).widget() is w.modas_tab
-    tool = w.open_tool("Test Bench")
+    tool = w.open_tool("Test Tezgâhı")
     assert tool is not None and tool.isAncestorOf(w.dashboard_tab) and w.dashboard_tab.window() is tool
 
 

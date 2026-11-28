@@ -147,7 +147,7 @@ def test_model_panel_lifecycle_events_recorded_and_hidden_outside_mil(mil):
     while time.time() < end and (w.model_ctl is None or w.model_ctl.state != "READY"):
         time.sleep(0.02)
     w._update_model_panel()
-    assert panel.state_chip.text() == "READY" and panel.buttons["start"].isEnabled() and not panel.buttons["stop"].isEnabled()
+    assert panel.state_chip.text() == "HAZIR" and panel.buttons["start"].isEnabled() and not panel.buttons["stop"].isEnabled()
     panel.buttons["start"].click()
     end = time.time() + 3
     while time.time() < end and not model.received_cmds:
@@ -160,7 +160,7 @@ def test_model_panel_lifecycle_events_recorded_and_hidden_outside_mil(mil):
     while time.time() < end and not (w.model_ctl.state == "RUNNING" and w.model_ctl.sim_time == 12.0):
         time.sleep(0.02)
     w._update_model_panel()
-    assert panel.state_chip.text() == "RUNNING" and "12.000" in panel.time_label.text()
+    assert panel.state_chip.text() == "ÇALIŞIYOR" and "12.000" in panel.time_label.text()
     assert panel.udp_chip.text() == "UDP: ok"
     panel.estop_button.click()
     end = time.time() + 3

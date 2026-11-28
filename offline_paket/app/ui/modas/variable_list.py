@@ -1,6 +1,6 @@
 """Variable list (Modas: F2 ile açılıp kapanan sağ panel) ve Log penceresi (F3).
 
-Variable list: ``Label | Description`` iki sütunu, değişken süzgeci (``ALL MEASUREMENTS`` / ``ALL CHARACTERISTICS`` →
+Değişken listesi: ``Label | Description`` iki sütunu, değişken süzgeci (``ALL MEASUREMENTS`` / ``ALL CHARACTERISTICS`` →
 values / curves / maps / text) ve arama kutusu. Satır çift tıklanınca / Enter ile ya da sürüklenip çalışma alanına
 bırakılınca ``add_requested`` yayılır. A2L özetinden (``A2LSummary``) beslenir; ECU ile konuşmaz.
 """
@@ -97,7 +97,7 @@ class VariableListPanel(QFrame):
         v = QVBoxLayout(self)
         v.setContentsMargins(4, 4, 4, 4)
         v.setSpacing(3)
-        title = QLabel("Variable list:")
+        title = QLabel("Değişken listesi:")
         title.setObjectName("modasPanelTitle")
         v.addWidget(title)
         self.filter_combo = QComboBox()
@@ -108,14 +108,14 @@ class VariableListPanel(QFrame):
         v.addWidget(self.filter_combo)
         self.search = QLineEdit()
         self.search.setObjectName("modasSearch")
-        self.search.setPlaceholderText("Label / Description ara…")
+        self.search.setPlaceholderText("Etiket / Açıklama ara…")
         self.search.setClearButtonEnabled(True)
         self.search.textChanged.connect(self.apply_filter)
         v.addWidget(self.search)
 
         self.table = _VarTable(0, 2)
         self.table.setObjectName("modasVarList")
-        self.table.setHorizontalHeaderLabels(["Label", "Description"])
+        self.table.setHorizontalHeaderLabels(["Etiket", "Açıklama"])
         self.table.verticalHeader().setVisible(False)
         self.table.verticalHeader().setDefaultSectionSize(18)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -193,8 +193,8 @@ class VariableListPanel(QFrame):
         if obj is None:
             return
         menu = QMenu(self)
-        act_add = menu.addAction("Add label to worksheet")
-        act_info = menu.addAction("Variable information…   Ctrl+I")
+        act_add = menu.addAction("Etiketi çalışma sayfasına ekle")
+        act_info = menu.addAction("Değişken bilgisi…   Ctrl+I")
         chosen = menu.exec(self.table.viewport().mapToGlobal(pos))
         if chosen is act_add:
             self.add_requested.emit(obj)
@@ -226,7 +226,7 @@ class LogPanel(QFrame):
         v.setContentsMargins(4, 2, 4, 2)
         v.setSpacing(1)
         head = QHBoxLayout()
-        title = QLabel("Log-Windows")
+        title = QLabel("Günlük")
         title.setObjectName("modasPanelTitle")
         head.addWidget(title)
         head.addStretch(1)

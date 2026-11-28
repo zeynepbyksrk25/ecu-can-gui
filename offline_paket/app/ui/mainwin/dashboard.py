@@ -219,22 +219,22 @@ class DashboardMixin:
         return ok
 
     def _on_motor_start(self):
-        if not self._send_motor_command("Motor Start", self.dashboard_tab.config.motor_start):
+        if not self._send_motor_command("Motor Başlat", self.dashboard_tab.config.motor_start):
             self.dashboard_tab.set_motor_toggle("motor_start", False)       # gitmediyse ON görünmesin
 
     def _on_motor_start_off(self):
         """Toggle OFF: Başlat sinyaline 0 yazılır (güvenli yön; sınır kontrolü 0'ı zaten engellemez)."""
-        if not self._send_motor_command("Motor Start kapatma", self.dashboard_tab.config.motor_start, value=0.0):
+        if not self._send_motor_command("Motor Başlat kapatma", self.dashboard_tab.config.motor_start, value=0.0):
             self.dashboard_tab.set_motor_toggle("motor_start", True)        # gitmediyse OFF görünmesin
 
     def _on_motor_stop(self):
         # Durdurma "güvenli yön" komutudur: A2L/DBC sınırı ya da READ_ONLY yüzünden reddedilmez
         # (Motor Start sınırda kalır; bkz. _write_binding safety).
-        if not self._send_motor_command("Motor Stop", self.dashboard_tab.config.motor_stop, safety=True):
+        if not self._send_motor_command("Motor Durdur", self.dashboard_tab.config.motor_stop, safety=True):
             self.dashboard_tab.set_motor_toggle("motor_stop", False)
 
     def _on_motor_stop_off(self):
-        if not self._send_motor_command("Motor Stop kapatma", self.dashboard_tab.config.motor_stop, value=0.0):
+        if not self._send_motor_command("Motor Durdur kapatma", self.dashboard_tab.config.motor_stop, value=0.0):
             self.dashboard_tab.set_motor_toggle("motor_stop", True)
 
     def _on_estop(self):
