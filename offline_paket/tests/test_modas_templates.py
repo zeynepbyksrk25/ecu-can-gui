@@ -24,7 +24,8 @@ def test_monitoring_matches_performance_aliases_and_monitor_words_only():
 def test_calibration_picks_writable_objects_and_removed_templates_are_gone():
     s = summary(meas=["N_RPM"], chars=[("G1", "SCALAR", False), ("G2", "SCALAR", True), ("M1", "MAP", False),
                                        ("C1", "CURVE", False), ("X", "ARRAY", False)])
-    assert build_builtin("Start Sequence", s) == [] and build_builtin("Test Tezgâhı", s) == []   # giriş pencereleri kalktı
+    assert build_builtin("Start Sequence", s) == []                                  # eski giriş pencereli şablon yok
+    assert [x["kind"] for x in build_builtin("Test Tezgâhı", s)][0] == "actuator"    # yeni: Eyleyiciler penceresi
     cal = build_builtin("Kalibrasyon", s)
     assert [x["name"] for x in cal if x["kind"] == "value"] == ["G1"]           # salt-okunur ve dizi dışarıda
     assert [x["name"] for x in cal if x["kind"] == "table"] == ["M1", "C1"]
@@ -43,4 +44,4 @@ def test_user_templates_roundtrip_and_cannot_shadow_builtins(tmp_path):
         with open(st.path + suffix, "w", encoding="utf-8") as fh:
             fh.write("{bozuk")
     assert st.names() == []                                                      # bozuk dosya (ve yedeği) sessizce boş
-    assert {t.name for t in BUILTINS} == {"İzleme", "Kalibrasyon"}
+    assert {t.name for t in BUILTINS} == {"İzleme", "Kalibrasyon", "Test Tezgâhı"}

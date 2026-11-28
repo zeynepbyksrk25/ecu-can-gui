@@ -57,6 +57,7 @@ class TemplateInfo:
 BUILTINS = [
     TemplateInfo("İzleme", "Motor performans çıkışları (devir, sıcaklık, basınç, yakıt) ve osiloskop"),
     TemplateInfo("Kalibrasyon", "Ayarlanabilir değerler ve ilk eğri / haritalar"),
+    TemplateInfo("Test Tezgâhı", "Eyleyiciler penceresi, izleme değerleri ve osiloskop"),
 ]
 
 
@@ -110,6 +111,11 @@ def build_builtin(name: str, summary) -> list:
         meas = _monitor_names(summary)
         specs += [_value(n, x, y) for n, x, y in _column(meas, COL_X[0])]
         specs.append(_scope(meas[:4], 290, 10))
+    elif name == "Test Tezgâhı":
+        meas = _monitor_names(summary)[:4]
+        specs.append({"kind": "actuator", "name": "Eyleyiciler", "geom": [COL_X[0], 10, 300, 226]})
+        specs += [_value(n, x, y + 236) for n, x, y in _column(meas, COL_X[0])]
+        specs.append(_scope(meas, 330, 10))
     elif name == "Kalibrasyon":
         chars = list(getattr(summary, "characteristics", []) or []) if summary is not None else []
         scalars = [c for c in chars if c.kind == "SCALAR" and not c.read_only and getattr(c, "address", None)][:12]

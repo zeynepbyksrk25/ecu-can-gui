@@ -842,7 +842,7 @@ def test_template_menu_builds_a_new_worksheet_without_writing_or_measuring(live,
     menu = w.modas_ribbon.buttons["sheet_template"].menu()
     menu.aboutToShow.emit()
     texts = [a.text() for a in menu.actions() if a.text()]
-    assert texts[:2] == ["İzleme", "Kalibrasyon"]
+    assert texts[:3] == ["İzleme", "Kalibrasyon", "Test Tezgâhı"]
     before = ecu.read_memory_bytes(obj.address, 4)
     next(a for a in menu.actions() if a.text() == "Kalibrasyon").trigger()
     assert len(tab.sheets) == n_sheets + 1 and tab.current_sheet().name == "Kalibrasyon"

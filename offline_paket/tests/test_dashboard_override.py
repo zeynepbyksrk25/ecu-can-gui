@@ -128,3 +128,44 @@ def test_sensor_health_lists_faulty_sensor_with_reason(tab):
     tab.set_gauge_value("RPM", 1000.0)
     tab.refresh_sensor_health()
     assert [l.text() for l in tab._health_labels] == ["Arıza yok"]
+
+
+def test_actuator_worksheet_window_mirrors_and_drives_the_test_bench_logic(qapp, monkeypatch, tmp_path):
+    """Çalışma sayfası Eyleyiciler penceresi: aynı durum, aynı yazım yolu (Test Tezgâhı mantığı); doğrudan yazım yok."""
+    from app.ui.main_window import MainWindow
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: QMessageBox.Yes))
+    monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a, **k: QMessageBox.Ok))
+    w = MainWindow()
+    try:
+        dash = w.dashboard_tab
+        calls = []
+        dash.writer = lambda b, v, label: (calls.append((b.text, v)), True)[1]
+        cfg = DashboardConfig()
+        cfg.actuators["valf"] = SignalMap(value=Binding(SOURCE_A2L, a2l_name="valf_cmd"),
+                                          sw=Binding(SOURCE_CAN, "OVR", "valf_cmd_sw"))
+        dash.set_config(cfg)
+        win = w.modas_tab.add_actuators()
+        assert w.modas_tab.add_actuators() is win and len(w.modas_tab.actuator_windows()) == 1   # tek örnek
+        assert not win.boxes["valf"].isEnabled() and calls == []
+        win.locks["valf"].lock_requested.emit(True)                                              # pencereden kilit aç
+        assert calls == [("OVR.valf_cmd_sw", 1.0)] and dash._act_open["valf"]                     # aynı mantık, aynı durum
+        assert win.boxes["valf"].isEnabled() and win.locks["valf"].is_open
+        win.boxes["valf"].setText("45")
+        win.boxes["valf"].returnPressed.emit()
+        assert calls[-1] == ("valf_cmd", 45.0) and dash._act_rows["valf"]["control"].text() == "45"
+        dash._on_actuator_lock("valf", False)                                                     # Test Tezgâhı'ndan kilitle
+        win.sync()
+        assert not win.locks["valf"].is_open and not win.boxes["valf"].isEnabled()                # pencere yansıtır
+        assert calls[-1] == ("OVR.valf_cmd_sw", 0.0)
+        assert win.state()["kind"] == "actuator"
+        w.modas_tab.save()                                                                        # düzen kaydı: geri yüklenir
+        specs = w.modas_tab._sheet_specs(w.modas_tab.current_sheet())
+        assert any(s["kind"] == "actuator" for s in specs)
+    finally:
+        w.close()
+
+
+def test_test_bench_template_contains_actuator_window():
+    from app.modas_templates import build_builtin
+    specs = build_builtin("Test Tezgâhı", None)
+    assert [s["kind"] for s in specs] == ["actuator", "scope"] and specs[0]["name"] == "Eyleyiciler"

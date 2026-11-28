@@ -88,6 +88,10 @@ class ModasMixin:
         b["add_label"].clicked.connect(self._modas_add_selected)
         b["remove_label"].clicked.connect(tab.remove_selected)
         b["add_scope"].clicked.connect(lambda: tab.add_scope(self._selected_var_labels()))
+        b["add_actuators"].clicked.connect(tab.add_actuators)
+        tab.actuator_state = lambda: dict(self.dashboard_tab._act_open)
+        tab.actuator_lock_requested.connect(self._modas_actuator_lock)
+        tab.actuator_submit_requested.connect(self._modas_actuator_submit)
         b["add_gauge"].clicked.connect(lambda: [tab.add_gauge(n) for n in self._selected_var_labels()])
         self.template_store = TemplateStore(data_path("modas_templates.json"))
         tmenu = QMenu(b["sheet_template"])
@@ -495,6 +499,20 @@ class ModasMixin:
             self.statusBar().showMessage(f"{entry.name}: {'yinelendi' if redo else 'geri alındı'}.", 4000)
         else:
             self.statusBar().showMessage(f"{entry.name}: yazılamadı; ECU değeri değişmedi.", 5000)
+
+    def _modas_actuator_lock(self, key: str, want_open: bool):
+        """Eyleyiciler penceresi → Test Tezgâhı mantığı (eşleşme, oturum onayı, yazım, bırakma tek yerde)."""
+        self.dashboard_tab._on_actuator_lock(key, want_open)
+        for w in self.modas_tab.actuator_windows():
+            w.sync()
+
+    def _modas_actuator_submit(self, key: str, text: str):
+        dash = self.dashboard_tab
+        dash._act_rows[key]["control"].setText(text)
+        dash._on_actuator_submit(key)
+        bad = bool(dash._act_rows[key]["control"].property("bad"))
+        for w in self.modas_tab.actuator_windows():
+            w.mark(key, bad)
 
     def _modas_write_pending(self):
         """Write data to ECU: bekleyen (sarı) değerleri RAM'e yazar. Kalıcı (Flaş) yazma ayrı ve riskli bir işlemdir:

@@ -24,6 +24,7 @@ from app import theme
 from app.persist import atomic_write_json, load_json
 from app.signal_hub import SignalHub
 from app.ui.modas.pages import RP, WP
+from app.ui.modas.actuator_window import ActuatorWindow
 from app.ui.modas.gauge_window import GaugeWindow
 from app.ui.modas.scope import ScopeWindow
 from app.ui.modas.style import MODAS_QSS
@@ -114,6 +115,8 @@ class ModasWorkspace(QWidget):
     value_write_requested = Signal(object, str)
     table_read_requested = Signal(list)
     table_write_requested = Signal(object)
+    actuator_lock_requested = Signal(str, bool)   # Eyleyiciler penceresi: (anahtar, kilidi aç?)
+    actuator_submit_requested = Signal(str, str)  # (anahtar, metin)
     history_requested = Signal(str)             # değişiklik okuna tıklandı: parametrenin geçmişini göster
     measuring_changed = Signal(bool)
     page_changed = Signal(str)
@@ -132,6 +135,7 @@ class ModasWorkspace(QWidget):
         self._reference: dict = {}
         self._cascade = 0
         self.hub = SignalHub()                  # osiloskop (scope) pencerelerinin ortak veri deposu
+        self.actuator_state = lambda: {}        # callable() -> {anahtar: kilit açık mı}: Test Tezgâhı (MainWindow bağlar)
         self.signal_groups = None               # callable() -> [(başlık, [sid])]: DBC / gösterge / giriş kaynakları (MainWindow)
 
         # ---- orta: MDI yığını + Variable list
@@ -344,6 +348,9 @@ class ModasWorkspace(QWidget):
                 self._open_scope(sheet, spec.get("name"), state=spec, geom=spec.get("geom"))
                 continue
             if spec.get("kind") == "input":              # kaldırılmış "Input" penceresi (eski kayıt): sessizce atlanır
+                continue
+            if spec.get("kind") == "actuator":           # eyleyiciler: A2L'ye bağlı değil
+                self._open_actuators(sheet, geom=spec.get("geom"))
                 continue
             if spec.get("kind") == "gauge":              # gösterge: A2L nesnesi gelince kurulur
                 obj = self._by_name.get(spec.get("name", ""))
@@ -560,6 +567,34 @@ class ModasWorkspace(QWidget):
             return 0
         QMessageBox.information(self, "CSV'ye aktar", f"{n} sinyal yazıldı:\n{path}")
         return n
+
+    def actuator_windows(self, all_sheets: bool = True) -> list:
+        return [w for w in self.windows(all_sheets) if isinstance(w, ActuatorWindow)]
+
+    def add_actuators(self):
+        """Aktif sayfaya Eyleyiciler penceresini ekler (zaten açıksa öne getirir)."""
+        sheet = self.current_sheet()
+        for w in sheet.windows:
+            if isinstance(w, ActuatorWindow):
+                sheet.mdi.setActiveSubWindow(w)
+                return w
+        win = self._open_actuators(sheet)
+        self._changed()
+        return win
+
+    def _open_actuators(self, sheet: _Sheet, geom=None) -> ActuatorWindow:
+        win = ActuatorWindow(lambda: self.actuator_state())
+        win.lock_requested.connect(self.actuator_lock_requested.emit)
+        win.submit_requested.connect(self.actuator_submit_requested.emit)
+        win.closed.connect(lambda w, s=sheet: self._on_closed(s, w))
+        sheet.mdi.addSubWindow(win)
+        win.show()
+        if isinstance(geom, (list, tuple)) and len(geom) == 4 and all(isinstance(v, (int, float)) for v in geom):
+            win.setGeometry(*(int(v) for v in geom))
+        else:
+            win.move(self._free_pos(sheet, win))
+        sheet.windows.append(win)
+        return win
 
     def gauge_windows(self, all_sheets: bool = True) -> list:
         return [w for w in self.windows(all_sheets) if isinstance(w, GaugeWindow)]
