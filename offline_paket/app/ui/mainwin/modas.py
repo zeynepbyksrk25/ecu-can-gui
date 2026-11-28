@@ -141,6 +141,8 @@ class ModasMixin:
             app_sc("F4", self._modas_add_marker),
             app_sc("F10", rb.toggle_key_tips),
             app_sc("F12", self._modas_save),
+            ws_sc("Ctrl+Z", lambda: self._modas_undo_redo(False)),
+            ws_sc("Ctrl+Y", lambda: self._modas_undo_redo(True)),
             ws_sc("Ctrl+P", lambda: tab.set_format("phys")),
             ws_sc("Ctrl+D", lambda: tab.set_format("dec")),
             ws_sc("Ctrl+H", lambda: tab.set_format("hex")),
@@ -435,6 +437,8 @@ class ModasMixin:
             self._modas_mark_change(win)
             return deny(detail)
         win.set_write_result(True, "RAM'e yazıldı (ECU'dan doğrulandı).")
+        if not self._undo_busy:
+            self.undo_stack.push("value", obj.name, old, phys)
         self.macro_recorder.add("value", obj.name, phys)
         self._log_event("KALIBRASYON", f"{obj.name} = {phys} {unit} (RAM, çalışma sayfası) yazıldı")
         self.calibration_history.add(self.current_user, ROL_ADI, obj.name, old, phys, unit,
@@ -451,10 +455,46 @@ class ModasMixin:
         if self.ccp_client is None:
             win.set_write_result(False, "CCP bağlı değil; tablo yazılamadı.")
             return
+        before = [list(r) for r in win._original] if win._original is not None else None
         self._write_map_docs([win])
         if not win.is_modified():                          # başarılı yazım (yedek + geri okuma doğrulandı)
+            if not self._undo_busy and before is not None and before != win.current_grid():
+                self.undo_stack.push("table", win.label, before, win.current_grid())
             self.macro_recorder.add("table", win.label, win.current_grid())
         self._modas_update_diff()
+
+    def _modas_undo_redo(self, redo: bool):
+        """Ctrl+Z / Ctrl+Y: son başarılı yazımı güvenli yazım yoluyla geri alır / yineler."""
+        st = self.undo_stack
+        entry = st.peek_redo() if redo else st.peek_undo()
+        verb = "Yinelenecek" if redo else "Geri alınacak"
+        if entry is None:
+            self.statusBar().showMessage(f"{verb} yazım yok.", 3000)
+            return
+        win = next((w for w in self.modas_tab.windows() if w.label == entry.name
+                    and isinstance(w, ValueWindow if entry.kind == "value" else TableWindow)), None)
+        if win is None or self.ccp_client is None:
+            self.statusBar().showMessage(
+                f"{entry.name}: " + ("pencere açık değil." if win is None else "ECU çevrimdışı."), 4000)
+            return
+        target = entry.new if redo else entry.old
+        self._undo_busy = True
+        try:
+            if entry.kind == "value":
+                self._modas_write_value(win, format_phys(target, 9))
+                ok = not win.edit.property("bad")
+            else:
+                win.load_grid_as_edit(target)
+                self._modas_write_table(win)
+                ok = not win.is_modified()
+        finally:
+            self._undo_busy = False
+        if ok:
+            (st.commit_redo if redo else st.commit_undo)()
+            self._log_event("KALIBRASYON", f"{entry.name}: {'yinele' if redo else 'geri al'} uygulandı")
+            self.statusBar().showMessage(f"{entry.name}: {'yinelendi' if redo else 'geri alındı'}.", 4000)
+        else:
+            self.statusBar().showMessage(f"{entry.name}: yazılamadı; ECU değeri değişmedi.", 5000)
 
     def _modas_write_pending(self):
         """Write data to ECU: bekleyen (sarı) değerleri RAM'e yazar. Kalıcı (Flaş) yazma ayrı ve riskli bir işlemdir:

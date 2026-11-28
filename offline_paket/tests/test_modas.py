@@ -1231,3 +1231,59 @@ def test_gauge_window_follows_the_ecu_value_in_the_measurement_round(live):
     w.modas_ribbon.buttons["measure"].click()                              # ölçüm turu göstergeyi de besler
     ecu.write_memory_bytes(obj.address, struct.pack("<f", 33.0))
     assert wait_for(lambda: g.value == pytest.approx(33.0), pump)
+
+
+def test_undo_stack_semantics():
+    from app.undo_stack import UndoStack
+    s = UndoStack(limit=2)
+    s.push("value", "a", None, 1.0)                                    # eski değer bilinmiyor: kaydedilmez
+    s.push("value", "a", 1.0, 1.0)                                     # değişiklik yok: kaydedilmez
+    assert not s.can_undo()
+    for i in range(3):
+        s.push("value", "a", float(i), float(i + 1))
+    assert s.peek_undo().old == 2.0 and len(s._undo) == 2             # sınır 2: en eski atıldı
+    s.commit_undo()
+    assert s.can_redo() and s.peek_redo().new == 3.0 and s.peek_undo().old == 1.0
+    s.push("value", "b", 5.0, 6.0)                                     # yeni yazım yinele yığınını temizler
+    assert not s.can_redo()
+
+
+def test_undo_redo_value_and_table_write_through_safe_path(live):
+    w, ecu, obj, pump = live
+    assert wait_for(lambda: w.ccp_session.state == ONLINE, pump)
+    win = w.modas_tab.add_label(obj)
+    w.modas_ribbon.buttons["measure"].click()
+    assert wait_for(lambda: win.edit.text() == "12.5", pump)
+    win.edit.selectAll()
+    QTest.keyClicks(win.edit, "40")
+    QTest.keyClick(win.edit, Qt.Key_Return)
+    assert wait_for(lambda: win.edit.text() == "40" and not win.has_pending, pump)
+    assert w.undo_stack.can_undo()
+    rd = lambda: struct.unpack("<f", ecu.read_memory_bytes(obj.address, 4))[0]      # noqa: E731
+    w._modas_undo_redo(False)                                                         # Ctrl+Z
+    assert rd() == pytest.approx(12.5) and w.undo_stack.can_redo() and not w.undo_stack.can_undo()
+    assert wait_for(lambda: win.edit.text() == "12.5", pump)
+    w._modas_undo_redo(True)                                                          # Ctrl+Y
+    assert rd() == pytest.approx(40.0) and w.undo_stack.can_undo()
+    # tablo
+    ch = make_map(addr=0x3000)
+    ecu.write_memory_bytes(ch.address, b"".join(struct.pack(">H", v) for v in (1, 2, 3, 4, 5, 6)))
+    tw = w.modas_tab.add_label(ch)
+    assert wait_for(lambda: tw.current_grid() == [[1, 2, 3], [4, 5, 6]], pump)
+    tw.table.item(0, 1).setText("99")
+    assert wait_for(lambda: struct.unpack(">H", ecu.read_memory_bytes(ch.address + 2, 2))[0] == 99, pump)
+    n = len(w.undo_stack._undo)
+    w._modas_undo_redo(False)
+    assert struct.unpack(">H", ecu.read_memory_bytes(ch.address + 2, 2))[0] == 2
+    assert len(w.undo_stack._undo) == n - 1 and w.undo_stack.can_redo()
+    w._modas_undo_redo(True)
+    assert struct.unpack(">H", ecu.read_memory_bytes(ch.address + 2, 2))[0] == 99
+
+
+def test_undo_without_history_or_window_does_nothing(live):
+    w, ecu, obj, pump = live
+    w._modas_undo_redo(False)
+    assert "yok" in w.statusBar().currentMessage()
+    w.undo_stack.push("value", "kapalı_etiket", 1.0, 2.0)
+    w._modas_undo_redo(False)
+    assert "pencere açık değil" in w.statusBar().currentMessage() and w.undo_stack.can_undo()

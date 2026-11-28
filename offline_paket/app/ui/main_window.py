@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
 
 from app import theme
 from app.can_worker import CanConnection
+from app.undo_stack import UndoStack
 from app.change_tracker import ChangeTracker
 from app.ccp.worker import IDLE, CcpSession
 from app import control_panel as cpanel
@@ -223,6 +224,8 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self.session_tab.excel_requested.connect(self._on_excel_export_requested)
         self.history_tab.history = self.calibration_history
         self.session_tab.host_provider = lambda: self
+        self.undo_stack = UndoStack()                  # Ctrl+Z / Ctrl+Y: başarılı kalibrasyon yazımları
+        self._undo_busy = False
         self.change_tracker = ChangeTracker()          # tek ortak değişiklik takibi (Worksheets, CCP, geçmiş)
         self.user_tab.set_profiles(self.profile_store.names())
 
