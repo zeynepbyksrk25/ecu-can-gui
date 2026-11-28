@@ -50,6 +50,7 @@ from app.ui.mainwin.modas_tools import ModasToolsMixin
 from app.ui.mainwin.panel import PanelMixin
 from app.ui.mainwin.profiles import ProfilesMixin
 from app.ui.mainwin.recording import RecordingMixin
+from app.ui.mainwin.status import StatusMixin
 from app.ui.modas.pages import PageModel
 from app.ui.modas.ribbon import ModasRibbon
 from app.ui.modas.workspace import ModasSheetStore, ModasWorkspace
@@ -83,7 +84,7 @@ class _ToolWindow(QWidget):
 
 
 class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, ProfilesMixin, ExportMixin, ModasMixin,
-                 ModasToolsMixin, RecordingMixin, QMainWindow):
+                 ModasToolsMixin, RecordingMixin, StatusMixin, QMainWindow):
     """Ana pencere: pencere çatısı, sayfalar, sinyal bağlantıları ve kapanış. İş mantığı alanlara bölünmüş
     parçalardadır (bkz. ``app/ui/mainwin``): bağlantı, CCP/kalibrasyon, Ana Sayfa, Kontrol Paneli, profiller."""
 
@@ -343,6 +344,7 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         central_layout.setContentsMargins(0, 0, 0, 0)
         central_layout.setSpacing(0)
         central_layout.addWidget(self._build_modas_chrome())
+        central_layout.addWidget(self._build_pending_bar())
         central_layout.addWidget(self.modas_tab, stretch=1)
 
         self.setCentralWidget(central)
@@ -352,6 +354,7 @@ class MainWindow(ConnectionMixin, CalibrationMixin, DashboardMixin, PanelMixin, 
         self._refresh_minimum_size()
         self.header_clock_label = QLabel("")
         self.header_clock_label.setObjectName("headerClock")
+        self._build_status_widgets()
         self.statusBar().addPermanentWidget(self.header_clock_label)
         self._update_connection_display()
 

@@ -13,7 +13,7 @@ import logging
 import os
 from dataclasses import dataclass, field
 
-from PySide6.QtCore import QPoint, QTimer, Qt, Signal
+from PySide6.QtCore import QPoint, QRect, QTimer, Qt, Signal
 from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import (
     QDialog, QFileDialog, QFrame, QHBoxLayout, QInputDialog, QMdiArea, QMenu, QMessageBox, QSplitter, QTabBar,
@@ -411,7 +411,7 @@ class ModasWorkspace(QWidget):
         if isinstance(geom, (list, tuple)) and len(geom) == 4 and all(isinstance(v, (int, float)) for v in geom):
             win.setGeometry(*(int(v) for v in geom))
         else:
-            win.move(pos if pos is not None else self._next_pos())
+            win.move(pos if pos is not None else self._free_pos(sheet, win))
         sheet.windows.append(win)
         self._apply_page_to(win)
         return win
@@ -448,7 +448,7 @@ class ModasWorkspace(QWidget):
         if isinstance(geom, (list, tuple)) and len(geom) == 4 and all(isinstance(v, (int, float)) for v in geom):
             win.setGeometry(*(int(v) for v in geom))
         else:
-            win.move(pos if pos is not None else self._next_pos())
+            win.move(pos if pos is not None else self._free_pos(sheet, win))
         sheet.windows.append(win)
         self._sync_hub()
         return win
@@ -571,6 +571,20 @@ class ModasWorkspace(QWidget):
     def _next_pos(self) -> QPoint:
         self._cascade = (self._cascade + 1) % 12
         return QPoint(20 + 26 * self._cascade, 20 + 26 * self._cascade)
+
+    def _free_pos(self, sheet: "_Sheet", win) -> QPoint:
+        """Yeni pencere için çalışma alanında, mevcut pencerelerle ÇAKIŞMAYAN ilk boş yer (sol üstten satır satır, 20 px
+        ızgara). Sığmazsa (alan dolu) kademeli konuma düşer; pencere alanın dışına taşmaz."""
+        area = sheet.mdi.viewport().rect()
+        w, h = win.width(), win.height()
+        taken = [sw.geometry() for sw in sheet.mdi.subWindowList() if sw is not win and sw.isVisible()]
+        step = 20
+        for y in range(10, max(11, area.height() - h + 1), step):
+            for x in range(10, max(11, area.width() - w + 1), step):
+                cand = QRect(x, y, w, h)
+                if not any(cand.intersects(t) for t in taken):
+                    return QPoint(x, y)
+        return self._next_pos()
 
     def _on_closed(self, sheet: _Sheet, win):
         if win in sheet.windows:

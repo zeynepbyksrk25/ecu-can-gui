@@ -343,7 +343,7 @@ def test_chrome_is_a_ribbon_with_modas_tabs_and_estop_always_visible(qapp):
     qapp.processEvents()
     rb = w.modas_ribbon
     assert [rb.tabs.tabText(i) for i in range(rb.tabs.count())] == ["Başlat", "Etiket", "Çalışma Sayfaları", "Araçlar", "Pencereler"]
-    assert w.centralWidget().layout().itemAt(1).widget() is w.modas_tab    # tek ana pencere: sayfa yığını yok
+    assert w.centralWidget().layout().itemAt(2).widget() is w.modas_tab    # tek ana pencere: sayfa yığını yok
     dt = w.dashboard_tab
     for tg in (dt.start_toggle, dt.stop_toggle, dt.estop_toggle):
         assert rb.motor_group.isAncestorOf(tg)

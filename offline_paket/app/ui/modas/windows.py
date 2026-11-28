@@ -582,6 +582,11 @@ class TableWindow(ModasSub):
                     return True
         return False
 
+    def discard_edits(self):
+        """Yazılmamış hücre düzenlemelerini atar: tablo son ECU okumasına döner (ECU'ya hiçbir şey gönderilmez)."""
+        if self._original is not None and not self._rp_view:
+            self._fill(self._original)
+
     def set_grid_from_ecu(self, grid: list):
         self._original = [list(row) for row in grid]
         if self._baseline is None and all(v is not None for row in grid for v in row):
