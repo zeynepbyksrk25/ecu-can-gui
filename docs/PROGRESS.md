@@ -81,3 +81,4 @@ Her madde bitince `[x]` yapılır; yanına test sonucu ve bilinen eksikler yazı
 - Bilinen eksik: Eyleyiciler penceresi ve geri al gerçek ECU/CAN donanımında doğrulanmadı (sahte/simülatörle test edildi); 3B görünümde eksen adı/birimi/uçları A2L'de biliniyorsa yazılır, bilinmiyorsa "(indeks)" (Tur 4).
 
 - **Tur 5 (hata yolları):** geri al yığını A2L yüklenince / çalışma tabanı değişince temizlenir (eski adreslere yazım geri alınmaz); durum çubuğu sıradaki geri alınacak etiketi söyler. Tam paket: 641 geçti.
+- **Tur 6 (performans/dayanıklılık):** hub'a 8 sinyal × 60 000 örnek basma 0,38 sn, osiloskop yenileme 0,05 sn (30 sn ve 10 dk aralığında aynı) → ek iyileştirme gerekmedi. Bozuk çalışma sayfası dosyaları (yanlış tür, bozuk JSON, boş) için çökme testi eklendi (5 durum).

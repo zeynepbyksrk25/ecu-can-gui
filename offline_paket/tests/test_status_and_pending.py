@@ -334,3 +334,15 @@ def test_surface_axis_labels_use_a2l_axis_values_only_when_known(qapp):
     pm = QPixmap(d.canvas.size())
     d.canvas.render(pm)
     d.close()
+
+
+@pytest.mark.parametrize("raw", ['{"sheets": [{"name": "A", "windows": []}], "favorites": "x"}',
+                                 '{"sheets": [{"name": "A", "windows": [{"kind": "actuator", "name": "E", "geom": "bozuk"}]}], "favorites": [1, null]}',
+                                 '{"sheets": 5}', "{bozuk json", ""])
+def test_corrupt_layout_file_never_crashes_the_workspace(qapp, tmp_path, raw):
+    from app.ui.modas.workspace import ModasSheetStore, ModasWorkspace
+    p = tmp_path / "s.json"
+    p.write_text(raw, encoding="utf-8")
+    w = ModasWorkspace(ModasSheetStore(str(p)))
+    assert len(w.sheets) >= 1 and isinstance(w.var_panel.favorites(), list)
+    w.close()
